@@ -1,6 +1,6 @@
 # Ganglia
 
-**Ganglia** is a progressive path optimization engine designed exclusively for the [Open Endfield Map](https://github.com/your-org/open-endfield-map), a fan-made web map project for **Arknights: Endfield**.
+**Ganglia** is a progressive path optimization engine designed exclusively for the [Open Endfield Map](https://github.com/your-org/open-endfield-map), an unofficial web map project for **Arknights: Endfield**.
 
 It calculates traversal routes between interactable map nodes on-demand, based on user requests, while adhering to game-specific map constraints. Ganglia returns a fast, approximate path initially and refines the path incrementally as more users request the same routes.
 
