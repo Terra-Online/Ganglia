@@ -1,53 +1,53 @@
 # Ganglia
 
-**Ganglia** is a progressive path optimization engine designed exclusively for the [Open Endfield Map](https://github.com/Terra-Online/Atlos), an unofficial web map project for **Arknights: Endfield**.
+**Ganglia** is a progressive path optimization engine designed exclusively for the [Open Endfield Map](https://github.com/your-org/open-endfield-map), a fan-made web map project for **Arknights: Endfield**.
 
-It computes traversal routes across interactable in-game points, under game-specific map constraints. Ganglia delivers fast initial results and gradually improves them using background optimization.
+It calculates traversal routes between interactable map nodes on-demand, based on user requests, while adhering to game-specific map constraints. Ganglia returns a fast, approximate path initially and refines the path incrementally as more users request the same routes.
 
-Built in **C++** and compiled to **WebAssembly**, it is optimized for use directly in the browser.
+Built in **C++** and compiled to **WebAssembly**, Ganglia operates directly in the browser or server, optimized for quick and progressive path generation.
 
 ---
 
 ## 🌐 Features
 
-- ⚡ **Fast first response**: Nearest Neighbor + 2-opt for instant usability.
-- 🔁 **Progressive refinement**: Simulated Annealing in background to improve route quality over time.
-- 🧠 **Shared caching**: All users benefit from shared optimization states.
-- 🗺️ **Flexible point input**: Accepts JSON-defined map nodes.
-- 🚀 **WebAssembly powered**: Runs client-side in browser or server-side via WASM.
+- ⚡ **Fast initial response**: Uses Nearest Neighbor + 2-opt for quick, approximate pathfinding.
+- 🔁 **Progressive refinement**: As more users request paths, the algorithm incrementally optimizes the route.
+- 🧠 **Shared cache**: Path optimization is progressively improved and shared across users.
+- 🗺️ **Flexible input**: Accepts JSON-defined map nodes.
+- 🚀 **WebAssembly powered**: Runs in the browser or server using WASM, providing optimal performance.
 
 ---
 
 ## 🎯 Purpose
 
-This module is built **specifically for the Open Endfield Map project** and is currently not intended for general-purpose or third-party use.
+**Ganglia** is developed **specifically for the Open Endfield Map project** and is **not intended for general-purpose or third-party use**.
 
-If you are a contributor to Open Endfield Map, this engine handles:
-- Optimized traversal planning for interactable map nodes
-- Caching and progressive improvement of multi-target paths
-- Integration with in-game-style A* navigation
+In the context of Open Endfield Map, Ganglia handles:
+- On-demand pathfinding for interactable points on the map.
+- Initial approximate paths based on Nearest Neighbor + 2-opt.
+- Incremental path improvement as additional users request the same routes.
 
 ---
 
 ## 🔧 Architecture Overview
 
-1. **Initial Route**: Generated using Nearest Neighbor + 2-opt (very fast).
-2. **On-Demand Caching**: Route data stored and reused by future requests.
-3. **Background Optimization**: Simulated Annealing used in time-limited steps.
-4. **Route Finalization**: Frozen once no longer improving.
+1. **Initial Path**: Generated on demand using Nearest Neighbor + 2-opt (quick but approximate).
+2. **Dynamic Cache**: Path data is cached and reused for future requests.
+3. **User-driven Refinement**: Paths are progressively improved with each subsequent request.
+4. **Route Finalization**: Once a path has been sufficiently refined, it becomes a stable, optimized route.
 
 ---
 
 ## 📦 Integration
 
 - **Input**: JSON map + list of interactable nodes.
-- **Output**: Ordered node list and path segments for rendering.
-- **Usage**: Via C++ interface or WASM JavaScript bindings.
+- **Output**: Ordered node sequence and full path segments for map rendering.
+- **Usage**: Exposed via C++ interface or WASM JavaScript bindings.
 
 ---
 
 ## 🧪 Status
 
-> Ganglia is under active development for Open Endfield Map.  
-> Not intended for reuse outside this context.  
+> Ganglia is under active development for Open Endfield Map.
+> Not intended for reuse outside this context.
 > Contributions welcome within the scope of the project.
