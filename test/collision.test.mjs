@@ -71,3 +71,53 @@ test('swept capsule agrees with analytic distance to an axis-aligned swept recta
     assert.equal(world([[p,p,p]]).sweepCapsule([-1,0,0],[1,0,0],profile)!==null,expected);
   }
 });
+
+const supportFloor = height => [[-5,height,-5],[0,height,5],[5,height,-5]];
+const supportOptions = {maxUp:.5,maxDown:.5,maxSlope:46};
+
+test('vertical support chooses the closest stacked floor within independent height limits',()=>{
+  const query=world([supportFloor(0),supportFloor(4)]);
+  assert.deepEqual(query.groundAt([0,.1,0],supportOptions),{position:[0,0,0],triangle:0,normal:[0,1,0]});
+  assert.equal(query.groundAt([0,2,0],{maxUp:3,maxDown:3,maxSlope:46}).position[1],4);
+  assert.equal(query.groundAt([0,2,0],{maxUp:1,maxDown:3,maxSlope:46}).position[1],0);
+  assert.equal(query.groundAt([0,2,0],{maxUp:3,maxDown:1,maxSlope:46}).position[1],4);
+  assert.equal(query.groundAt([0,2,0],supportOptions),null);
+  assert.equal(query.groundAt([0,0,0],{maxUp:0,maxDown:0,maxSlope:46}).position[1],0);
+});
+
+test('vertical support rejects gaps, downward faces, vertical faces and degenerate triangles',()=>{
+  const query=world([supportFloor(0),supportFloor(1).toReversed(),[[0,0,0],[0,3,0],[0,0,3]],[[9,0,0],[9,0,0],[9,0,0]]]);
+  assert.equal(query.groundAt([6,0,0],{maxUp:10,maxDown:10,maxSlope:89}),null);
+  assert.equal(query.groundAt([0,1,0],supportOptions),null);
+  assert.equal(query.groundAt([9,0,0],supportOptions),null);
+});
+
+test('vertical support retains exact sloping height and rejects slopes above the limit',()=>{
+  const query=world([[[-2,-2,-2],[0,0,2],[2,2,-2]]]);
+  const hit=query.groundAt([.5,1,0],{maxUp:0,maxDown:1,maxSlope:46});
+  assert.deepEqual(hit.position,[.5,.5,0]);
+  assert.ok(Math.abs(hit.normal[0]+Math.SQRT1_2)<1e-12);
+  assert.ok(Math.abs(hit.normal[1]-Math.SQRT1_2)<1e-12);
+  assert.equal(query.groundAt([.5,1,0],{maxUp:0,maxDown:1,maxSlope:44}),null);
+});
+
+test('vertical support reuses distant BVH leaves and owns its geometry snapshot',()=>{
+  const faces=Array.from({length:80},(_,i)=>[[i*10-2,0,-2],[i*10,0,2],[i*10+2,0,-2]]);
+  const geometry={positions:faces.flat(2),indices:Array.from({length:faces.length*3},(_,i)=>i)};
+  const query=createCollisionWorld(geometry);
+  geometry.positions.fill(0);geometry.indices.fill(0);
+  assert.equal(query.groundAt([790,.2,0],supportOptions).triangle,79);
+  assert.deepEqual(query.groundAt([790,.2,0],supportOptions).position,[790,0,0]);
+  assert.equal(query.groundAt([795,.2,0],supportOptions),null);
+});
+
+test('vertical support validates finite query bounds and slope units',()=>{
+  const query=world([supportFloor(0)]);
+  assert.throws(()=>query.groundAt([0,NaN,0],supportOptions),/support query/);
+  for(const options of [{...supportOptions,maxUp:-1},{...supportOptions,maxDown:Infinity},
+    {...supportOptions,maxSlope:0},{...supportOptions,maxSlope:90},{...supportOptions,maxSlope:NaN}]){
+    assert.throws(()=>query.groundAt([0,0,0],options),/support query/);
+  }
+  assert.throws(()=>query.groundAt([0,1.7e308,0],{...supportOptions,maxUp:1.7e308}),/support bounds/);
+  assert.equal(world([]).groundAt([0,0,0],supportOptions),null);
+});

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGroundTiles } from '../src/build.mjs';
-import { planGroundRoute, projectPoint } from '../src/index.mjs';
+import { planGroundRoute, projectPoint, surfaceGraph } from '../src/index.mjs';
 
 const options = {
   profile: { radius: .35, height: 1.66 }, maxSlope: 46,
@@ -32,6 +32,33 @@ test('padded tiles retain continuous ground and detail heights across core seams
     const route = plan(data, [1, -.4, z], [15, 1, z]);
     assert.equal(route.status, 'complete');
     assert.ok(route.points.every(point => Math.abs(point[1] - (-.5 + point[0] * .1)) < .15));
+  }
+});
+
+test('large negative Float32 coordinates retain exact core planes on sloping detail triangles', async () => {
+  const vertices = [];
+  const point = (x, z) => [x, 160 + .05 * (x + 806.4) + .08 * Math.sin(z * 5), z];
+  for (let i = 0; i < 80; i++) {
+    for (let j = 0; j < 50; j++) {
+      const x = -814 + i * .2, z = -8 + j * .2;
+      vertices.push(point(x, z), point(x, z + .2), point(x + .2, z + .2),
+        point(x, z), point(x + .2, z + .2), point(x + .2, z));
+    }
+  }
+  const data = await buildGroundTiles(geometry(vertices), { ...options,
+    tileCells: 64, bounds: { min: [-812.8, -6.4], max: [-800, 0] } });
+  assert.ok(data.portals.length > 0);
+  assert.doesNotThrow(() => surfaceGraph(data.surfaces, { speed: 5, portals: data.portals }));
+  for (const surface of data.surfaces) {
+    const tile = data.tiles.find(tile => surface.id.startsWith(`${tile.x},${tile.z}/`));
+    for (const vertex of surface.vertices) {
+      for (let axis = 0; axis < 2; axis++) {
+        for (const boundary of [tile.bounds.min[axis], tile.bounds.max[axis]]) {
+          const coordinate = vertex[axis === 0 ? 0 : 2];
+          if (Math.abs(coordinate - boundary) <= 1e-4) assert.equal(coordinate, boundary);
+        }
+      }
+    }
   }
 });
 

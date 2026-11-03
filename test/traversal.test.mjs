@@ -1,0 +1,241 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { findJumpConnections } from '../src/traversal.mjs';
+import { jumpConnection } from '../src/jumps.mjs';
+import { planGroundRoute } from '../src/ground.mjs';
+import { createCollisionWorld } from '../src/collision.mjs';
+
+const floor = (id, x0, x1, y, z0 = -2, z1 = 2) => ({
+  id,
+  vertices: [
+    [x0, y, z0],
+    [x1, y, z0],
+    [x1, y, z1],
+    [x0, y, z1],
+  ],
+});
+const geometry = (surfaces) => {
+  const triangles = surfaces.flatMap((s) => [
+    [s.vertices[0], s.vertices[2], s.vertices[1]],
+    [s.vertices[0], s.vertices[3], s.vertices[2]],
+  ]);
+  return { positions: triangles.flat(2), indices: Array.from({ length: triangles.length * 3 }, (_, i) => i) };
+};
+const options = {
+  profile: { radius: 0.3, height: 1.7 },
+  portals: [],
+  walls: [],
+  from: [2, 4, 0],
+  to: [9, 0, 0],
+  maxVertical: 0.5,
+  maxSlope: 46,
+  maxDrop: 10,
+  maxHorizontalDistance: 15,
+  sampleSpacing: 2,
+  maxCandidates: 200,
+  maxLinks: 12,
+  model: {
+    gravity: 10,
+    fallingGravity: 10,
+    maxJumpHeight: 2,
+    maxFallingSpeed: 20,
+    apexTime: 0.2,
+    maxHorizontalSpeed: 7,
+  },
+};
+
+test('discovers directed model-based jumps between supported separated platforms', () => {
+  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
+  const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), options);
+  assert.ok(result.connections.some((c) => c.fromSurface === 'upper' && c.toSurface === 'lower'));
+  assert.equal(
+    result.connections.some((c) => c.fromSurface === 'lower' && c.toSurface === 'upper'),
+    false,
+  );
+  for (const connection of result.connections) {
+    assert.equal(connection.state, 'open');
+    assert.equal(connection.motionValidation, 'model-based');
+    assert.ok(connection.endpointTolerance <= options.profile.radius);
+    assert.ok(connection.points[0][1] > 3.99);
+  }
+});
+
+test('can discover several hops through an intermediate ground component', () => {
+  const surfaces = [floor('a', 0, 4, 0), floor('b', 7, 11, 0), floor('c', 14, 18, 0)];
+  const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), {
+    ...options,
+    from: [2, 0, 0],
+    to: [16, 0, 0],
+  });
+  assert.ok(result.connections.some((c) => c.fromSurface === 'a' && c.toSurface === 'b'));
+  assert.ok(result.connections.some((c) => c.fromSurface === 'b' && c.toSurface === 'c'));
+  assert.equal(
+    result.connections.some((c) => c.fromSurface === 'a' && c.toSurface === 'c'),
+    false,
+  );
+  const route = planGroundRoute(
+    surfaces,
+    [{ id: 'player', position: [2, 0, 0], cost: 0, state: 'available' }],
+    [16, 0, 0],
+    { speed: 5, maxVertical: 0.5, walls: [], profile: options.profile, connections: result.connections },
+  );
+  assert.equal(route.status, 'complete');
+  assert.equal(route.segments.filter((segment) => segment.mode === 'jump').length, 2);
+});
+
+test('rejects blocking air walls and distant components without inventing a reverse edge', () => {
+  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)],
+    world = createCollisionWorld(geometry(surfaces));
+  const wall = { min: [5, -10, -20], max: [6, 20, 20], state: 'unknown' };
+  assert.equal(findJumpConnections(surfaces, world, { ...options, walls: [wall] }).connections.length, 0);
+  assert.equal(
+    findJumpConnections(surfaces, world, { ...options, maxHorizontalDistance: 2 }).connections.length,
+    0,
+  );
+});
+
+test('returns no jump work when the destination is already ground reachable', () => {
+  const surfaces = [floor('a', 0, 4, 0), floor('b', 4, 8, 0)];
+  const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), {
+    ...options,
+    from: [2, 0, 0],
+    to: [6, 0, 0],
+  });
+  assert.deepEqual(result.connections, []);
+  assert.equal(result.diagnostics.reason, 'ground-connected');
+});
+
+test('reports sampling truncation and validates explicit motion and search limits', () => {
+  const surfaces = [floor('a', 0, 4, 4), floor('b', 7, 11, 0)],
+    world = createCollisionWorld(geometry(surfaces));
+  assert.equal(
+    findJumpConnections(surfaces, world, { ...options, maxCandidates: 1 }).diagnostics.truncated,
+    true,
+  );
+  assert.throws(
+    () => findJumpConnections(surfaces, world, { ...options, maxSlope: 90 }),
+    /Invalid traversal/,
+  );
+  assert.throws(
+    () => findJumpConnections(surfaces, world, { ...options, sampleSpacing: 0 }),
+    /Invalid traversal/,
+  );
+  assert.throws(
+    () => findJumpConnections(surfaces, world, { ...options, model: { ...options.model, gravity: 0 } }),
+    /Invalid traversal/,
+  );
+});
+
+test('moves takeoff behind a thin railing when an edge-near jump intersects it', () => {
+  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)],
+    base = geometry(surfaces);
+  const railing = [
+    [
+      [3.9, 4, -10],
+      [3.9, 5.9, -10],
+      [3.9, 5.9, 10],
+    ],
+    [
+      [3.9, 4, -10],
+      [3.9, 5.9, 10],
+      [3.9, 4, 10],
+    ],
+  ];
+  const offset = base.positions.length / 3;
+  const world = createCollisionWorld({
+    positions: [...base.positions, ...railing.flat(2)],
+    indices: [...base.indices, ...Array.from({ length: 6 }, (_, i) => offset + i)],
+  });
+  assert.equal(
+    jumpConnection([3.5, 4.005, 0], [7.5, 0.005, 0], {
+      ...options.model,
+      profile: options.profile,
+      walls: [],
+      mode: 'jump',
+      sweep: world.sweepCapsule,
+    }),
+    null,
+  );
+  const result = findJumpConnections(surfaces, world, options);
+  const jump = result.connections.find(
+    (connection) => connection.fromSurface === 'upper' && connection.toSurface === 'lower',
+  );
+  assert.ok(jump);
+  assert.ok(jump.points[0][0] < 3);
+});
+
+test('keeps pre-budget grouping work bounded for highly imbalanced components', () => {
+  const surfaces = Array.from({ length: 5000 }, (_, index) =>
+    floor(`strip/${index}`, index / 5, (index + 1) / 5, 0, 0, 1),
+  );
+  for (let index = 0; index < 1000; index++)
+    surfaces.push(floor(`island/${index}`, 2000 + index * 3, 2001 + index * 3, 0, 0, 1));
+  const collision = {
+    groundAt(position) {
+      return { position: [position[0], 0, position[2]], triangle: 0, normal: [0, 1, 0] };
+    },
+    sweepCapsule() {
+      return null;
+    },
+  };
+  // Count indexing work instead of elapsed time so slow CI does not make the test
+  // flaky. Revisiting every exhausted group makes the original loop exceed this
+  // generous linear allowance before the 32 endpoint checks can be enforced.
+  const get = Map.prototype.get;
+  let lookups = 0,
+    result;
+  Map.prototype.get = function (key) {
+    lookups++;
+    return get.call(this, key);
+  };
+  try {
+    result = findJumpConnections(surfaces, collision, {
+      ...options,
+      from: [0.5, 0, 0.5],
+      to: [2000.5, 0, 0.5],
+      maxCandidates: 1,
+    });
+  } finally {
+    Map.prototype.get = get;
+  }
+  assert.ok(lookups < surfaces.length * 100, `${lookups} map lookups exceed the indexing work budget`);
+  assert.equal(result.diagnostics.endpointChecks, 32);
+  assert.equal(result.diagnostics.truncated, true);
+});
+
+test('preserves collision-world method receivers during arc sweeps', () => {
+  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
+  const world = {
+    collision: createCollisionWorld(geometry(surfaces)),
+    sweeps: 0,
+    groundAt(position, query) {
+      return this.collision.groundAt(position, query);
+    },
+    sweepCapsule(start, end, profile) {
+      this.sweeps++;
+      return this.collision.sweepCapsule(start, end, profile);
+    },
+  };
+  const result = findJumpConnections(surfaces, world, options);
+  assert.ok(result.connections.length > 0);
+  assert.ok(world.sweeps > result.diagnostics.standingEndpoints);
+});
+
+test('keeps useful local jumps when sampling is denser and the distant reach bound grows', () => {
+  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
+  const world = createCollisionWorld(geometry(surfaces));
+  for (const sampleSpacing of [1, 2])
+    for (const maxHorizontalDistance of [15, 1000]) {
+      const result = findJumpConnections(surfaces, world, {
+        ...options,
+        sampleSpacing,
+        maxHorizontalDistance,
+      });
+      assert.ok(
+        result.connections.some(
+          (connection) => connection.fromSurface === 'upper' && connection.toSurface === 'lower',
+        ),
+      );
+      assert.equal(result.diagnostics.targetReached, true);
+    }
+});

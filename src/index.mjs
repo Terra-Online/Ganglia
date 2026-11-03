@@ -6,3 +6,5 @@ export { sampleJourney } from './motion.mjs';
 
 export { retimeGroundRoute } from './locomotion.mjs';
 export { createGoalProjector, projectGoal } from './goals.mjs';
+export { jumpConnection, jumpDuration } from './jumps.mjs';
+export { findJumpConnections } from './traversal.mjs';

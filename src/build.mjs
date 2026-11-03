@@ -114,6 +114,11 @@ export async function buildGroundSurfaces(geometry, options) {
 }
 
 function clipSurface(vertices, bounds) {
+  const [a, b, c] = vertices;
+  const determinant = (b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0]);
+  if (Math.abs(determinant) <= tolerance * tolerance) return null;
+  const riseX = ((b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1])) / determinant;
+  const riseZ = ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / determinant;
   let clipped = vertices;
   for (const [axis, boundary, keepAbove] of [
     [0, bounds.min[0], true], [0, bounds.max[0], false],
@@ -134,6 +139,16 @@ function clipSurface(vertices, bounds) {
     }
     clipped = output;
   }
+  // Recast returns Float32 world coordinates. A vertex just inside a core plane
+  // must share that exact grid plane with its clipped neighbors. Preserve the
+  // original detail triangle's height while correcting the horizontal rounding.
+  clipped = clipped.map(point => {
+    const x = Math.abs(point[0] - bounds.min[0]) <= tolerance ? bounds.min[0]
+      : Math.abs(point[0] - bounds.max[0]) <= tolerance ? bounds.max[0] : point[0];
+    const z = Math.abs(point[2] - bounds.min[1]) <= tolerance ? bounds.min[1]
+      : Math.abs(point[2] - bounds.max[1]) <= tolerance ? bounds.max[1] : point[2];
+    return [x, a[1] + riseX * (x - a[0]) + riseZ * (z - a[2]), z];
+  });
   const points = clipped.filter((point, index) =>
     point.some((value, axis) => Math.abs(value - clipped[(index + clipped.length - 1) % clipped.length][axis]) > tolerance));
   const origin = points[0];

@@ -78,6 +78,46 @@ export function createCollisionWorld(geometry){
   };
   const root=count?build(0,count):null;
   return {
+    /** Find upward support at exactly the supplied XZ position. Slope is in degrees.
+     * Height limits are explicit and independent. This establishes triangle support
+     * only; callers still verify standing capsule clearance and active world coverage.
+     */
+    groundAt(position,options){
+      const {maxUp,maxDown,maxSlope}=options??{};
+      if(!point(position)||![maxUp,maxDown,maxSlope].every(Number.isFinite)||
+          maxUp<0||maxDown<0||maxSlope<=0||maxSlope>=90)throw new Error('Invalid ground support query');
+      const box=[position[0],position[1]-maxDown,position[2],position[0],position[1]+maxUp,position[2]];
+      if(!box.every(Number.isFinite))throw new Error('Non-finite ground support bounds');
+      const minimumUp=Math.cos(maxSlope*Math.PI/180),stack=root?[root]:[];
+      let best=null,bestOffset=Infinity;
+      while(stack.length){
+        const node=stack.pop();
+        if(!overlaps(box,node.box))continue;
+        if(node.left){stack.push(node.left,node.right);continue;}
+        for(let index=node.start;index<node.end;index++){
+          const id=order[index];
+          if(!overlaps(box,bounds.subarray(id*6,id*6+6)))continue;
+          const face=triangle(id),ab=sub(face[1],face[0]),ac=sub(face[2],face[0]);
+          const normal=cross(ab,ac),length=Math.hypot(...normal);
+          if(!Number.isFinite(length))throw new Error('Non-finite ground support normal');
+          if(length===0||normal[1]<=0||normal[1]/length<minimumUp)continue;
+          const x=position[0]-face[0][0],z=position[2]-face[0][2],determinant=-normal[1];
+          const u=(x*ac[2]-z*ac[0])/determinant,v=(ab[0]*z-ab[2]*x)/determinant;
+          // Only a numerical barycentric tolerance is allowed; the query never
+          // searches neighbouring XZ positions or snaps across a missing floor.
+          if(u < -1e-10||v < -1e-10||u+v > 1+1e-10)continue;
+          const height=face[0][1]+u*ab[1]+v*ac[1];
+          if(!Number.isFinite(height))throw new Error('Non-finite ground support height');
+          if(height<box[1]||height>box[4])continue;
+          const offset=Math.abs(height-position[1]);
+          if(offset<bestOffset||(offset===bestOffset&&height>best.position[1])){
+            bestOffset=offset;
+            best={position:[position[0],height,position[2]],triangle:id,normal:normal.map(value=>value/length)};
+          }
+        }
+      }
+      return best;
+    },
     /** Continuous straight translation of an upright capsule, given feet positions.
      * Its axis sweeps a parallelogram; distance to that entire surface, not discrete
      * positions along the path, decides collision. Inflation bounds interpolation

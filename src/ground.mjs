@@ -66,7 +66,7 @@ export function createGroundPlanner(surfaces, options) {
     }
     const connectionIds = new Set();
     for (const connection of connections) {
-      const { id, mode, points, times, state } = connection;
+      const { id, mode, points, times, state, requiredGait } = connection;
       if (typeof id !== 'string' || !id || connectionIds.has(id) || mode === undefined || mode === 'walk' ||
           !['open', 'closed', 'unknown'].includes(state) || !Array.isArray(points) || points.length < 2 ||
           points.some(p => !Array.isArray(p) || p.length !== 3 || !p.every(Number.isFinite)) || !Array.isArray(times)) {
@@ -74,15 +74,27 @@ export function createGroundPlanner(surfaces, options) {
       }
       connectionIds.add(id);
       const cost = times.at(-1);
-      validateMotion({ mode, points, times, cost, connection: id });
+      validateMotion({ mode, points, times, cost, connection: id, requiredGait });
       if (state !== 'open') continue;
-      // Never add a vertical endpoint connector to repair a trajectory: that could
-      // attach to another floor or silently change the landing/launch conditions.
-      const from = projectPoint(surfaces, points[0], { maxVertical: 1e-6 });
-      const to = projectPoint(surfaces, points.at(-1), { maxVertical: 1e-6 });
+      // Gait-dependent trajectories need an explicit resource policy to prove
+      // their entry condition. Other supplied connections remain usable.
+      if (requiredGait !== undefined && !options.locomotion) continue;
+      // Endpoints default to exact support. Any explicit collision-support allowance
+      // stays within body radius and the caller's floor-projection limit.
+      const tolerance = connection.endpointTolerance ?? 1e-6;
+      if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > Math.max(1e-6, Math.min(maxVertical, profile.radius))) {
+        throw new Error('Invalid movement endpoint tolerance');
+      }
+      const fromProjection = projectPoint(surfaces, points[0], { maxVertical: tolerance });
+      const toProjection = projectPoint(surfaces, points.at(-1), { maxVertical: tolerance });
+      // Explicit collision-validated standing feet may sit above the navigation
+      // support plane (rounded capsule support on slopes, or voxel-height error).
+      const from = fromProjection && { ...fromProjection, position: points[0] };
+      const to = toProjection && { ...toProjection, position: points.at(-1) };
       if (!from || !to) continue;
       const fromId = endpoint(from), toId = endpoint(to);
-      graph.edges.push({ from: fromId, to: toId, state, cost, mode, points, times, connection: id });
+      graph.edges.push({ from: fromId, to: toId, state, cost, mode, points, times, connection: id,
+        ...(requiredGait === undefined ? {} : { requiredGait }) });
     }
     // Compare actual continuous lengths and movement times for each available origin.
     // Centre-corridor costs alone can rank nearby teleport arrivals incorrectly.
@@ -93,6 +105,7 @@ export function createGroundPlanner(surfaces, options) {
       if (candidate.status !== 'complete') continue;
       const continuous = straightenRoute(candidate, straighten, speed);
       const timed = options.locomotion ? retimeGroundRoute(continuous, options.locomotion) : continuous;
+      if (timed.status !== 'complete') continue;
       if (!best || timed.cost < best.cost) best = timed;
     }
     return best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };

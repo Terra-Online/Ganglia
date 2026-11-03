@@ -21,7 +21,8 @@ clearance, dynamic obstacles and detail heights. Optional `portals` lists the ed
 that may connect; an empty list closes every edge. Matching 3D edges connect over
 their shared intervals, including split collinear edges. Authored directed seam
 transfers can connect height differences within the importer's verified step limits.
-No proximity bridge, jump, climb, floor snap or off-mesh connection is invented.
+Ground stitching preserves the importer's verified edge and step constraints.
+Optional movement discovery below uses a separately supplied physical model.
 
 Arrivals supply `{ id, position, cost, state }`. Costs are seconds; availability is
 `available`, `locked` or `unknown`. Include the player at cost zero and unlocked teleport
@@ -64,10 +65,18 @@ outstanding; this is an alpha implementation.
 connections. Modes are `rope`, `jump`, `drop` and `launch`; each connection grants
 only its supplied direction. Availability uses `open`, `closed`, `unknown`. Both
 endpoints must already lie on a supplied surface (1e-6 m numerical tolerance).
+An importer can explicitly supply `endpointTolerance` for collision-supported feet
+above the navigation plane. It is bounded by `maxVertical` and body radius. This
+does not authorize joining different floors.
 The importer must validate the entire trajectory, landing, body clearance and
 movement state before marking a connection open. The planner also checks every
 sample interval against air walls; it never exempts a rope or launch from them.
 An authored device position alone is not a verified connection.
+
+Connections may require `requiredGait: 'sprint'` at entry. The locomotion scheduler
+retains only schedules that already paid for an active sprint before that segment.
+If no schedule can meet the requirement, the result is `no-verified-route`. Ground
+planners exclude gait-dependent connections when the caller omits locomotion policy.
 
 Times start at zero, correspond one-to-one with points, and end at the segment's
 travel cost in seconds. They preserve variable speed and pauses; non-walking
@@ -86,7 +95,20 @@ Acceleration buffs are not automatically applied to subsequent edges. Their
 remaining duration and effect must be part of the importer's graph state; joining
 all such states at the same location would incorrectly grant a permanent boost.
 Game-specific trajectory generation and movement-state expansion are not yet
-implemented. Synthetic directed-connection tests do not establish game reachability.
+complete. Synthetic directed-connection tests do not establish game reachability.
+
+`jumpConnection(start, end, options)` generates an explicit model-based jump/drop.
+Its authored gravity, jump height, apex hold and terminal fall speed determine
+vertical motion. Constant horizontal travel must fit the supplied speed cap.
+Continuous capsule sweeps inflate every sampled chord by the bounded curve
+deviation. `jumpDuration` exposes the same analytic vertical duration for discovery.
+
+`findJumpConnections(surfaces, collisionWorld, options)` searches separated directed
+ground components, including intermediate platforms. Caller-supplied sampling and
+search limits bound offline work. Standing feet require real collision support,
+capsule clearance and acceptable slope. Each accepted arc also checks air walls.
+The result includes explicit truncation diagnostics. Sampling can miss valid
+links, and passing this model still requires in-game movement validation.
 
 ## Offline player navigation build
 

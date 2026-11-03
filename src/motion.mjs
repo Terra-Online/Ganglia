@@ -3,8 +3,9 @@ const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
 
 // Shared by graph and grounded-connection import. Sample times are measured from
 // segment entry, not global time; they preserve acceleration and pauses in a path.
-export function validateMotion({ mode = 'walk', points, times, cost, connection }) {
-  if (!modes.has(mode) || (connection !== undefined && (typeof connection !== 'string' || !connection))) {
+export function validateMotion({ mode = 'walk', points, times, cost, connection, requiredGait }) {
+  if (!modes.has(mode) || (connection !== undefined && (typeof connection !== 'string' || !connection)) ||
+      (requiredGait !== undefined && (requiredGait !== 'sprint' || mode === 'walk'))) {
     throw new Error('Invalid movement segment');
   }
   if (times === undefined) {
@@ -29,7 +30,8 @@ export function routeSegment(edge) {
     for (let i = 1; i < times.length; i++) times[i] = length ? times[i] / length * edge.cost : edge.cost;
   }
   return { mode: edge.mode ?? 'walk', points: edge.points.map(p => [...p]), times,
-    ...(edge.connection === undefined ? {} : { connection: edge.connection }) };
+    ...(edge.connection === undefined ? {} : { connection: edge.connection }),
+    ...(edge.requiredGait === undefined ? {} : { requiredGait: edge.requiredGait }) };
 }
 
 /** Sample the timed movement after the selected arrival has completed. Entry/teleport

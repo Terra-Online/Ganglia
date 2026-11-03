@@ -197,3 +197,44 @@ test('run allocation keeps continuous faces in one decision block', () => {
   near(result.locomotion.final, 0);
   assert.ok(result.segments.every(segment => segment.gait === 'sprint'));
 });
+
+test('sprint-required air motion cannot borrow activation energy from a later ground run', () => {
+  const jump = { mode: 'jump', requiredGait: 'sprint', points: [[.5, 0, 0], [7, 0, 0]], times: [0, 1] };
+  const input = route([walk([[0, 0, 0], [.5, 0, 0]]), jump, walk([[7, 0, 0], [107, 0, 0]])]);
+  const policy = { ...options, stamina: {
+    capacity: 1, initial: 1, activationCost: 1, recoveryRate: 0, recoveryDelay: 0, reserve: 0,
+  } };
+  for (const change of [{ initial: 0 }, { capacity: .5, initial: .5 }]) {
+    assert.deepEqual(retimeGroundRoute(input, { ...policy, stamina: { ...policy.stamina, ...change } }),
+      { status: 'no-verified-route' });
+  }
+  const original = structuredClone(input), result = retimeGroundRoute(input, policy);
+  assert.equal(result.status, 'complete');
+  assert.equal(result.segments[0].gait, 'sprint');
+  assert.deepEqual(result.segments[1], jump);
+  assert.ok(result.segments.slice(2).every(segment => segment.gait === 'run'));
+  assert.deepEqual(result.locomotion, { initial: 1, final: 0, minimum: 0 });
+  assert.deepEqual(input, original);
+  assert.deepEqual(retimeGroundRoute(route([jump]), policy), { status: 'no-verified-route' });
+});
+
+test('consecutive sprint-required jumps need held gait or enough natural recovery for another activation', () => {
+  const first = { mode: 'jump', requiredGait: 'sprint', points: [[.5, 0, 0], [7, 0, 0]], times: [0, .2] };
+  const second = { ...first, points: [[7.5, 0, 0], [14, 0, 0]] };
+  const input = route([walk([[0, 0, 0], [.5, 0, 0]]), first, walk([[7, 0, 0], [7.5, 0, 0]]), second]);
+  const policy = { ...options, stamina: {
+    capacity: 1, initial: 1, activationCost: 1, recoveryRate: 1, recoveryDelay: .9,
+    recoveryDuringNonWalk: true, reserve: 0,
+  } };
+  assert.deepEqual(retimeGroundRoute(input, policy), { status: 'no-verified-route' });
+  const held = retimeGroundRoute(input, { ...policy, sprintThrough: ['jump'] });
+  assert.equal(held.status, 'complete');
+  assert.equal(held.segments.filter(segment => segment.requiredGait === 'sprint').length, 2);
+  near(held.locomotion.final, 0);
+  const recovered = structuredClone(input);
+  recovered.segments[1].times = [0, 2];
+  const result = retimeGroundRoute(recovered, policy);
+  assert.equal(result.status, 'complete');
+  assert.equal(result.segments.filter(segment => segment.requiredGait === 'sprint').length, 2);
+  assert.equal(result.locomotion.minimum, 0);
+});

@@ -1,8 +1,9 @@
+import type { CollisionWorld } from './collision.d.ts';
 export type Vec3 = [number, number, number];
 export interface Node { id: string; position: Vec3 }
 export type MovementMode = 'walk' | 'rope' | 'jump' | 'drop' | 'launch';
-export interface Segment { mode: MovementMode; points: Vec3[]; times: number[]; connection?: string; gait?: 'run' | 'sprint' }
-export interface Edge { from: string; to: string; cost: number; state: 'open' | 'closed' | 'unknown'; points: Vec3[]; mode?: MovementMode; times?: number[]; connection?: string }
+export interface Segment { mode: MovementMode; points: Vec3[]; times: number[]; connection?: string; gait?: 'run' | 'sprint'; requiredGait?: 'sprint' }
+export interface Edge { from: string; to: string; cost: number; state: 'open' | 'closed' | 'unknown'; points: Vec3[]; mode?: MovementMode; times?: number[]; connection?: string; requiredGait?: 'sprint' }
 export interface Graph { nodes: Node[]; edges: Edge[] }
 export type Route = { status: 'complete'; start: string; cost: number; arrivalCost: number; length: number; locomotion?: { initial: number; final: number; minimum: number; search?: { truncated: boolean; maxLabels: number } }; points: Vec3[]; segments: Segment[] } | { status: 'unmapped' | 'no-verified-route' };
 export interface Wall {
@@ -25,7 +26,16 @@ export interface Arrival { id: string; node: string; cost: number; state: 'avail
 export function routeFrom(graph: Graph, starts: Arrival[], goal: string | string[], constraints?: { walls: Wall[]; profile: { radius: number; height: number } }): Route;
 export function projectPoint(surfaces: Surface[], position: Vec3, options: { maxVertical: number }): { surface: string; position: Vec3 } | null;
 export interface GroundArrival { id: string; position: Vec3; cost: number; state: Arrival['state'] }
-export interface GroundConnection { id: string; mode: Exclude<MovementMode, 'walk'>; points: Vec3[]; times: number[]; state: 'open' | 'closed' | 'unknown' }
+export interface GroundConnection {
+  id: string; mode: Exclude<MovementMode, 'walk'>; points: Vec3[]; times: number[];
+  state: 'open' | 'closed' | 'unknown';
+  /** Explicit collision-support allowance, bounded by maxVertical and body radius. Defaults to 1e-6 m. */
+  endpointTolerance?: number;
+  /** Non-ground entry condition, checked against active gait by the locomotion scheduler.
+   * Ground planners exclude this connection when no locomotion policy is supplied.
+   */
+  requiredGait?: 'sprint';
+}
 export interface GroundOptions { speed: number; maxVertical: number; walls: Wall[]; profile: { radius: number; height: number }; connections?: GroundConnection[]; portals?: Portal[]; locomotion?: LocomotionOptions }
 export function planGroundRoute(surfaces: Surface[], starts: GroundArrival[], goal: Vec3, options: GroundOptions): Route;
 
@@ -56,10 +66,43 @@ export function createGroundPlanner(surfaces: Surface[], options: GroundOptions)
   plan(starts: GroundArrival[], goal: Vec3, query?: { interaction?: InteractionGoal }): Route;
 };
 
-/** Apply an explicit resource-feasible gait schedule to an existing continuous path. */
+/** Apply an explicit resource-feasible gait schedule to an existing continuous path.
+ * Returns no-verified-route when a required non-ground entry gait cannot be established.
+ */
 export function retimeGroundRoute(route: Route, options: LocomotionOptions): Route;
 
 /** Explicit source-derived interaction volume. No per-game defaults are supplied. */
 export interface InteractionGoal { radius: number; maxVertical?: number; facing?: Vec3; halfAngle?: number }
 export function createGoalProjector(surfaces: Surface[]): (target: Vec3, options: { maxVertical: number; interaction?: InteractionGoal }) => { surface: string; position: Vec3; distance: number }[];
 export function projectGoal(surfaces: Surface[], target: Vec3, options: { maxVertical: number; interaction?: InteractionGoal }): { surface: string; position: Vec3; distance: number }[];
+
+export interface JumpModel {
+  gravity: number; fallingGravity: number; maxJumpHeight: number;
+  maxFallingSpeed: number; apexTime: number; maxHorizontalSpeed: number;
+}
+export function jumpDuration(startHeight: number, endHeight: number,
+  options: Omit<JumpModel, 'maxHorizontalSpeed'> & { mode: 'jump' | 'drop' }): number | null;
+export function jumpConnection(start: Vec3, end: Vec3, options: JumpModel & {
+  profile: { radius: number; height: number }; mode: 'jump' | 'drop';
+  sweep: CollisionWorld['sweepCapsule']; walls: Wall[]; clearance?: number;
+}): { mode: 'jump' | 'drop'; points: Vec3[]; times: number[]; motionValidation: 'model-based' } | null;
+export interface DiscoveryOptions {
+  profile: { radius: number; height: number }; portals?: Portal[]; walls: Wall[];
+  from: Vec3; to: Vec3; maxVertical: number; maxSlope: number; maxDrop: number;
+  maxHorizontalDistance: number; sampleSpacing: number; maxCandidates: number; maxLinks: number;
+  model: JumpModel;
+}
+export interface DiscoveryDiagnostics {
+  reason: string; components: number; boundaryEdges: number; endpointChecks: number;
+  standingEndpoints: number; neighbourChecks: number; pairChecks: number; candidatePairs: number;
+  attempted: number; accepted: number; truncated: boolean;
+  limits: { maxCandidates: number; maxLinks: number; arcAttempts: number; endpointChecks: number; neighbourChecks: number; pairChecks: number };
+  rejected: { projection: number; support: number; clearance: number; range: number; motion: number };
+  sourceEndpoints?: number; targetEndpoints?: number; sourceComponent?: number; targetComponent?: number;
+  sourceCandidates?: number; directCandidates?: number; targetReached?: boolean;
+}
+/** Bounded discovery of model-based directed links. Truncation can leave valid routes undiscovered. */
+export function findJumpConnections(surfaces: Surface[], world: CollisionWorld, options: DiscoveryOptions): {
+  connections: (GroundConnection & { fromSurface: string; toSurface: string; motionValidation: 'model-based' })[];
+  diagnostics: DiscoveryDiagnostics;
+};

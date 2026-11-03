@@ -55,6 +55,9 @@ function scheduleBlock(block, options, state, allowSprint) {
 
   for (const segment of block) {
     if (segment.mode !== 'walk') {
+      // A faster authored air trajectory cannot activate sprint or spend energy
+      // retroactively. Only a feasible approach may establish its required gait.
+      if (segment.requiredGait === 'sprint' && !sprinting) return null;
       segments.push({ ...segment, points: segment.points.map(point => [...point]), times: [...segment.times] });
       if (stamina?.recoveryDuringNonWalk) {
         const duration = segment.times.at(-1);
@@ -178,6 +181,8 @@ const dominates = (a, b) => sameContinuation(a.state, b.state) && a.duration <= 
  * Explicit sprintThrough modes retain the active gait across supplied non-ground motion.
  * Their trajectory/timing stays authored and ground speed resets on landing. No movement
  * resource cost is inferred. Recovery during sprint/non-ground motion requires flags.
+ * A non-ground requiredGait prunes labels without that active entry gait. If all
+ * labels fail, the result is no-verified-route. No takeoff activation is invented.
  * Ground turns of 30 degrees reset speed without paying another activation. Acceleration
  * uses samples at no more than 0.1-second intervals for linear trajectory playback.
  */
@@ -218,6 +223,7 @@ export function retimeGroundRoute(route, options) {
     const choices = block[0].mode === 'walk' ? [true, false] : [true];
     for (const label of labels) for (const allowSprint of choices) {
       const scheduled = scheduleBlock(block, options, label.state, allowSprint);
+      if (!scheduled) continue;
       const candidate = { ...scheduled, duration: label.duration + scheduled.duration, previous: label };
       if (next.some(other => dominates(other, candidate))) continue;
       for (let index = next.length - 1; index >= 0; index--) {
@@ -225,6 +231,7 @@ export function retimeGroundRoute(route, options) {
       }
       next.push(candidate);
     }
+    if (!next.length) return { status: 'no-verified-route' };
     if (next.length > maxLabels) {
       // Retain diverse high-energy states alongside faster partial journeys.
       next.sort((a, b) => a.duration - b.duration);
