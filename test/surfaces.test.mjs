@@ -25,3 +25,43 @@ test('coincident geometry does not override an authored closed polygon boundary'
  assert.equal(route(surfaceGraph([a,b],{speed:1}),'a','b').status,'no-verified-route');
  assert.equal(route(surfaceGraph([{...a,portals:[1]},b],{speed:1}),'a','b').status,'complete');
 });
+
+test('joins split collinear portals only over their positive shared interval', () => {
+ const a={id:'a',vertices:[[0,0,0],[1,0,0],[1,0,2],[0,0,2]],portals:[1]};
+ const b={id:'b',vertices:[[1,0,0],[2,0,0],[2,0,1],[1,0,1]],portals:[3]};
+ const c={id:'c',vertices:[[1,0,1],[2,0,1],[2,0,2],[1,0,2]],portals:[3]};
+ const graph=surfaceGraph([a,b,c],{speed:1});
+ assert.equal(route(graph,'a','b').status,'complete');
+ assert.equal(route(graph,'a','c').status,'complete');
+ assert.deepEqual(route(graph,'a','b').points[1],[1,0,.5]);
+ assert.deepEqual(route(graph,'a','c').points[1],[1,0,1.5]);
+ assert.equal(route(surfaceGraph([a,{...b,vertices:b.vertices.map(([x,y,z])=>[x,y+.01,z])}],{speed:1}),'a','b').status,'no-verified-route');
+ assert.equal(route(surfaceGraph([{...a,portals:[]},b],{speed:1}),'a','b').status,'no-verified-route');
+ assert.equal(route(surfaceGraph([a,b,{...b,id:'duplicate'}],{speed:1}),'a','b').status,'no-verified-route');
+});
+
+test('imported vertical seam transfers are directed and retain both ground heights', () => {
+ const a={id:'a',vertices:[[0,0,0],[1,0,0],[1,0,1],[0,0,1]],portals:[]};
+ const b={id:'b',vertices:[[1,.2,0],[2,.2,0],[2,.2,1],[1,.2,1]],portals:[]};
+ const portal={from:'a',to:'b',points:[[1,0,.5],[1,.2,.5]]};
+ const graph=surfaceGraph([a,b],{speed:1,portals:[portal]});
+ assert.deepEqual(route(graph,'a','b').points,[[.5,0,.5],[1,0,.5],[1,.2,.5],[1.5,.2,.5]]);
+ assert.equal(route(graph,'b','a').status,'no-verified-route');
+ assert.throws(()=>surfaceGraph([a,b],{speed:1,portals:[{...portal,points:[[1,0,.5],[1.01,.2,.5]]}]}),/Invalid imported portal/);
+ assert.throws(()=>surfaceGraph([a,b],{speed:1,portals:[{...portal,points:[[1,0,.5],[1,.3,.5]]}]}),/Invalid imported portal/);
+});
+
+test('joins rotated sloping split edges without inventing height or horizontal gaps', () => {
+ const transform = ([x,y,z]) => [(x-z)/Math.sqrt(2),y+x*.2+z*.1,(x+z)/Math.sqrt(2)];
+ const a={id:'a',vertices:[[0,0,0],[1,0,0],[1,0,2],[0,0,2]].map(transform),portals:[1]};
+ const b={id:'b',vertices:[[1,0,0],[2,0,0],[2,0,1],[1,0,1]].map(transform),portals:[3]};
+ assert.equal(route(surfaceGraph([a,b],{speed:1}),'a','b').status,'complete');
+ const separated={...b,vertices:b.vertices.map(([x,y,z])=>[x+.001,y,z])};
+ assert.equal(route(surfaceGraph([a,separated],{speed:1}),'a','b').status,'no-verified-route');
+});
+
+test('rejects imported seam endpoints inside a polygon instead of on its boundary', () => {
+ const a={id:'a',vertices:[[0,0,0],[2,0,0],[2,0,2],[0,0,2]],portals:[]};
+ const b={id:'b',vertices:[[1,.2,0],[3,.2,0],[3,.2,2],[1,.2,2]],portals:[]};
+ assert.throws(()=>surfaceGraph([a,b],{speed:1,portals:[{from:'a',to:'b',points:[[1,0,1],[1,.2,1]]}]}),/Invalid imported portal/);
+});

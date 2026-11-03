@@ -46,3 +46,17 @@ test('prepared queries straighten arbitrary endpoints and apply continuous sprin
     assert.deepEqual(stationary.points, [start.position]);
   }
 });
+
+test('interaction queries end on reachable standing ground within an explicit volume', async () => {
+  const { createGroundPlanner } = await import('../src/index.mjs');
+  const planner = createGroundPlanner([
+    { id: 'floor', vertices: [[0,0,0],[4,0,0],[4,0,4],[0,0,4]] },
+    { id: 'platform', vertices: [[1,1,1],[2,1,1],[2,1,2],[1,1,2]] },
+  ], options);
+  const starts = [{ id: 'player', position: [.5,0,.5], cost: 0, state: 'available' }];
+  assert.equal(planner.plan(starts, [1.5,1,1.5]).status, 'no-verified-route');
+  const result = planner.plan(starts, [1.5,1,1.5], { interaction: { radius: 1.5 } });
+  assert.equal(result.status, 'complete');
+  assert.equal(result.points.at(-1)[1], 0);
+  assert.ok(Math.hypot(...result.points.at(-1).map((v,i) => v - [1.5,1,1.5][i])) <= 1.5);
+});

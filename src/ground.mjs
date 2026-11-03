@@ -1,6 +1,7 @@
 import { surfaceGraph, projectPoint } from './surfaces.mjs';
 import { routeFrom } from './routes.mjs';
 import { validateMotion } from './motion.mjs';
+import { createGoalProjector } from './goals.mjs';
 import { createGroundStraightener } from './straighten.mjs';
 import { retimeGroundRoute } from './locomotion.mjs';
 
@@ -20,12 +21,13 @@ export function planGroundRoute(surfaces, starts, goal, options) {
  */
 export function createGroundPlanner(surfaces, options) {
   const { speed, maxVertical, walls, profile, connections = [] } = options;
-  const base = surfaceGraph(surfaces, { speed });
+  const base = surfaceGraph(surfaces, { speed, portals: options.portals });
   const straighten = createGroundStraightener(surfaces, options);
-  return { plan(starts, goal) {
+  const projectGoal = createGoalProjector(surfaces);
+  return { plan(starts, goal, query = {}) {
     const graph = { nodes: [...base.nodes], edges: [...base.edges] };
-    const target = projectPoint(surfaces, goal, { maxVertical });
-    if (!target) return { status: 'unmapped' };
+    const targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
+    if (!targets.length) return { status: 'unmapped' };
     const centers = new Map(graph.nodes.map(n => [n.id, n.position]));
     const endpoints = new Map();
     let serial = 0;
@@ -52,7 +54,7 @@ export function createGroundPlanner(surfaces, options) {
       peers.push({ id, position: projected.position }); endpoints.set(projected.surface, peers);
       return id;
     };
-    const targetId = endpoint(target);
+    const targetIds = targets.map(endpoint);
     const arrivals = [], ids = new Set();
     for (const start of starts) {
       if (typeof start.id !== 'string' || ids.has(start.id) || !Number.isFinite(start.cost) || start.cost < 0 ||
@@ -87,7 +89,7 @@ export function createGroundPlanner(surfaces, options) {
     let best = null;
     for (const arrival of arrivals) {
       if (best && arrival.cost >= best.cost) continue;
-      const candidate = routeFrom(graph, [arrival], targetId, { walls, profile });
+      const candidate = routeFrom(graph, [arrival], targetIds, { walls, profile });
       if (candidate.status !== 'complete') continue;
       const continuous = straightenRoute(candidate, straighten, speed);
       const timed = options.locomotion ? retimeGroundRoute(continuous, options.locomotion) : continuous;

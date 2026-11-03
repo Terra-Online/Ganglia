@@ -5,3 +5,4 @@ export { planGroundRoute, createGroundPlanner } from './ground.mjs';
 export { sampleJourney } from './motion.mjs';
 
 export { retimeGroundRoute } from './locomotion.mjs';
+export { createGoalProjector, projectGoal } from './goals.mjs';

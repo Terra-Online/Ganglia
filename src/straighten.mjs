@@ -1,4 +1,5 @@
 import { blockedByWalls } from './walls.mjs';
+import { surfacePortals } from './surfaces.mjs';
 
 const pointKey = point => point.map(value => Math.round(value * 10000)).join(',');
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
@@ -91,7 +92,8 @@ const makeIndex = triangles => {
  * Height changes are reconstructed from triangulated support, never fitted as a spline.
  */
 export function createGroundStraightener(surfaces, { walls, profile }) {
-  const triangles = [], edgeOwners = new Map(), ids = new Set();
+  const portals = surfacePortals(surfaces);
+  const triangles = [], edgeOwners = new Map(), boundaryOwners = new Map(), ids = new Set();
   for (const surface of surfaces) {
     if (typeof surface.id !== 'string' || ids.has(surface.id) || !Array.isArray(surface.vertices) ||
         surface.vertices.length < 3 || !surface.vertices.every(finitePoint)) throw new Error('Invalid surface');
@@ -111,7 +113,10 @@ export function createGroundStraightener(surfaces, { walls, profile }) {
       const polygonEdges = [fan === 1 ? 0 : null, fan, fan + 1 === vertices.length - 1 ? vertices.length - 1 : null];
       for (let edge = 0; edge < 3; edge++) {
         const polygonEdge = polygonEdges[edge];
-        if (polygonEdge !== null && surface.portals && !surface.portals.includes(polygonEdge)) continue;
+        if (polygonEdge !== null) {
+          boundaryOwners.set(JSON.stringify([surface.id, polygonEdge]), { triangle, edge });
+          continue;
+        }
         const from = pointKey(triangle.vertices[edge]), to = pointKey(triangle.vertices[(edge + 1) % 3]);
         if (from === to) continue;
         const edgeKey = from < to ? from + '/' + to : to + '/' + from;
@@ -128,6 +133,13 @@ export function createGroundStraightener(surfaces, { walls, profile }) {
     if (a.from !== b.to || a.to !== b.from || a.triangle === b.triangle) continue;
     a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3 });
     b.triangle.neighbours.push({ triangle: a.triangle, opposite: (b.edge + 2) % 3 });
+  }
+  for (const portal of portals) {
+    const a = boundaryOwners.get(JSON.stringify([portal.from, portal.fromEdge]));
+    const b = boundaryOwners.get(JSON.stringify([portal.to, portal.toEdge]));
+    if (!a || !b) continue;
+    a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3, portal });
+    b.triangle.neighbours.push({ triangle: a.triangle, opposite: (b.edge + 2) % 3, portal });
   }
   const supporting = makeIndex(triangles);
 
@@ -177,6 +189,14 @@ export function createGroundStraightener(surfaces, { walls, profile }) {
         if (fraction < entry.fraction - tolerance || fraction < next.near - tolerance ||
             fraction > Math.min(interval.far, next.far) + tolerance || fraction > 1) continue;
         fraction = Math.max(0, fraction);
+        if (neighbour.portal) {
+          const point = interpolate(fraction), { start, end } = neighbour.portal;
+          const dx = end[0] - start[0], dz = end[2] - start[2], lengthSquared = dx * dx + dz * dz;
+          if (lengthSquared < 1e-16) continue;
+          const t = ((point[0] - start[0]) * dx + (point[2] - start[2]) * dz) / lengthSquared;
+          if (t < -tolerance || t > 1 + tolerance ||
+              Math.hypot(point[0] - start[0] - t * dx, point[2] - start[2] - t * dz) > 1e-4) continue;
+        }
         const previous = reached.get(neighbour.triangle.id);
         if (previous && previous.fraction <= fraction + tolerance) continue;
         const reachedEntry = { triangle: neighbour.triangle, fraction, previous: entry };

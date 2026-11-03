@@ -36,8 +36,11 @@ export function routeFrom(graph, starts, goal, constraints) {
       edges.get(edge.from).push(edge);
     }
   }
-  if (!nodes.has(goal)) return { status: 'unmapped' };
-  if (constraints && blockedByWalls(nodes.get(goal), nodes.get(goal), constraints.walls, constraints.profile)) return { status: 'no-verified-route' };
+  const requested = Array.isArray(goal) ? goal : [goal];
+  const mapped = requested.filter(id => nodes.has(id));
+  if (!mapped.length) return { status: 'unmapped' };
+  const goals = new Set(mapped.filter(id => !constraints || !blockedByWalls(nodes.get(id), nodes.get(id), constraints.walls, constraints.profile)));
+  if (!goals.size) return { status: 'no-verified-route' };
   // Dijkstra: arbitrary authored travel times need not admit a Euclidean heuristic.
   const costs = new Map(), previous = new Map(), origins = new Map(), heap = [];
   const push = (item) => {
@@ -79,7 +82,8 @@ export function routeFrom(graph, starts, goal, constraints) {
   while (heap.length) {
     const entry = pop(), current = entry.id;
     if (entry.cost !== costs.get(current)) continue;
-    if (current === goal) {
+    if (goals.has(current)) {
+      const goal = current;
       const path = [];
       let root = goal;
       for (let id = goal; previous.has(id);) {

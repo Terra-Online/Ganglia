@@ -18,14 +18,15 @@ export function sampleRoute(points: Vec3[], meters: number): Vec3;
 export function sampleJourney(route: Extract<Route, {status: 'complete'}>, seconds: number): { position: Vec3; mode: MovementMode | 'complete'; connection?: string };
 export function blockedByWalls(start: Vec3, end: Vec3, walls: Wall[], profile: { radius: number; height: number }): boolean;
 export interface Surface { id: string; vertices: Vec3[]; portals?: number[] }
-export function surfaceGraph(surfaces: Surface[], options: { speed: number }): Graph;
+export interface Portal { from: string; to: string; points: [Vec3, Vec3] }
+export function surfaceGraph(surfaces: Surface[], options: { speed: number; portals?: Portal[] }): Graph;
 
 export interface Arrival { id: string; node: string; cost: number; state: 'available' | 'locked' | 'unknown' }
-export function routeFrom(graph: Graph, starts: Arrival[], goal: string, constraints?: { walls: Wall[]; profile: { radius: number; height: number } }): Route;
+export function routeFrom(graph: Graph, starts: Arrival[], goal: string | string[], constraints?: { walls: Wall[]; profile: { radius: number; height: number } }): Route;
 export function projectPoint(surfaces: Surface[], position: Vec3, options: { maxVertical: number }): { surface: string; position: Vec3 } | null;
 export interface GroundArrival { id: string; position: Vec3; cost: number; state: Arrival['state'] }
 export interface GroundConnection { id: string; mode: Exclude<MovementMode, 'walk'>; points: Vec3[]; times: number[]; state: 'open' | 'closed' | 'unknown' }
-export interface GroundOptions { speed: number; maxVertical: number; walls: Wall[]; profile: { radius: number; height: number }; connections?: GroundConnection[]; locomotion?: LocomotionOptions }
+export interface GroundOptions { speed: number; maxVertical: number; walls: Wall[]; profile: { radius: number; height: number }; connections?: GroundConnection[]; portals?: Portal[]; locomotion?: LocomotionOptions }
 export function planGroundRoute(surfaces: Surface[], starts: GroundArrival[], goal: Vec3, options: GroundOptions): Route;
 
 /** Explicit movement policy. No unverified game-specific energy defaults are inferred. */
@@ -52,8 +53,13 @@ export interface LocomotionOptions {
  * across alternative corridors is not guaranteed.
  */
 export function createGroundPlanner(surfaces: Surface[], options: GroundOptions): {
-  plan(starts: GroundArrival[], goal: Vec3): Route;
+  plan(starts: GroundArrival[], goal: Vec3, query?: { interaction?: InteractionGoal }): Route;
 };
 
 /** Apply an explicit resource-feasible gait schedule to an existing continuous path. */
 export function retimeGroundRoute(route: Route, options: LocomotionOptions): Route;
+
+/** Explicit source-derived interaction volume. No per-game defaults are supplied. */
+export interface InteractionGoal { radius: number; maxVertical?: number; facing?: Vec3; halfAngle?: number }
+export function createGoalProjector(surfaces: Surface[]): (target: Vec3, options: { maxVertical: number; interaction?: InteractionGoal }) => { surface: string; position: Vec3; distance: number }[];
+export function projectGoal(surfaces: Surface[], target: Vec3, options: { maxVertical: number; interaction?: InteractionGoal }): { surface: string; position: Vec3; distance: number }[];

@@ -98,3 +98,10 @@ test('traverses connected triangle fans at a shared vertex', () => {
   const input = [[.2, 0, .2], [.5, 0, .5], [1, 0, .5], [1.5, 0, .5], [1.5, 0, 1], [1.8, 0, 1.8]];
   assert.deepEqual(createGroundStraightener(surfaces, options)(input), [input[0], input.at(-1)]);
 });
+
+test('straightens through split portals and stays inside their overlap', () => {
+  const a = rectangle('a', 0, 0, 1, 2);
+  const b = rectangle('b', 1, 0), c = rectangle('c', 1, 1);
+  const input = [[.2, 0, .3], [.5, 0, 1], [1, 0, .5], [1.8, 0, .3]];
+  assert.deepEqual(createGroundStraightener([a,b,c], options)(input), [input[0], input.at(-1)]);
+});

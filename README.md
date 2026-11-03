@@ -18,7 +18,9 @@ if (result.status === 'complete') {
 Surfaces are convex, consistently wound, world-coordinate polygons selected for one
 build, scene, state and movement profile. Importers must respect navigation area masks,
 clearance, dynamic obstacles and detail heights. Optional `portals` lists the edge indices
-that may connect; an empty list closes every edge. Only matching full 3D edges connect.
+that may connect; an empty list closes every edge. Matching 3D edges connect over
+their shared intervals, including split collinear edges. Authored directed seam
+transfers can connect height differences within the importer's verified step limits.
 No proximity bridge, jump, climb, floor snap or off-mesh connection is invented.
 
 Arrivals supply `{ id, position, cost, state }`. Costs are seconds; availability is
@@ -33,8 +35,9 @@ height before planning. The target and starts retain their projected coordinates
 are lower-level entry points for prebuilt directed corridor graphs. The latter takes
 node-based arrivals `{ id, node, cost, state }`. Binary-heap multi-source Dijkstra finds
 the minimum cost on the supplied graph. Unknown/closed edges are excluded. Polygon-centre
-routes are conservative corridor paths, **not continuous shortest paths**. Partial portal
-matching, funnel shortening and detail-height reconstruction are not implemented.
+routes select conservative corridors. Ground visibility tracing removes unnecessary
+turns and reconstructs support heights. This does not guarantee a globally shortest
+continuous path over every possible corridor.
 
 `blockedByWalls` applies player radius/height and optional wall padding. Unknown walls
 block. Optional XZ `points` describe thin wall polylines; `polygon` describes a filled
@@ -178,3 +181,26 @@ interior activation time or waiting strategy. It retains up to 256 nondominated
 labels and reports a truncated search if that limit is reached. Ground turns of at least 30 degrees reset
 to running speed before sprint acceleration. Scene-state changes require rebuilding
 the prepared planner. No all-pairs route cache is needed.
+
+Imported navigation can supply directed `portals: [{from, to, points}]`. Each
+endpoint must lie on its source polygon boundary and share the other endpoint's
+XZ position within numeric tolerance. The importer authorizes the step from
+source neighbour metadata and the player's upward/downward limits. This restores
+stepped tile seams without adding arbitrary proximity links. Collinear split
+edges also connect over their actual shared interval.
+
+Prepared queries accept an explicit interaction goal through
+`planner.plan(starts, target, {interaction: {radius, maxVertical?, facing?, halfAngle?}})`.
+Ground candidates are selected inside the supplied volume instead of requiring
+feet at the object's marker. Angles are degrees. These generic constraints have
+no game-specific defaults. The caller must resolve effective instance parameters,
+player-body overlap and interaction occlusion from its source data. One candidate
+per eligible polygon is searched, so continuous goal-region entry is approximate.
+
+
+`buildGroundTiles(geometry, {...buildOptions, bounds, tileCells})` builds padded
+physical tiles on a global voxel grid, clips them to their core bounds and returns
+step-limited directed seams. Geometry may include factory floors absent from AI
+navigation. Empty geometry and native-confirmed empty polygon meshes remain empty.
+A failed tile aborts the result. All selected collision/state/profile inputs must
+cover the padded region, and hazard/device constraints remain caller-owned.

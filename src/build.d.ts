@@ -26,3 +26,15 @@ export interface BuildOptions {
  * Throws for invalid inputs, excessive region size or a failed native build.
  */
 export function buildGroundSurfaces(geometry: CollisionGeometry, options: BuildOptions): Promise<Surface[]>;
+
+/** Padded physical builds clipped to one global tile grid. All selected input geometry
+ * must cover the requested region plus padding. Failed tiles abort the complete result.
+ */
+export function buildGroundTiles(geometry: CollisionGeometry, options: BuildOptions & {
+  bounds: { min: [number, number]; max: [number, number] };
+  tileCells: number;
+}): Promise<{
+  surfaces: Surface[];
+  portals: import('./index.d.ts').Portal[];
+  tiles: { x: number; z: number; bounds: { min: [number, number]; max: [number, number] }; surfaces: number }[];
+}>;
