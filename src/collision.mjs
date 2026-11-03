@@ -43,6 +43,34 @@ const triangleTriangle = (a,b) => Math.min(
 const overlaps = (a,b) => [0,1,2].every(i=>a[i]<=b[i+3]&&a[i+3]>=b[i]);
 const point = p => Array.isArray(p)&&p.length===3&&p.every(Number.isFinite);
 
+// Highest bottom-sphere support on the triangle, including its edges and corners.
+// The edge objective is concave, so its stationary point or a segment endpoint
+// gives the exact maximum. This avoids directional ray sampling at a ledge.
+const sphereSupport = (position, face, normal, radius) => {
+  const contact = [position[0] - radius * normal[0], 0, position[2] - radius * normal[2]];
+  const planeHeight = face[0][1] - (normal[0] * (position[0] - face[0][0]) +
+    normal[2] * (position[2] - face[0][2])) / normal[1];
+  contact[1] = planeHeight + radius / normal[1] - radius * normal[1];
+  let best = inside(contact, face, normal) ? planeHeight + radius * (1 / normal[1] - 1) : -Infinity;
+  for (let index = 0; index < 3; index++) {
+    const a = face[index], b = face[(index + 1) % 3];
+    const dx = b[0] - a[0], dz = b[2] - a[2], dy = b[1] - a[1];
+    const lengthSquared = dx * dx + dz * dz;
+    if (lengthSquared === 0) continue;
+    const x = position[0] - a[0], z = position[2] - a[2];
+    const projection = (x * dx + z * dz) / lengthSquared;
+    const perpendicularSquared = (x - projection * dx) ** 2 + (z - projection * dz) ** 2;
+    const reachSquared = radius * radius - perpendicularSquared;
+    if (reachSquared < 0) continue;
+    const fraction = Math.max(0, Math.min(1, projection +
+      dy * Math.sqrt(reachSquared / (lengthSquared * (lengthSquared + dy * dy)))));
+    const horizontalSquared = (x - fraction * dx) ** 2 + (z - fraction * dz) ** 2;
+    if (horizontalSquared <= radius * radius) best = Math.max(best,
+      a[1] + fraction * dy + Math.sqrt(radius * radius - horizontalSquared) - radius);
+  }
+  return best;
+};
+
 /** Index a snapshot of world-space triangle surfaces. No layer, state or coverage
  * inference is performed. Triangles are double-sided thin surfaces, not solid volumes.
  * A capsule contained wholly inside a closed mesh therefore needs a separate initial
@@ -126,15 +154,17 @@ export function createCollisionWorld(geometry, options){
   };
   const root=count?build(0,count):null;
   return {
+    bounds: scope ? { min: scope.slice(0,2), max: scope.slice(2,4) } : null,
     /** Find upward support at exactly the supplied XZ position. Slope is in degrees.
      * Height limits are explicit and independent. This establishes triangle support
      * only; callers still verify standing capsule clearance and active world coverage.
      */
     groundAt(position,options){
-      const {maxUp,maxDown,maxSlope}=options??{};
-      if(!point(position)||![maxUp,maxDown,maxSlope].every(Number.isFinite)||
-          maxUp<0||maxDown<0||maxSlope<=0||maxSlope>=90)throw new Error('Invalid ground support query');
-      const box=[position[0],position[1]-maxDown,position[2],position[0],position[1]+maxUp,position[2]];
+      const {maxUp,maxDown,maxSlope,radius=0}=options??{};
+      if(!point(position)||![maxUp,maxDown,maxSlope,radius].every(Number.isFinite)||
+          maxUp<0||maxDown<0||maxSlope<=0||maxSlope>=90||radius<0)throw new Error('Invalid ground support query');
+      const box=[position[0]-radius,position[1]-maxDown-radius,position[2]-radius,
+        position[0]+radius,position[1]+maxUp+radius,position[2]+radius];
       if(!box.every(Number.isFinite))throw new Error('Non-finite ground support bounds');
       requireScope(box);
       const minimumUp=Math.cos(maxSlope*Math.PI/180),stack=root?[root]:[];
@@ -150,18 +180,21 @@ export function createCollisionWorld(geometry, options){
           const normal=cross(ab,ac),length=Math.hypot(...normal);
           if(!Number.isFinite(length))throw new Error('Non-finite ground support normal');
           if(length===0||normal[1]<=0||normal[1]/length<minimumUp)continue;
+          const unitNormal=normal.map(value=>value/length);
           const x=position[0]-face[0][0],z=position[2]-face[0][2],determinant=-normal[1];
           const u=(x*ac[2]-z*ac[0])/determinant,v=(ab[0]*z-ab[2]*x)/determinant;
           // Only a numerical barycentric tolerance is allowed; the query never
           // searches neighbouring XZ positions or snaps across a missing floor.
-          if(u < -1e-10||v < -1e-10||u+v > 1+1e-10)continue;
-          const height=face[0][1]+u*ab[1]+v*ac[1];
+          if(radius===0&&(u < -1e-10||v < -1e-10||u+v > 1+1e-10))continue;
+          const height=radius>0 ? sphereSupport(position,face,unitNormal,radius) : face[0][1]+u*ab[1]+v*ac[1];
+          if(height===-Infinity)continue;
           if(!Number.isFinite(height))throw new Error('Non-finite ground support height');
-          if(height<box[1]||height>box[4])continue;
+          if(height<position[1]-maxDown||height>position[1]+maxUp)continue;
           const offset=Math.abs(height-position[1]);
-          if(offset<bestOffset||(offset===bestOffset&&height>best.position[1])){
+          if((radius>0 && (!best || height>best.position[1])) ||
+              (radius===0 && (offset<bestOffset||(offset===bestOffset&&height>best.position[1])))){
             bestOffset=offset;
-            best={position:[position[0],height,position[2]],triangle:originalIds ? originalIds[id] : id,normal:normal.map(value=>value/length)};
+            best={position:[position[0],height,position[2]],triangle:originalIds ? originalIds[id] : id,normal:unitNormal};
           }
         }
       }

@@ -107,6 +107,20 @@ Its authored gravity, jump height, apex hold and terminal fall speed determine
 vertical motion. Constant horizontal travel must fit the supplied speed cap.
 Continuous capsule sweeps inflate every sampled chord by the bounded curve
 deviation. `jumpDuration` exposes the same analytic vertical duration for discovery.
+Intervals whose curvature envelope touches geometry are subdivided before rejection,
+retaining full-body sweeps at every refinement. Optional explicit air acceleration
+and deceleration enable bounded early, late and split horizontal control primitives.
+These can brake over an opening before descending under an overhang. Their complete
+three-dimensional acceleration bounds inflate every swept chord. Sprint entry uses
+peak horizontal speed, including acceleration phases.
+
+Discovery also considers supported walk-off drops. These follow bottom-sphere
+support over a ledge before free fall, including rounded contact with triangle
+edges and corners. Every approach chord checks body clearance and air walls.
+With explicit air-control limits, directed ledge exits can continue into a curved
+fall beneath an overhang. A constant-speed supported approach supplies the initial
+air velocity. Cubic velocity controls bound speed and acceleration throughout the
+fall, and every curved interval retains the same swept body and wall constraints.
 
 `findJumpConnections(surfaces, collisionWorld, options)` searches separated directed
 ground components, including intermediate platforms. Caller-supplied sampling and
@@ -122,15 +136,17 @@ trigger another chain search; accepted trajectories and standing checks are reus
 Arc validation runs in small scheduling batches. Difficult shortcuts are deferred
 with their remaining candidates intact so a nearby multi-hop chain can be tried
 before that shortcut consumes the entire query budget.
-Local pairing spreads work across takeoff regions and queries landing samples in
-3D goal-distance order. Candidate ordering estimates approach, flight and departure
+Local pairing lazily covers exposed takeoff ledges and queries continuous landing
+positions on surface interiors as well as edges. Candidate ordering estimates approach, flight and departure
 time; minimizing horizontal flight span alone can favour blocked vertical drops.
 Nominally feasible samples precede those relying on navigation-height tolerance.
 Exhausting generation work still permits validation of already retained candidates.
 Seed-pair generation also runs in resumable batches, preserving its iterator and
 queued refinements. One difficult transfer cannot consume all generation work before
-an alternative multi-hop chain is explored. `maxCandidates` bounds an ordered local
-batch; query-wide seed, pair, contact and arc limits are reported separately.
+an alternative multi-hop chain is explored. `maxCandidates` caps local batches,
+with at most 128 candidates per batch. Query-wide seed, pair, contact and arc limits
+are reported separately. Cached optimistic region adjacency remains available
+after generation budgets run out.
 These bounds and ordering costs never grant movement access or establish optimality.
 
 Optional `interaction` uses the same standing-volume contract as ground planning.
@@ -149,8 +165,19 @@ separate, and a region connection can still fail the final ground route or gait 
 query entry point for ground, jump and jump-down/drop combinations. Supply the
 ordinary ground options, an explicit `model`, `runAirSpeed`, interaction volume,
 and discovery limits. It first retains a ground route when available. Otherwise,
-component-chain discovery supplies feasible directed jumps through intermediate
-platforms. Both cases then search jump alternatives and compare complete routes.
+verified directed frontiers expand both from reachable ground and backward from
+goal-connected surfaces. Search work is balanced between the two sides, allowing
+a productive multi-hop chain to continue while the opposite side needs refinement.
+Each accepted landing expands directed ground reachability before the next pass.
+Static topology, standing support, ledge approaches and motion checks are reused
+across frontier passes. Coarse spatial regions receive candidates before fine
+body-scale refinements. Continuous ground transfers are reused while the target
+remains fixed. Landing queries alternate source and destination heights,
+so intermediate steps compete with lower floors near the goal. Motion variants
+advance in rounds across candidate transfers, and each swept trajectory consumes
+the shared arc budget. Geometry checks and seeds share one query-wide work budget across these passes,
+with no fixed hop-depth limit. Both cases then search jump alternatives and compare
+complete routes.
 
 A successful walk no longer ends movement discovery. Takeoff streams cover each
 exposed ledge before fine pullback refinement. Spatial landing queries include

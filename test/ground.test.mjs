@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planGroundRoute, route } from '../src/index.mjs';
+import { planGroundRoute, route, createGroundPlanner } from '../src/index.mjs';
 const surfaces = [{ id: 'a', vertices: [[0,0,0],[2,0,0],[2,0,2],[0,0,2]] },
   { id: 'b', vertices: [[2,0,0],[4,0,0],[4,0,2],[2,0,2]] },
   { id: 'island', vertices: [[5,0,0],[6,0,0],[6,0,2],[5,0,2]] }];
@@ -25,6 +25,23 @@ test('same-polygon shortcuts and stationary paths still obey wall exclusions', (
   assert.deepEqual(result.points, [[0.2,0,1],[1.8,0,1]]);
   assert.equal(planGroundRoute(surfaces, [start], [1.8,0,1], {...options, walls:[wall]}).status, 'no-verified-route');
   assert.equal(route({nodes:[{id:'a',position:[1,0,1]}],edges:[]}, 'a', 'a', {walls:[wall],profile:options.profile}).status, 'no-verified-route');
+});
+
+test('prepared action queries preserve explicit support faces across overlapping navigation', () => {
+  const floor = (id, left, right, height, portals) => ({ id, portals,
+    vertices: [[left, height, 0], [right, height, 0], [right, height, 2], [left, height, 2]] });
+  const scene = [floor('shadow', 2, 4, 0.3, []), floor('source', 0, 4, 0), floor('target', 7, 11, 4)];
+  const planner = createGroundPlanner(scene, options);
+  const starts = [{ id: 'player', position: [1, 0, 1], state: 'available', cost: 0 }];
+  const connection = { id: 'jump', mode: 'jump', state: 'open',
+    points: [[3, 0.305, 1], [8, 4, 1]], times: [0, 1], endpointTolerance: 0.35, fromSurface: 'source', toSurface: 'target' };
+  assert.equal(planner.plan(starts, [10, 4, 1], { connections: [connection] }).status, 'complete');
+  assert.notEqual(planner.plan(starts, [10, 4, 1], { connections: [] }).status, 'complete');
+  const { fromSurface, toSurface, ...unbound } = connection;
+  assert.notEqual(planner.plan(starts, [10, 4, 1], { connections: [unbound] }).status, 'complete');
+  assert.throws(() => planner.plan(starts, [10, 4, 1], {
+    connections: [{ ...connection, toSurface: 'missing' }],
+  }), /support surface/);
 });
 
 test('prepared queries straighten arbitrary endpoints and apply continuous sprint timing', async () => {

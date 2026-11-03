@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jumpConnection, jumpDuration } from '../src/jumps.mjs';
+import { jumpConnection, jumpDuration, runOffConnection } from '../src/jumps.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
 
 const profile = { radius: 0.35, height: 1.66 };
@@ -177,4 +177,66 @@ test('analytic duration reuses the complete jump and terminal-fall phase model',
   }
   assert.equal(jumpDuration(0, 3, { ...options, mode: 'jump' }), null);
   assert.throws(() => jumpDuration(0, 0, { ...options, gravity: 0 }), /Invalid jump model/);
+});
+
+test('walk-off drops preserve support before free fall under low headroom', () => {
+  const rectangle = (left, right, height) => [
+    [[left, height, -3], [right, height, 3], [right, height, -3]],
+    [[left, height, -3], [left, height, 3], [right, height, 3]],
+  ];
+  for (const angle of [0, Math.PI / 3, Math.PI / 2]) {
+    const transform = ([x, y, z]) => [
+      -1024.8 + x * Math.cos(angle) - z * Math.sin(angle), y,
+      512.4 + x * Math.sin(angle) + z * Math.cos(angle),
+    ];
+    const collision = world([
+      ...rectangle(0, 4, 5), ...rectangle(4.5, 10, 0), ...rectangle(0, 4, 7),
+    ].map(triangle => triangle.map(transform)));
+    const model = { ...options, gravity: 40, fallingGravity: 38, maxJumpHeight: 2.1,
+      maxFallingSpeed: 80, apexTime: 0.1, maxHorizontalSpeed: 6.5,
+      sweep: collision.sweepCapsule, world: collision, maxSlope: 46 };
+    const start = transform([3.5, 5.005, 0]), end = transform([6, 0.005, 0]);
+    assert.equal(jumpConnection(start, end, { ...model, mode: 'jump' }), null);
+    assert.equal(jumpConnection(start, end, { ...model, mode: 'drop' }), null);
+    const connection = runOffConnection(start, end, model);
+    assert.ok(connection);
+    assert.deepEqual(connection.points[0], start);
+    assert.deepEqual(connection.points.at(-1), end);
+    assert.ok(connection.points.filter(point => point[1] === start[1]).length > 2);
+    for (let index = 1; index < connection.points.length; index++) {
+      assert.ok(connection.times[index] > connection.times[index - 1]);
+      assert.equal(collision.sweepCapsule(connection.points[index - 1], connection.points[index], profile), null);
+    }
+    const barrier = transform([3.8, 5, 0]);
+    assert.equal(runOffConnection(start, end, { ...model,
+      walls: [{ min: barrier.map(value => value - 0.05), max: barrier.map(value => value + 0.05), state: 'unknown' }],
+    }), null);
+  }
+});
+
+test('bounded air control clears an opening before descending under an overhang', () => {
+  const rectangle = (left, right, height) => [
+    [[left, height, -3], [right, height, 3], [right, height, -3]],
+    [[left, height, -3], [left, height, 3], [right, height, 3]],
+  ];
+  const collision = world([
+    ...rectangle(-2, 0.5, 20), ...rectangle(1.7, 5, 20), ...rectangle(0.6, 6, 0),
+  ]);
+  const model = { ...options, gravity: 40, fallingGravity: 38, maxJumpHeight: 2.1,
+    maxFallingSpeed: 80, apexTime: 0.1, maxHorizontalSpeed: 6.5,
+    airAcceleration: 60, airDeceleration: 10, sweep: collision.sweepCapsule };
+  const start = [0, 20.005, 0], end = [2.5, 0.005, 0];
+  assert.equal(jumpConnection(start, end, model), null);
+  const arc = jumpConnection(start, end, { ...model, horizontalSplit: 0.5 });
+  assert.ok(arc);
+  assert.ok(arc.peakHorizontalSpeed <= model.maxHorizontalSpeed);
+  assert.ok(arc.points.slice(1).some((point, index) => point[0] === arc.points[index][0]));
+  for (let index = 1; index < arc.points.length; index++) {
+    const speed = Math.abs(arc.points[index][0] - arc.points[index - 1][0]) /
+      (arc.times[index] - arc.times[index - 1]);
+    assert.ok(speed <= model.maxHorizontalSpeed + 1e-9);
+    assert.equal(collision.sweepCapsule(arc.points[index - 1], arc.points[index], profile), null);
+  }
+  assert.equal(jumpConnection(start, end, { ...model, horizontalSplit: 0.5, airDeceleration: 0.1 }), null);
+  assert.throws(() => jumpConnection(start, end, { ...model, horizontalSplit: -1 }), /horizontal jump/);
 });

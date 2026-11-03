@@ -140,6 +140,24 @@ test('bounded indexing retains crossing floors and headroom with original source
   assert.equal(query.sweepCapsule([-.5,.01,0],[.5,.01,0],profile).triangle, 2);
 });
 
+test('bottom-sphere support covers ledges and corners without bridging a gap', () => {
+  const triangles = [
+    [[0, 5, -3], [4, 5, 3], [4, 5, -3]],
+    [[0, 5, -3], [0, 5, 3], [4, 5, 3]],
+  ];
+  const query = createCollisionWorld({ positions: triangles.flat(2), indices: [0, 1, 2, 3, 4, 5] });
+  for (const [x, z, distance] of [[2, 0, 0], [4.2, 0, 0.2], [4.2, 3.2, Math.sqrt(0.08)]]) {
+    const support = query.groundAt([x, 5, z], { ...supportOptions, radius: profile.radius });
+    assert.ok(support);
+    assert.ok(Math.abs(support.position[1] - (5 - profile.radius + Math.sqrt(profile.radius ** 2 - distance ** 2))) < 1e-10);
+    const clear = [x, support.position[1] + 0.005, z];
+    assert.equal(query.sweepCapsule(clear, clear, profile), null);
+  }
+  assert.equal(query.groundAt([4.2, 5, 0], supportOptions), null);
+  assert.equal(query.groundAt([4.4, 5, 0], { ...supportOptions, radius: profile.radius }), null);
+  assert.throws(() => query.groundAt([0, 5, 0], { ...supportOptions, radius: -1 }), /support query/);
+});
+
 test('bounded worlds guard the full capsule footprint and keep inclusive query boundaries', () => {
   const query = createCollisionWorld({ positions: [], indices: [] }, { bounds: { min: [-1,-2], max: [1,2] } });
   assert.equal(query.groundAt([-1,0,-2], supportOptions), null);

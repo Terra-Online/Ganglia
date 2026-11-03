@@ -1,7 +1,81 @@
-import { blockedByWalls } from './walls.mjs';
+import { createWallChecker } from './walls.mjs';
 
 const maximumStep = 0.025;
 const finitePoint = (point) => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
+
+const horizontalLeg = (distance, speed, acceleration, deceleration) => {
+  if (distance === 0) return { duration: 0, peak: 0, at: () => 0 };
+  const peak = Math.min(speed, Math.sqrt(2 * distance / (1 / acceleration + 1 / deceleration)));
+  if (peak === 0) return null;
+  const rise = peak / acceleration, fall = peak / deceleration;
+  const coast = Math.max(0, distance / peak - (rise + fall) / 2);
+  const duration = rise + coast + fall;
+  return { duration, peak, at(time) {
+    if (time <= 0) return 0;
+    if (time >= duration) return distance;
+    if (time < rise) return acceleration * time * time / 2;
+    if (time < rise + coast) return peak * (time - rise / 2);
+    const remaining = duration - time;
+    return distance - deceleration * remaining * remaining / 2;
+  } };
+};
+
+// Bounded control primitives share the same vertical model and collision proof.
+// A split moves partway early, brakes, then completes the motion late. This can
+// clear a railing, descend through an opening and move under an overhang.
+export function createMotionVariants(model, world, profile, exits = new Map(), approaches = new Map()) {
+  return function* (start, end, exit) {
+    yield { mode: 'drop' };
+    yield { mode: 'jump' };
+    if (exit && model.airAcceleration !== undefined) {
+      const key = JSON.stringify([start, exit]);
+      steering: for (const speedFraction of [0.5, 0.25, 1, 0.125]) {
+        for (const terminal of ['average', 'balanced', 'fast']) {
+          if (approaches.has(key) && approaches.get(key) === null) break steering;
+          yield { mode: 'drop', exit, speedFraction, terminal };
+        }
+      }
+    }
+    if (model.airAcceleration === undefined || model.airDeceleration === undefined) return;
+    const duration = jumpDuration(start[1], end[1], { ...model, mode: 'jump' });
+    if (duration === null) return;
+    const fits = point => {
+      const first = horizontalLeg(Math.hypot(point[0] - start[0], point[1] - start[2]),
+        model.maxHorizontalSpeed, model.airAcceleration, model.airDeceleration);
+      const last = horizontalLeg(Math.hypot(end[0] - point[0], end[2] - point[1]),
+        model.maxHorizontalSpeed, model.airAcceleration, model.airDeceleration);
+      return first !== null && last !== null && first.duration + last.duration <= duration;
+    };
+    const padding = profile.radius +
+      Math.hypot(Math.max(model.gravity, model.fallingGravity), model.airAcceleration, model.airDeceleration) * maximumStep ** 2 / 8;
+    if (exit) {
+      const key = JSON.stringify([start, exit]);
+      if (!exits.has(key)) {
+        let waypoint = null;
+        const length = Math.hypot(exit[0] - start[0], exit[1] - start[2]);
+        if (length > 0) for (let offset = -1.5; offset <= 2; offset += 0.25) {
+          const position = [exit[0] + (exit[0] - start[0]) / length * profile.radius * offset,
+            exit[1] + (exit[1] - start[2]) / length * profile.radius * offset];
+          if (world.bounds && position.some((value, axis) =>
+            value - padding < world.bounds.min[axis] || value + padding > world.bounds.max[axis])) continue;
+          // A pause needs a clear body column through the source floor. Its
+          // collision-verified opening is shared by all landings at this takeoff.
+          if (world.sweepCapsule([position[0], start[1] + model.maxJumpHeight, position[1]],
+            [position[0], start[1] - profile.height, position[1]], { ...profile, inflation: 0.005 }) !== null) continue;
+          waypoint = position;
+          break;
+        }
+        exits.set(key, waypoint);
+      }
+      const waypoint = exits.get(key);
+      if (waypoint && fits(waypoint)) yield { mode: 'jump', horizontalWaypoint: waypoint };
+    }
+    for (const horizontalSplit of [0.5, 0.25, 0.75, 0, 1]) {
+      if (fits([start[0] + (end[0] - start[0]) * horizontalSplit,
+        start[2] + (end[2] - start[2]) * horizontalSplit])) yield { mode: 'jump', horizontalSplit };
+    }
+  };
+}
 
 const jumpPhases = (startHeight, endHeight, options) => {
   const { gravity, fallingGravity, maxJumpHeight, maxFallingSpeed, apexTime, mode } = options ?? {};
@@ -119,53 +193,215 @@ export function jumpConnection(start, end, options) {
   )
     throw new Error('Invalid jump model');
   // Validate all wall records even when endpoint heights make the model impossible.
-  if (blockedByWalls(start, start, walls, profile)) return null;
+  const wallCheck = options.wallCheck ?? createWallChecker(walls, profile);
+  if (wallCheck(start, start)) return null;
 
   const trajectory = jumpPhases(start[1], end[1], options);
   if (!trajectory) return null;
-  const { phases, duration } = trajectory;
+  const { duration } = trajectory;
   // Avoid an unbounded allocation for inputs outside any practical scene extent.
   if (duration / maximumStep > 100000) throw new Error('Jump model exceeds the sweep budget');
   const horizontalDistance = Math.hypot(end[0] - start[0], end[2] - start[2]);
   if (horizontalDistance / duration > maxHorizontalSpeed) return null;
+  let horizontalAt = time => [start[0] + (end[0] - start[0]) * time / duration,
+    start[2] + (end[2] - start[2]) * time / duration];
+  let horizontalAcceleration = 0, peakHorizontalSpeed;
+  if (options.horizontalSplit !== undefined || options.horizontalWaypoint !== undefined) {
+    const { horizontalSplit, airAcceleration, airDeceleration } = options;
+    if (![airAcceleration, airDeceleration].every(Number.isFinite) || airAcceleration <= 0 || airDeceleration <= 0 ||
+        (options.horizontalWaypoint === undefined && (!Number.isFinite(horizontalSplit) || horizontalSplit < 0 || horizontalSplit > 1)) ||
+        (options.horizontalWaypoint !== undefined && (!Array.isArray(options.horizontalWaypoint) ||
+          options.horizontalWaypoint.length !== 2 || !options.horizontalWaypoint.every(Number.isFinite)))) {
+      throw new Error('Invalid horizontal jump control');
+    }
+    const middle = options.horizontalWaypoint ?? [start[0] + (end[0] - start[0]) * horizontalSplit,
+      start[2] + (end[2] - start[2]) * horizontalSplit];
+    const firstDistance = Math.hypot(middle[0] - start[0], middle[1] - start[2]);
+    const lastDistance = Math.hypot(end[0] - middle[0], end[2] - middle[1]);
+    const first = horizontalLeg(firstDistance, maxHorizontalSpeed, airAcceleration, airDeceleration);
+    const last = horizontalLeg(lastDistance, maxHorizontalSpeed, airAcceleration, airDeceleration);
+    if (!first || !last || first.duration + last.duration > duration) return null;
+    horizontalAt = time => {
+      const a = firstDistance === 0 ? 1 : first.at(time) / firstDistance;
+      const b = lastDistance === 0 ? 1 : last.at(time - (duration - last.duration)) / lastDistance;
+      return [start[0] + (middle[0] - start[0]) * a + (end[0] - middle[0]) * b,
+        start[2] + (middle[1] - start[2]) * a + (end[2] - middle[1]) * b];
+    };
+    horizontalAcceleration = Math.max(airAcceleration, airDeceleration);
+    peakHorizontalSpeed = Math.max(first.peak, last.peak);
+  }
 
+  return sweepTrajectory(start, end, trajectory, { profile, clearance, wallCheck, sweep,
+    horizontalAt, horizontalAcceleration, peakHorizontalSpeed, mode });
+}
+
+function sweepTrajectory(start, end, { phases, duration }, { profile, clearance, wallCheck, sweep,
+  horizontalAt, horizontalAcceleration, peakHorizontalSpeed, mode }) {
   const points = [[...start]],
     times = [0];
   let elapsed = 0;
   for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex++) {
     const phase = phases[phaseIndex],
       count = Math.ceil(phase.duration / maximumStep);
-    let previousTime = 0;
-    for (let step = 1; step <= count; step++) {
-      const localTime = (phase.duration * step) / count,
-        time = elapsed + localTime;
-      const last = phaseIndex === phases.length - 1 && step === count;
+    const advance = (previousTime, localTime, last) => {
+      const time = elapsed + localTime;
+      const horizontal = horizontalAt(time);
       const point = last
         ? [...end]
         : [
-            start[0] + ((end[0] - start[0]) * time) / duration,
+            horizontal[0],
             phase.y + phase.velocity * localTime + (phase.acceleration * localTime * localTime) / 2,
-            start[2] + ((end[2] - start[2]) * time) / duration,
+            horizontal[1],
           ];
       const delta = localTime - previousTime;
-      const inflation = clearance + (Math.abs(phase.acceleration) * delta * delta) / 8;
+      const inflation = clearance + (Math.hypot(phase.acceleration, horizontalAcceleration) * delta * delta) / 8;
       const previous = points.at(-1);
-      // Wall queries use feet plus height, so expand below and above the chord.
-      const wallStart = [previous[0], previous[1] - inflation, previous[2]];
-      const wallEnd = [point[0], point[1] - inflation, point[2]];
-      if (
-        blockedByWalls(wallStart, wallEnd, walls, {
-          radius: profile.radius + inflation,
-          height: profile.height + inflation * 2,
-        }) ||
-        sweep(previous, point, { ...profile, inflation }) !== null
-      )
-        return null;
+      const blocked =
+        wallCheck(previous, point, inflation) ||
+        sweep(previous, point, { ...profile, inflation }) !== null;
+      if (blocked) {
+        // Curvature inflation can overlap the supporting ledge while the actual
+        // arc clears it. Refine that interval without ignoring any contact.
+        if (delta <= maximumStep / 16) return false;
+        const middle = (previousTime + localTime) / 2;
+        return advance(previousTime, middle, false) && advance(middle, localTime, last);
+      }
       points.push(point);
       times.push(time);
-      previousTime = localTime;
+      return true;
+    };
+    for (let step = 1; step <= count; step++) {
+      if (!advance(phase.duration * (step - 1) / count, phase.duration * step / count,
+        phaseIndex === phases.length - 1 && step === count)) return null;
     }
     elapsed += phase.duration;
   }
-  return { mode, points, times, motionValidation: 'model-based' };
+  return { mode, points, times, motionValidation: 'model-based',
+    ...(peakHorizontalSpeed === undefined ? {} : { peakHorizontalSpeed }) };
+}
+
+/** Follow continuous support to a ledge before starting free fall. Recast erodes
+ * standing surfaces inward, so falling immediately from a supported seed drives
+ * the capsule into its own floor. This approach remains collision checked and
+ * cannot bridge a missing support interval or step through an obstacle.
+ * Internal discovery helper; callers supply validated world/model options.
+ */
+export function runOffConnection(start, end, options, cache) {
+  const { world, maxSlope, profile, walls } = options;
+  const wallCheck = options.wallCheck ?? createWallChecker(walls, profile);
+  const span = Math.hypot(end[0] - start[0], end[2] - start[2]);
+  if (span === 0 && !options.exit) return null;
+  const exit = options.exit ?? [end[0], end[2]];
+  const exitDistance = Math.hypot(exit[0] - start[0], exit[1] - start[2]);
+  if (exitDistance === 0) return null;
+  const direction = [(exit[0] - start[0]) / exitDistance, (exit[1] - start[2]) / exitDistance];
+  const limit = options.exit
+    ? exitDistance + profile.radius
+    : span;
+  const spacing = profile.radius / 4;
+  const slope = Math.tan(maxSlope * Math.PI / 180);
+  const cacheKey = options.exit ? JSON.stringify([start, options.exit]) : null;
+  if (cacheKey && cache?.has(cacheKey)) {
+    const prefix = cache.get(cacheKey);
+    return prefix ? steerDrop(prefix.launch, end, direction, prefix.points, prefix.distances,
+      { ...options, wallCheck }) : null;
+  }
+  if (cacheKey) cache?.set(cacheKey, null);
+  const points = [[...start]], distances = [0];
+  let travelled = 0;
+  const supportAt = (distance, previous) => {
+    const foot = [start[0] + direction[0] * distance, previous[1] - 0.005,
+      start[2] + direction[1] * distance];
+    if (world.bounds && [0, 2].some((axis, index) => foot[axis] - profile.radius < world.bounds.min[index] ||
+      foot[axis] + profile.radius > world.bounds.max[index])) return null;
+    const support = world.groundAt(foot, { maxUp: spacing * slope + profile.radius, maxDown: spacing * slope + profile.radius,
+      maxSlope, radius: profile.radius });
+    if (!support) return null;
+    const position = [...support.position];
+    position[1] += 0.005;
+    return position;
+  };
+  const appendSupport = (distance, position) => {
+    const previous = points.at(-1), previousDistance = distances.at(-1);
+    if (wallCheck(previous, position) ||
+        world.sweepCapsule(previous, position, profile) !== null) {
+      if (distance - previousDistance <= spacing / 128) return false;
+      const middle = (distance + previousDistance) / 2, supported = supportAt(middle, previous);
+      return supported !== null && appendSupport(middle, supported) && appendSupport(distance, position);
+    }
+    points.push(position); distances.push(distance);
+    return true;
+  };
+  while (travelled < limit) {
+    const nextDistance = Math.min(limit, travelled + spacing);
+    let next = supportAt(nextDistance, points.at(-1));
+    if (!next) {
+      let low = travelled, high = nextDistance, launch = points.at(-1);
+      // Locate support loss independently of navmesh erosion and triangulation.
+      for (let refinement = 0; refinement < 12; refinement++) {
+        const middle = (low + high) / 2, position = supportAt(middle, launch);
+        if (position) { low = middle; launch = position; }
+        else high = middle;
+      }
+      if (low > travelled && !appendSupport(low, launch)) return null;
+      if (options.exit) {
+        if (cacheKey) cache?.set(cacheKey, { launch, points, distances });
+        return steerDrop(launch, end, direction, points, distances, { ...options, wallCheck });
+      }
+      const arc = jumpConnection(launch, end, { ...options, mode: 'drop' });
+      if (!arc) return null;
+      const airSpeed = (span - low) / arc.times.at(-1);
+      if (airSpeed <= 0 || airSpeed > options.maxHorizontalSpeed) return null;
+      const approachTime = low / airSpeed;
+      return { ...arc, points: [...points, ...arc.points.slice(1)],
+        times: [...distances.map(distance => distance / airSpeed), ...arc.times.slice(1).map(time => approachTime + time)] };
+    }
+    if (!appendSupport(nextDistance, next)) return null;
+    travelled = nextDistance;
+  }
+  return null;
+}
+
+// A supported approach supplies the initial air velocity. Cubic velocity controls
+// bound speed and acceleration over the entire fall, including turns under roofs.
+function steerDrop(start, end, direction, approach, distances, options) {
+  const trajectory = jumpPhases(start[1], end[1], { ...options, mode: 'drop' });
+  if (!trajectory) return null;
+  const { duration } = trajectory;
+  const average = [(end[0] - start[0]) / duration, (end[2] - start[2]) / duration];
+  const length = Math.hypot(...average), cap = options.maxHorizontalSpeed;
+  if (length > cap) return null;
+  const speed = cap * options.speedFraction;
+  if (!Number.isFinite(speed) || speed <= 0) return null;
+  const initial = direction.map(value => value * speed);
+  const terminal = options.terminal === 'average' ? average : options.terminal === 'balanced'
+    ? average.map((value, axis) => 2 * value - initial[axis])
+    : average.map(value => length > 0 ? value * cap / length : 0);
+  const middle = average.map((value, axis) => 3 * value - initial[axis] - terminal[axis]);
+  const peakHorizontalSpeed = Math.max(...[initial, middle, terminal].map(value => Math.hypot(...value)));
+  const horizontalAcceleration = 2 / duration * Math.max(
+    Math.hypot(...middle.map((value, axis) => value - initial[axis])),
+    Math.hypot(...terminal.map((value, axis) => value - middle[axis])));
+  if (peakHorizontalSpeed > cap || horizontalAcceleration > options.airAcceleration) return null;
+  if (options.world.bounds) {
+    const padding = options.profile.radius + Math.hypot(options.fallingGravity, horizontalAcceleration) * maximumStep ** 2 / 8;
+    const controls = [start, end, [start[0] + initial[0] * duration / 3, start[1], start[2] + initial[1] * duration / 3],
+      [end[0] - terminal[0] * duration / 3, end[1], end[2] - terminal[1] * duration / 3]];
+    if (controls.some(point => [0, 2].some((axis, index) =>
+      point[axis] - padding < options.world.bounds.min[index] ||
+      point[axis] + padding > options.world.bounds.max[index]))) return null;
+  }
+  const horizontalAt = time => {
+    const t = time / duration;
+    return [0, 1].map((axis) => start[axis * 2] + duration * (
+      initial[axis] * t + (middle[axis] - initial[axis]) * t * t +
+      (terminal[axis] - 2 * middle[axis] + initial[axis]) * t * t * t / 3));
+  };
+  const arc = sweepTrajectory(start, end, trajectory, { profile: options.profile, clearance: 0,
+    wallCheck: options.wallCheck, sweep: options.sweep, horizontalAt, horizontalAcceleration,
+    peakHorizontalSpeed, mode: 'drop' });
+  if (!arc) return null;
+  const approachTime = distances.at(-1) / speed;
+  return { ...arc, points: [...approach, ...arc.points.slice(1)],
+    times: [...distances.map(distance => distance / speed), ...arc.times.slice(1).map(time => approachTime + time)] };
 }

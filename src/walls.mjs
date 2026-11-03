@@ -48,14 +48,14 @@ const wallRecord = (wall, radius, height, snapshot) => {
     ring: snapshot && points ? points.map(p => [...p]) : points };
 };
 
-const segmentTouchesBounds = (start, end, min, max) => {
+const segmentTouchesBounds = (start, end, min, max, inflation = 0) => {
   let near = 0, far = 1;
   for (let axis = 0; axis < 3; axis++) {
     const delta = end[axis] - start[axis];
     if (Math.abs(delta) < 1e-12) {
-      if (start[axis] < min[axis] || start[axis] > max[axis]) return false;
+      if (start[axis] < min[axis] - inflation || start[axis] > max[axis] + inflation) return false;
     } else {
-      const a = (min[axis] - start[axis]) / delta, b = (max[axis] - start[axis]) / delta;
+      const a = (min[axis] - inflation - start[axis]) / delta, b = (max[axis] + inflation - start[axis]) / delta;
       near = Math.max(near, Math.min(a, b)); far = Math.min(far, Math.max(a, b));
       if (near > far) return false;
     }
@@ -63,30 +63,31 @@ const segmentTouchesBounds = (start, end, min, max) => {
   return near <= far;
 };
 
-const touchesWall = (start, end, { min, max, margin, ring, filled }) => {
-  if (!segmentTouchesBounds(start, end, min, max)) return false;
+const touchesWall = (start, end, { min, max, margin, ring, filled }, inflation = 0) => {
+  if (!segmentTouchesBounds(start, end, min, max, inflation)) return false;
   if (!ring) return true;
   // Clip to vertical overlap before comparing XZ distances. A lower/upper walkway
   // may pass the same wall footprint without intersecting its collision height.
   let low = 0, high = 1;
   const dy = end[1] - start[1];
   if (Math.abs(dy) >= 1e-12) {
-    const a = (min[1] - start[1]) / dy, b = (max[1] - start[1]) / dy;
+    const a = (min[1] - inflation - start[1]) / dy, b = (max[1] + inflation - start[1]) / dy;
     low = Math.max(0, Math.min(a, b)); high = Math.min(1, Math.max(a, b));
   }
   const a = [start[0] + low * (end[0] - start[0]), start[2] + low * (end[2] - start[2])];
   const b = [start[0] + high * (end[0] - start[0]), start[2] + high * (end[2] - start[2])];
   if (filled && (insidePolygon(a, ring) || insidePolygon(b, ring))) return true;
   for (let i = 1; i < ring.length; i++) {
-    if (segmentDistance(a, b, ring[i - 1], ring[i]) <= margin + 1e-9) return true;
+    if (segmentDistance(a, b, ring[i - 1], ring[i]) <= margin + inflation + 1e-9) return true;
   }
-  return filled && segmentDistance(a, b, ring.at(-1), ring[0]) <= margin + 1e-9;
+  return filled && segmentDistance(a, b, ring.at(-1), ring[0]) <= margin + inflation + 1e-9;
 };
 
 /** Snapshot and validate exclusions for repeated feet-segment queries with one body.
  * Expanded 3D bounds include padding and all authored polyline/polygon vertices.
  * Unknown state blocks. Later caller mutations require a new checker. Every wall,
  * including inactive records, is validated before any query can return a hit.
+ * Optional query inflation expands the indexed body uniformly for curved sweeps.
  */
 export function createWallChecker(walls, profile) {
   validateProfile(profile);
@@ -109,14 +110,14 @@ export function createWallChecker(walls, profile) {
     return { min, max, left: build(entries.slice(0, middle)), right: build(entries.slice(middle)) };
   };
   const root = records.length ? build(records) : null;
-  return (start, end) => {
-    if (!finitePoint(start) || !finitePoint(end)) throw new Error('Invalid wall query');
+  return (start, end, inflation = 0) => {
+    if (!finitePoint(start) || !finitePoint(end) || !Number.isFinite(inflation) || inflation < 0) throw new Error('Invalid wall query');
     const stack = root ? [root] : [];
     while (stack.length) {
       const node = stack.pop();
-      if (!segmentTouchesBounds(start, end, node.min, node.max)) continue;
+      if (!segmentTouchesBounds(start, end, node.min, node.max, inflation)) continue;
       if (node.entries) {
-        for (const record of node.entries) if (touchesWall(start, end, record)) return true;
+        for (const record of node.entries) if (touchesWall(start, end, record, inflation)) return true;
       } else stack.push(node.left, node.right);
     }
     return false;

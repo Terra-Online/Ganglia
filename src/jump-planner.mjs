@@ -1,6 +1,5 @@
 import { createGroundPlanner } from './ground.mjs';
-import { findJumpConnections } from './traversal.mjs';
-import { findJumpShortcuts } from './shortcuts.mjs';
+import { findJumpFrontier, findJumpShortcuts } from './shortcuts.mjs';
 
 /** Solve directed ground/jump/drop action combinations for arbitrary arrivals.
  * Geometry, collision, state, walls and body must belong to one immutable snapshot.
@@ -23,8 +22,12 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
   const ids = new Set(bestConnections.map(connection => connection.id));
   let serial = 0;
   const withGait = connection => {
-    const from = connection.points[0], to = connection.points.at(-1);
-    const velocity = Math.hypot(to[0] - from[0], to[2] - from[2]) / connection.times.at(-1);
+    let velocity = connection.peakHorizontalSpeed ?? 0;
+    for (let index = 1; index < connection.points.length; index++) {
+      const point = connection.points[index], previous = connection.points[index - 1];
+      velocity = Math.max(velocity, Math.hypot(point[0] - previous[0], point[2] - previous[2]) /
+        (connection.times[index] - connection.times[index - 1]));
+    }
     let id = connection.id;
     while (ids.has(id)) id = `jump-plan/${serial++}`;
     ids.add(id);
@@ -40,20 +43,52 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
     let connections = [...(options.connections ?? [])];
     let incumbent = starts.length === 1 ? best : planner.plan([arrival], goal, { interaction });
     const discoveryOptions = { ...options, from: arrival.position, to: goal };
-    if (incumbent.status !== 'complete') {
-      connections.push(...search(findJumpConnections(surfaces, world, discoveryOptions)));
-      incumbent = createGroundPlanner(surfaces, { ...options, connections }).plan([arrival], goal, { interaction });
+    let remaining = options.maxCandidates;
+    const batches = [Math.min(128, remaining), Math.min(128, remaining)], spent = [0, 0];
+    const exhausted = new Set();
+    const cache = { standing: new Map(), motions: new Map(), exits: new Map(), approaches: new Map() };
+    while (incumbent.status !== 'complete' && remaining > 0) {
+      const maxLinks = options.maxLinks - connections.length + (options.connections?.length ?? 0);
+      if (maxLinks <= 0) { diagnostics.truncated = true; break; }
+      const side = exhausted.has(false) ? 1 : exhausted.has(true) ? 0 : Number(spent[1] < spent[0]);
+      const reverse = side === 1;
+      const discovery = findJumpFrontier(surfaces, world, { ...discoveryOptions, connections,
+        maxCandidates: Math.min(batches[side], remaining), maxLinks,
+        speed: options.locomotion?.sprintSpeed ?? options.speed }, cache, reverse);
+      const additions = search(discovery);
+      // Directed frontiers grow from both ends. Balance charged work, so repeated
+      // failures on one side cannot starve a productive chain on the other.
+      // One shared budget permits arbitrary hop counts without a depth cap.
+      const work = discovery.diagnostics;
+      const charged = Math.max(1, Math.ceil(work.attempted / 2), Math.ceil(work.seedChecks / 16),
+        Math.ceil(work.neighbourChecks / 64), Math.ceil(work.endpointChecks / 4));
+      remaining -= charged;
+      spent[side] += charged;
+      if (!additions.length) {
+        if (work.reason === 'unmapped-endpoint') break;
+        if (!work.truncated) {
+          exhausted.add(reverse);
+          if (exhausted.size === 2) break;
+        }
+        batches[side] = Math.min(options.maxCandidates, batches[side] * 2);
+        continue;
+      }
+      exhausted.clear();
+      batches[side] = Math.min(128, remaining);
+      connections.push(...additions);
+      incumbent = planner.plan([arrival], goal, { interaction, connections });
     }
     if (incumbent.status !== 'complete') continue;
     if (best.status !== 'complete' || incumbent.cost < best.cost) {
       best = incumbent;
       bestConnections = connections;
     }
+    if (remaining <= 0) continue;
     const alternatives = search(findJumpShortcuts(surfaces, world, { ...discoveryOptions, connections,
-      baseline: incumbent, speed: options.locomotion?.sprintSpeed ?? options.speed }));
+      maxCandidates: remaining, baseline: incumbent, speed: options.locomotion?.sprintSpeed ?? options.speed }, cache));
     if (!alternatives.length) continue;
     connections = [...connections, ...alternatives];
-    const candidate = createGroundPlanner(surfaces, { ...options, connections }).plan([arrival], goal, { interaction });
+    const candidate = planner.plan([arrival], goal, { interaction, connections });
     if (candidate.status === 'complete' && candidate.cost < best.cost - 1e-7) {
       best = candidate;
       bestConnections = connections;

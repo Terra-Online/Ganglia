@@ -91,5 +91,55 @@ test('keeps shortcut bounds valid when an existing movement edge is faster than 
   assert.equal(result.route.status, 'complete');
   assert.ok(result.route.cost < baseline.cost);
   assert.ok(result.route.segments.some(segment => segment.mode === 'launch'));
-  assert.ok(result.route.segments.some(segment => segment.mode === 'jump'));
+  assert.ok(result.route.segments.some(segment => segment.mode === 'jump' || segment.mode === 'drop'));
+});
+
+test('reaches floors beneath a platform using outward and returning air control', () => {
+  for (const angle of [0, Math.PI / 3, Math.PI / 2]) {
+    const transform = ([x, y, z]) => [-512.8 + x * Math.cos(angle) - z * Math.sin(angle), y,
+      1024.8 + x * Math.sin(angle) + z * Math.cos(angle)];
+    const transformSurface = surface => ({ ...surface, vertices: surface.vertices.map(transform) });
+    const surfaces = [floor('upper', 0.4, 3.6, 20, -1.6, 1.6),
+      floor('lower', 0.4, 3.6, 0, -1.6, 1.6)].map(transformSurface);
+    const collision = createCollisionWorld(geometry([floor('upper', 0, 4, 20), floor('ceiling', 0, 4, 21.8), floor('lower', 0, 4, 0)].map(transformSurface)));
+    const settings = { ...options, maxDrop: 30, maxCandidates: 1000, profile: { radius: 0.35, height: 1.66 },
+      model: { gravity: 40, fallingGravity: 38, maxJumpHeight: 2.1, maxFallingSpeed: 80,
+        apexTime: 0.1, maxHorizontalSpeed: 6.5, airAcceleration: 60, airDeceleration: 10 } };
+    const starts = arrival(transform([2, 20, 0])), goal = transform([2, 0, 0]);
+    const result = planJumpRoute(surfaces, collision, starts, goal, settings);
+    assert.equal(result.route.status, 'complete');
+    const drop = result.route.segments.find(segment => segment.mode === 'drop');
+    assert.ok(drop);
+    assert.ok(drop.points.some(point => Math.hypot(point[0] - goal[0], point[2] - goal[2]) > 2));
+    for (let index = 1; index < drop.points.length; index++) {
+      assert.equal(collision.sweepCapsule(drop.points[index - 1], drop.points[index], settings.profile), null);
+    }
+    assert.equal(result.diagnostics.searches[0].reason, 'reachable-frontier');
+    const original = { ...settings.model };
+    delete original.airAcceleration; delete original.airDeceleration;
+    assert.notEqual(planJumpRoute(surfaces, collision, starts, goal, { ...settings, model: original }).route.status, 'complete');
+  }
+});
+
+test('searches distant openings before exhausting nearby tessellation refinements', () => {
+  for (const count of [8, 80]) {
+    const upper = Array.from({ length: count }, (_, index) =>
+      floor(`upper/${index}`, 0.4 + index * 79.2 / count, 0.4 + (index + 1) * 79.2 / count, 20, -1.6, 1.6));
+    const surfaces = [...upper, floor('lower', 0.4, 79.6, 0, -1.6, 1.6)];
+    const wall = (id, x0, x1, z) => ({ id, vertices: [[x0, 20, z], [x1, 20, z], [x1, 28, z], [x0, 28, z]] });
+    const collision = createCollisionWorld(geometry([
+      floor('upper', 0, 80, 20), floor('lower', 0, 80, 0), floor('ceiling', 0, 80, 21.8),
+      wall('front', 0, 70, -2), wall('front-end', 74, 80, -2), wall('back', 0, 80, 2),
+      { id: 'left', vertices: [[0, 20, -2], [0, 28, -2], [0, 28, 2], [0, 20, 2]] },
+      { id: 'right', vertices: [[80, 20, -2], [80, 28, -2], [80, 28, 2], [80, 20, 2]] },
+    ]));
+    const result = planJumpRoute(surfaces, collision, arrival([2, 20, 0]), [2, 0, 0], {
+      ...options, maxDrop: 30, maxCandidates: 1000,
+      model: { ...options.model, airAcceleration: 60, airDeceleration: 10 },
+    });
+    assert.equal(result.route.status, 'complete', `tessellation ${count}`);
+    const drop = result.route.segments.find(segment => segment.mode === 'drop');
+    assert.ok(drop);
+    assert.ok(drop.points[0][0] >= 69 && drop.points[0][0] <= 75);
+  }
 });

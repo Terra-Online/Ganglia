@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findJumpConnections } from '../src/traversal.mjs';
+import { findJumpConnections, exposedBoundaries } from '../src/traversal.mjs';
 import { jumpConnection } from '../src/jumps.mjs';
 import { planGroundRoute } from '../src/ground.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
@@ -346,4 +346,33 @@ test('keeps goal-directed landing coverage on a large subdivided floor under raw
   assert.equal(result.diagnostics.truncated, true);
   assert.ok(result.diagnostics.pairChecks <= result.diagnostics.limits.pairChecks);
   assert.ok(result.connections.some(connection => connection.fromSurface === 'upper'));
+});
+
+test('discovers supported interior landings on large floors whose boundaries are outside jump reach', () => {
+  for (const [angle, offset] of [[0, 0], [Math.PI / 3, 512.8], [Math.PI / 2, -1024.8]]) {
+    const transform = ([x,y,z]) => [x*Math.cos(angle)-z*Math.sin(angle)+offset,y,x*Math.sin(angle)+z*Math.cos(angle)+offset];
+    const surfaces = [floor('upper', 0, 4, 4), floor('lower', -50, 50, 0, -50, 50)]
+      .map(surface => ({ ...surface, vertices: surface.vertices.map(transform) }));
+    const world = createCollisionWorld(geometry(surfaces)), from = transform([2,4,0]), to = transform([10,0,0]);
+    const result = findJumpConnections(surfaces, world, { ...options, from, to, maxCandidates: 500 });
+    assert.equal(result.diagnostics.targetReached, true);
+    assert.ok(result.connections.some(connection => connection.toSurface === 'lower'));
+    const route = planGroundRoute(surfaces, [{ id: 'player', position: from, state: 'available', cost: 0 }], to,
+      { speed: 5, maxVertical: .5, walls: [], profile: options.profile, connections: result.connections });
+    assert.equal(route.status, 'complete');
+    assert.ok(route.segments.some(segment => segment.mode === 'jump' || segment.mode === 'drop'));
+  }
+});
+
+test('partial shared edges retain their exposed ledge interval and perpendicular inward normal', () => {
+  const surfaces = [floor('a', 0, 4, 0), floor('b', 4, 8, 0, -2, 0)];
+  const boundaries = exposedBoundaries(surfaces, []);
+  const ledge = boundaries.find(boundary => boundary.surface === 'a' && boundary.edge === 1);
+  assert.ok(ledge);
+  assert.deepEqual(ledge.a, [4, 0, 0]);
+  assert.deepEqual(ledge.b, [4, 0, 2]);
+  assert.equal(ledge.length, 2);
+  const delta = [ledge.b[0] - ledge.a[0], ledge.b[2] - ledge.a[2]];
+  assert.equal(delta[0] * ledge.inward[0] + delta[1] * ledge.inward[1], 0);
+  assert.ok(ledge.inward[0] < 0);
 });

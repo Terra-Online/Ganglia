@@ -25,9 +25,16 @@ export function createGroundPlanner(surfaces, options) {
   // resource scheduler verifies the complete selected motion sequence afterwards.
   const searchSpeed = options.locomotion?.sprintSpeed ?? speed;
   const base = surfaceGraph(surfaces, { speed: searchSpeed, portals: options.portals });
+  const byId = new Map(surfaces.map(surface => [surface.id, surface]));
   const straighten = createGroundStraightener(surfaces, options);
   const projectGoal = createGoalProjector(surfaces);
+  let targetKey;
+  const visibility = new Map();
   return { plan(starts, goal, query = {}) {
+    // Action discovery extends one goal query repeatedly. Retain its continuous
+    // transfers while dropping them when the target changes, bounding cross-query storage.
+    const key = JSON.stringify([goal, query.interaction]);
+    if (key !== targetKey) { visibility.clear(); targetKey = key; }
     const graph = { nodes: [...base.nodes], edges: [...base.edges] };
     const targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
     if (!targets.length) return { status: 'unmapped' };
@@ -70,7 +77,7 @@ export function createGroundPlanner(surfaces, options) {
       arrivals.push({ id: start.id, node: endpoint(projected), cost: start.cost, state: start.state });
     }
     const connectionIds = new Set();
-    for (const connection of connections) {
+    for (const connection of query.connections ?? connections) {
       const { id, mode, points, times, state, requiredGait } = connection;
       if (typeof id !== 'string' || !id || connectionIds.has(id) || mode === undefined || mode === 'walk' ||
           !['open', 'closed', 'unknown'].includes(state) || !Array.isArray(points) || points.length < 2 ||
@@ -90,8 +97,13 @@ export function createGroundPlanner(surfaces, options) {
       if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > Math.max(1e-6, Math.min(maxVertical, profile.radius))) {
         throw new Error('Invalid movement endpoint tolerance');
       }
-      const fromProjection = projectPoint(surfaces, points[0], { maxVertical: tolerance });
-      const toProjection = projectPoint(surfaces, points.at(-1), { maxVertical: tolerance });
+      for (const surface of [connection.fromSurface, connection.toSurface]) {
+        if (surface !== undefined && !byId.has(surface)) throw new Error('Invalid movement support surface');
+      }
+      const fromProjection = projectPoint(connection.fromSurface === undefined ? surfaces : [byId.get(connection.fromSurface)],
+        points[0], { maxVertical: tolerance });
+      const toProjection = projectPoint(connection.toSurface === undefined ? surfaces : [byId.get(connection.toSurface)],
+        points.at(-1), { maxVertical: tolerance });
       // Explicit collision-validated standing feet may sit above the navigation
       // support plane (rounded capsule support on slopes, or voxel-height error).
       const from = fromProjection && { ...fromProjection, position: points[0], support: fromProjection.position };
@@ -108,7 +120,9 @@ export function createGroundPlanner(surfaces, options) {
     for (let a = 0; a < groups.length; a++) for (let b = a + 1; b < groups.length; b++) {
       for (const from of groups[a]) for (const to of groups[b]) {
         if (goals.has(from.id) && goals.has(to.id)) continue;
-        const traced = straighten.trace(from.support, to.support);
+        const key = JSON.stringify([from.support, to.support]);
+        if (!visibility.has(key)) visibility.set(key, straighten.trace(from.support, to.support));
+        const traced = visibility.get(key);
         if (!traced) continue;
         const points = [from.position, ...traced.slice(1, -1), to.position];
         const cost = points.slice(1).reduce((sum, point, index) => sum + distance(points[index], point), 0) / searchSpeed;

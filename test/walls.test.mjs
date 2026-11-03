@@ -12,6 +12,23 @@ test('unknown walls reject crossing and radius grazing; inactive walls allow cro
  assert.equal(blockedByWalls([-1,-1,0],[1,-1,0],[wall],profile),true);
 });
 
+test('indexed curve inflation matches explicit body expansion for boxes and authored rings', () => {
+  const cases = [wall,
+    { ...wall, points: [[0, -2], [0, 2], [2, 2]] },
+    { ...wall, polygon: [[0, -2], [1, -2], [1, 2], [0, 2]] }];
+  const segments = [[[-1, 0, 0], [1, 0, 0]], [[-1, 4, 0], [1, 4, 0]],
+    [[-1, 5, 0], [1, -2, 0]], [[-1, 0, 2.7], [1, 0, 2.7]]];
+  for (const record of cases) {
+    const check = createWallChecker([record], profile);
+    for (const inflation of [0, 0.01, 0.4, 1]) for (const [start, end] of segments) {
+      const shifted = point => [point[0], point[1] - inflation, point[2]];
+      assert.equal(check(start, end, inflation), blockedByWalls(shifted(start), shifted(end), [record],
+        { radius: profile.radius + inflation, height: profile.height + inflation * 2 }));
+    }
+    assert.throws(() => check([0, 0, 0], [0, 0, 0], -1), /wall query/);
+  }
+});
+
 test('routing cannot bypass the wall test with an explicitly open edge',()=>{
  const a=[-1,0,0], b=[1,0,0];
  const graph={nodes:[{id:'a',position:a},{id:'b',position:b}],edges:[{from:'a',to:'b',cost:1,state:'open',points:[a,b]}]};

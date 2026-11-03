@@ -10,14 +10,19 @@ export interface CollisionOptions {
 }
 export interface Capsule { radius: number; height: number; inflation?: number }
 export interface CollisionWorld {
+  /** Informational snapshot of the indexed XZ rectangle, or null for an unbounded index. */
+  readonly bounds?: { min: [number, number]; max: [number, number] } | null;
   /** Exact vertical triangle support, with unchanged XZ coordinates. Height limits
    * are metres and maxSlope is degrees (greater than 0 and less than 90). Only
    * upward-facing triangles within the slope limit qualify. The closest height is
-   * selected; equal distances prefer the higher surface. Capsule clearance, surface
+   * selected for point queries; equal distances prefer the higher surface. Capsule clearance, surface
    * state, initial occupancy and complete collision coverage remain caller checks.
-   * Throws if the queried XZ point falls outside an explicitly bounded world.
+   * Optional radius returns bottom-sphere feet support over triangle interiors,
+   * edges and corners, selecting the highest support within the height limits.
+   * Its XZ footprint must fit inside an explicitly bounded world.
+   * Radius defaults to zero, preserving exact vertical point support.
    */
-  groundAt(position: Vec3, options: { maxUp: number; maxDown: number; maxSlope: number }):
+  groundAt(position: Vec3, options: { maxUp: number; maxDown: number; maxSlope: number; radius?: number }):
     { position: Vec3; triangle: number; normal: Vec3 } | null;
   /** Feet positions; upright capsule translated continuously along a straight segment.
    * Inflation enlarges the capsule in every direction, e.g. for a bounded curve deviation.

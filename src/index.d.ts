@@ -21,7 +21,7 @@ export function blockedByWalls(start: Vec3, end: Vec3, walls: Wall[], profile: {
 /** Snapshot all wall records and one body profile for repeated segment queries.
  * Later mutations require a new checker. Inactive records are validated too.
  */
-export function createWallChecker(walls: Wall[], profile: { radius: number; height: number }): (start: Vec3, end: Vec3) => boolean;
+export function createWallChecker(walls: Wall[], profile: { radius: number; height: number }): (start: Vec3, end: Vec3, inflation?: number) => boolean;
 export interface Surface { id: string; vertices: Vec3[]; portals?: number[] }
 export interface Portal { from: string; to: string; points: [Vec3, Vec3] }
 export function surfaceGraph(surfaces: Surface[], options: { speed: number; portals?: Portal[] }): Graph;
@@ -39,6 +39,9 @@ export interface GroundConnection {
    * Ground planners exclude this connection when no locomotion policy is supplied.
    */
   requiredGait?: 'sprint';
+  /** Optional explicit support faces, validated at the authored endpoint tolerance. */
+  fromSurface?: string;
+  toSurface?: string;
 }
 export interface GroundOptions { speed: number; maxVertical: number; walls: Wall[]; profile: { radius: number; height: number }; connections?: GroundConnection[]; portals?: Portal[]; locomotion?: LocomotionOptions }
 export function planGroundRoute(surfaces: Surface[], starts: GroundArrival[], goal: Vec3, options: GroundOptions): Route;
@@ -67,7 +70,7 @@ export interface LocomotionOptions {
  * across alternative corridors is not guaranteed.
  */
 export function createGroundPlanner(surfaces: Surface[], options: GroundOptions): {
-  plan(starts: GroundArrival[], goal: Vec3, query?: { interaction?: InteractionGoal }): Route;
+  plan(starts: GroundArrival[], goal: Vec3, query?: { interaction?: InteractionGoal; connections?: GroundConnection[] }): Route;
 };
 
 /** Apply an explicit resource-feasible gait schedule to an existing continuous path.
@@ -83,13 +86,22 @@ export function projectGoal(surfaces: Surface[], target: Vec3, options: { maxVer
 export interface JumpModel {
   gravity: number; fallingGravity: number; maxJumpHeight: number;
   maxFallingSpeed: number; apexTime: number; maxHorizontalSpeed: number;
+  airAcceleration?: number; airDeceleration?: number;
 }
 export function jumpDuration(startHeight: number, endHeight: number,
   options: Omit<JumpModel, 'maxHorizontalSpeed'> & { mode: 'jump' | 'drop' }): number | null;
 export function jumpConnection(start: Vec3, end: Vec3, options: JumpModel & {
   profile: { radius: number; height: number }; mode: 'jump' | 'drop';
   sweep: CollisionWorld['sweepCapsule']; walls: Wall[]; clearance?: number;
-}): { mode: 'jump' | 'drop'; points: Vec3[]; times: number[]; motionValidation: 'model-based' } | null;
+  /** Fraction of displacement completed early, followed by a stop and late completion.
+   * Requires explicit airAcceleration and airDeceleration. Omit for constant speed.
+   */
+  horizontalSplit?: number;
+  /** Optional XZ air waypoint, reached early before the late landing leg. */
+  horizontalWaypoint?: [number, number];
+  /** Optional prepared checker for the same immutable walls and body profile. */
+  wallCheck?: ReturnType<typeof createWallChecker>;
+}): { mode: 'jump' | 'drop'; points: Vec3[]; times: number[]; motionValidation: 'model-based'; peakHorizontalSpeed?: number } | null;
 export interface DiscoveryOptions {
   profile: { radius: number; height: number }; portals?: Portal[]; walls: Wall[];
   from: Vec3; to: Vec3; interaction?: InteractionGoal; maxVertical: number; maxSlope: number; maxDrop: number;
@@ -119,6 +131,7 @@ export interface ShortcutDiagnostics { reason: string; baselineCost: number; bou
     rejected: { support: number; projection: number; clearance: number; range: number; motion: number; groundDominated: number };
     limits: { seedChecks: number; neighbourChecks: number; endpointChecks: number; arcAttempts: number; maxLinks: number };
 }
+interface FrontierDiagnostics extends Omit<ShortcutDiagnostics, 'baselineCost'> { baselineCost: null }
 export function findJumpShortcuts(surfaces: Surface[], world: CollisionWorld,
   options: DiscoveryOptions & { baseline: Extract<Route, { status: 'complete' }>; speed: number; connections?: GroundConnection[] }): {
   connections: GroundConnection[];
@@ -144,5 +157,5 @@ export function planJumpRoute(surfaces: Surface[], world: CollisionWorld, starts
     route: Route;
     connections: GroundConnection[];
     diagnostics: { strategy: 'surface-action-graph'; groundStatus: Route['status']; baselineCost: number | null;
-      selectedCost: number | null; truncated: boolean; searches: (DiscoveryDiagnostics | ShortcutDiagnostics)[] };
+      selectedCost: number | null; truncated: boolean; searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[] };
   };
