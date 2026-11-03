@@ -91,7 +91,7 @@ const onEdge = (point, a, b) => {
   );
 };
 
-const exposedBoundaries = (surfaces, portals) => {
+export const exposedBoundaries = (surfaces, portals) => {
   const covered = new Set();
   for (const portal of surfacePortals(surfaces)) {
     // Skipping the whole edge at a partial portal is conservative for discovery.
@@ -146,7 +146,7 @@ const boundsOf = vertices => ({
   max: [0, 1, 2].map(axis => Math.max(...vertices.map(point => point[axis]))),
 });
 
-const interleave = (lists, limit) => {
+export const interleave = (lists, limit) => {
   const result = [];
   let active = lists.map(entries => ({ entries, cursor: 0 }));
   while (active.length && result.length < limit) {
@@ -161,19 +161,9 @@ const interleave = (lists, limit) => {
   return result;
 };
 
-/** Discover directed jumps along optimistic region chains, validating local links lazily.
- * Ground, body, state and collision inputs must describe the same immutable snapshot.
- * Region bounds only order search. Every returned connection has supported feet,
- * stationary body clearance and a swept, wall-checked trajectory under the supplied model.
- * Optional interaction queries all eligible goal faces together and groups them by
- * directed ground component. Sampling limits remain explicit, so failure is inconclusive.
- */
-export function findJumpConnections(surfaces, world, options) {
-  const {
-    profile, portals = [], walls, from, to, interaction, maxVertical, maxSlope, maxDrop,
-    maxHorizontalDistance, sampleSpacing, maxCandidates, maxLinks, model,
-  } = options ?? {};
-
+export const validateDiscovery = (world, options) => {
+  const { profile, walls, from, to, maxVertical, maxSlope, maxDrop, maxHorizontalDistance,
+    sampleSpacing, maxCandidates, maxLinks, model } = options ?? {};
   if (
     !profile ||
     !finitePoint(from) ||
@@ -220,6 +210,33 @@ export function findJumpConnections(surfaces, world, options) {
   ) {
     throw new Error('Invalid traversal discovery options');
   }
+};
+
+export const standingFoot = (nav, project, world, { profile, maxVertical, maxSlope, blocked }) => {
+  const support = world.groundAt(nav.position, { maxUp: profile.radius, maxDown: profile.radius, maxSlope });
+  if (!support) return { reason: 'support' };
+  const position = [...support.position];
+  position[1] += profile.radius * (1 / support.normal[1] - 1) + 0.005;
+  const attachment = project(position, { maxVertical: Math.min(maxVertical, profile.radius) })[0];
+  if (!attachment) return { reason: 'projection' };
+  if (blocked(position, position) || world.sweepCapsule(position, position, profile) !== null) return { reason: 'clearance' };
+  return { position, surface: attachment.surface };
+};
+
+/** Discover directed jumps along optimistic region chains, validating local links lazily.
+ * Ground, body, state and collision inputs must describe the same immutable snapshot.
+ * Region bounds only order search. Every returned connection has supported feet,
+ * stationary body clearance and a swept, wall-checked trajectory under the supplied model.
+ * Optional interaction queries all eligible goal faces together and groups them by
+ * directed ground component. Sampling limits remain explicit, so failure is inconclusive.
+ */
+export function findJumpConnections(surfaces, world, options) {
+  const {
+    profile, portals = [], walls, from, to, interaction, maxVertical, maxSlope, maxDrop,
+    maxHorizontalDistance, sampleSpacing, maxCandidates, maxLinks, model,
+  } = options ?? {};
+
+  validateDiscovery(world, options);
   const blocked = createWallChecker(walls, profile);
   const diagnostics = {
     reason: 'searched', components: 0, boundaryEdges: 0, endpointChecks: 0,
@@ -369,20 +386,14 @@ export function findJumpConnections(surfaces, world, options) {
     const nav = project(seed, { maxVertical })[0];
     if (!nav || componentOf(nav.surface) !== component) diagnostics.rejected.projection++;
     else {
-      const support = world.groundAt(nav.position, { maxUp: profile.radius, maxDown: profile.radius, maxSlope });
-      if (!support) diagnostics.rejected.support++;
+      const sampled = standingFoot(nav, project, world, { profile, maxVertical, maxSlope, blocked });
+      if (sampled.reason) diagnostics.rejected[sampled.reason]++;
+      else if (componentOf(sampled.surface) !== component) diagnostics.rejected.projection++;
       else {
-        const feet = [...support.position];
-        feet[1] += profile.radius * (1 / support.normal[1] - 1) + 0.005;
-        const attachment = project(feet, { maxVertical: endpointTolerance })[0];
-        if (!attachment || componentOf(attachment.surface) !== component) diagnostics.rejected.projection++;
-        else if (blocked(feet, feet) || world.sweepCapsule(feet, feet, profile) !== null) diagnostics.rejected.clearance++;
-        else {
-          result = { position: feet, surface: attachment.surface };
-          diagnostics.standingEndpoints++;
-          if (component === sourceComponent) diagnostics.sourceEndpoints++;
-          if (targetComponents.has(component)) diagnostics.targetEndpoints++;
-        }
+        result = sampled;
+        diagnostics.standingEndpoints++;
+        if (component === sourceComponent) diagnostics.sourceEndpoints++;
+        if (targetComponents.has(component)) diagnostics.targetEndpoints++;
       }
     }
     cachedStanding.set(key, result);

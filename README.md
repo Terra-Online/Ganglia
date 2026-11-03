@@ -143,6 +143,42 @@ remain shared across the complete query and are exposed in diagnostics. This
 discovery seeks a feasible region chain; corridor and resource optimization remain
 separate, and a region connection can still fail the final ground route or gait policy.
 
+## Ground and jump action planning
+
+`planJumpRoute(surfaces, collisionWorld, arrivals, target, options)` is the reusable
+query entry point for ground, jump and jump-down/drop combinations. Supply the
+ordinary ground options, an explicit `model`, `runAirSpeed`, interaction volume,
+and discovery limits. It first retains a ground route when available. Otherwise,
+component-chain discovery supplies feasible directed jumps through intermediate
+platforms. Both cases then search jump alternatives and compare complete routes.
+
+A successful walk no longer ends movement discovery. Takeoff streams cover each
+exposed ledge before fine pullback refinement. Spatial landing queries include
+surface interiors, so a large floor below a ledge needs no nearby boundary node.
+Reachable ground transfers and isolated intermediate surfaces receive separate
+sampling/retention shares. Dense, irrelevant geometry cannot consume the entire
+share for already reachable surfaces. Lower bounds use horizontal distance and
+maximum allowed speed, allowing vertical motion and multiple airborne legs.
+
+All retained motion edges join the same directed graph. Supported continuous
+visibility edges connect arrivals, takeoffs, landings and goal candidates without
+forcing polygon-centre turns. The existing corridor search handles obstructed
+ground legs. Candidate ground visibility eliminates locally slower airborne
+transfers. Standing support, slope, capsule sweeps, swept-arc curvature and air
+walls remain mandatory. The final gait policy checks sprint entry requirements.
+
+The result contains `route`, retained `connections`, and diagnostics including
+`baselineCost`, `selectedCost`, per-stage limits and `truncated`. A complete
+incumbent is replaced only by a faster complete, resource-timed alternative.
+Limits bound discovery and retained edges, not the number of successive jumps.
+The search is optimal only on its selected graph costs. Bounded sampling,
+centre-corridor estimates on obstructed legs, and subsequent resource scheduling
+still prevent a claim of global continuous-time optimality. Game dynamics and
+collision coverage require independent validation.
+
+`findJumpShortcuts` exposes the alternative-link stage separately for callers
+that already have a complete baseline and want to manage final comparison.
+
 ## Offline player navigation build
 
 `@oem/ganglia/build` exports `buildGroundSurfaces(geometry, options)`. This separate

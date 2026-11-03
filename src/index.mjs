@@ -8,3 +8,5 @@ export { retimeGroundRoute } from './locomotion.mjs';
 export { createGoalProjector, projectGoal } from './goals.mjs';
 export { jumpConnection, jumpDuration } from './jumps.mjs';
 export { findJumpConnections } from './traversal.mjs';
+export { findJumpShortcuts } from './shortcuts.mjs';
+export { planJumpRoute } from './jump-planner.mjs';

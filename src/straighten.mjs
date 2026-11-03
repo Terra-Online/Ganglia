@@ -207,7 +207,7 @@ export function createGroundStraightener(surfaces, { walls, profile }) {
     return null;
   };
 
-  return points => {
+  const straighten = points => {
     if (!Array.isArray(points) || !points.length || !points.every(finitePoint)) throw new Error('Invalid ground path');
     const output = [[...points[0]]], supportCache = new Map(), lengths = [0];
     for (let index = 1; index < points.length; index++) lengths.push(lengths.at(-1) + distance(points[index - 1], points[index]));
@@ -237,4 +237,11 @@ export function createGroundStraightener(surfaces, { walls, profile }) {
     }
     return output;
   };
+  // Unlike straightening an already verified run, a visibility query can reject
+  // its endpoints. The same support and portal tracing serves both contracts.
+  straighten.trace = (start, end) => {
+    if (!finitePoint(start) || !finitePoint(end)) throw new Error('Invalid ground visibility endpoints');
+    return trace(start, end, supporting(start));
+  };
+  return straighten;
 }

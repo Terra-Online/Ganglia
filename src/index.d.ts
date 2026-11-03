@@ -112,3 +112,37 @@ export function findJumpConnections(surfaces: Surface[], world: CollisionWorld, 
   connections: (GroundConnection & { fromSurface: string; toSurface: string; motionValidation: 'model-based' })[];
   diagnostics: DiscoveryDiagnostics;
 };
+/** Search collision-checked alternatives to an existing route, including same-component jumps and drops. */
+export interface ShortcutDiagnostics { reason: string; baselineCost: number; boundaryEdges: number; seedChecks: number;
+    candidatePairs: number; neighbourChecks: number; endpointChecks: number; attempted: number;
+    accepted: number; truncated: boolean; goalFaces: number;
+    rejected: { support: number; projection: number; clearance: number; range: number; motion: number; groundDominated: number };
+    limits: { seedChecks: number; neighbourChecks: number; endpointChecks: number; arcAttempts: number; maxLinks: number };
+}
+export function findJumpShortcuts(surfaces: Surface[], world: CollisionWorld,
+  options: DiscoveryOptions & { baseline: Extract<Route, { status: 'complete' }>; speed: number; connections?: GroundConnection[] }): {
+  connections: GroundConnection[];
+  diagnostics: ShortcutDiagnostics;
+};
+
+export interface JumpRouteOptions extends GroundOptions {
+  interaction?: InteractionGoal;
+  model: JumpModel;
+  runAirSpeed: number;
+  maxSlope: number;
+  maxDrop: number;
+  maxHorizontalDistance: number;
+  sampleSpacing: number;
+  maxCandidates: number;
+  maxLinks: number;
+}
+/** Joint ground/jump/drop action selection with a monotone complete-route incumbent.
+ * Sampling limits remain explicit; returned completion does not establish global optimality.
+ */
+export function planJumpRoute(surfaces: Surface[], world: CollisionWorld, starts: GroundArrival[],
+  goal: Vec3, options: JumpRouteOptions): {
+    route: Route;
+    connections: GroundConnection[];
+    diagnostics: { strategy: 'surface-action-graph'; groundStatus: Route['status']; baselineCost: number | null;
+      selectedCost: number | null; truncated: boolean; searches: (DiscoveryDiagnostics | ShortcutDiagnostics)[] };
+  };

@@ -21,7 +21,10 @@ export function planGroundRoute(surfaces, starts, goal, options) {
  */
 export function createGroundPlanner(surfaces, options) {
   const { speed, maxVertical, walls, profile, connections = [] } = options;
-  const base = surfaceGraph(surfaces, { speed, portals: options.portals });
+  // Compare action times at the fastest permitted ground gait. The existing
+  // resource scheduler verifies the complete selected motion sequence afterwards.
+  const searchSpeed = options.locomotion?.sprintSpeed ?? speed;
+  const base = surfaceGraph(surfaces, { speed: searchSpeed, portals: options.portals });
   const straighten = createGroundStraightener(surfaces, options);
   const projectGoal = createGoalProjector(surfaces);
   return { plan(starts, goal, query = {}) {
@@ -37,7 +40,7 @@ export function createGroundPlanner(surfaces, options) {
       return id;
     };
     const connect = (from, to, a, b) => graph.edges.push({ from, to, state: 'open',
-      points: [a, b], cost: Math.hypot(...a.map((v, i) => v - b[i])) / speed });
+      points: [a, b], cost: Math.hypot(...a.map((v, i) => v - b[i])) / searchSpeed });
     const endpoint = projected => {
       const id = unique();
       graph.nodes.push({ id, position: projected.position });
@@ -51,10 +54,12 @@ export function createGroundPlanner(surfaces, options) {
         connect(id, peer.id, projected.position, peer.position);
         connect(peer.id, id, peer.position, projected.position);
       }
-      peers.push({ id, position: projected.position }); endpoints.set(projected.surface, peers);
+      peers.push({ id, position: projected.position, support: projected.support ?? projected.position });
+      endpoints.set(projected.surface, peers);
       return id;
     };
     const targetIds = targets.map(endpoint);
+    const goals = new Set(targetIds);
     const arrivals = [], ids = new Set();
     for (const start of starts) {
       if (typeof start.id !== 'string' || ids.has(start.id) || !Number.isFinite(start.cost) || start.cost < 0 ||
@@ -89,12 +94,27 @@ export function createGroundPlanner(surfaces, options) {
       const toProjection = projectPoint(surfaces, points.at(-1), { maxVertical: tolerance });
       // Explicit collision-validated standing feet may sit above the navigation
       // support plane (rounded capsule support on slopes, or voxel-height error).
-      const from = fromProjection && { ...fromProjection, position: points[0] };
-      const to = toProjection && { ...toProjection, position: points.at(-1) };
+      const from = fromProjection && { ...fromProjection, position: points[0], support: fromProjection.position };
+      const to = toProjection && { ...toProjection, position: points.at(-1), support: toProjection.position };
       if (!from || !to) continue;
       const fromId = endpoint(from), toId = endpoint(to);
       graph.edges.push({ from: fromId, to: toId, state, cost, mode, points, times, connection: id,
         ...(requiredGait === undefined ? {} : { requiredGait }) });
+    }
+    // Action decisions use continuous, supported ground transfers whenever the
+    // endpoints see each other. Dense triangulation must not make an otherwise
+    // cheap walk to a takeoff appear longer than a different jump sequence.
+    const groups = [...endpoints.values()];
+    for (let a = 0; a < groups.length; a++) for (let b = a + 1; b < groups.length; b++) {
+      for (const from of groups[a]) for (const to of groups[b]) {
+        if (goals.has(from.id) && goals.has(to.id)) continue;
+        const traced = straighten.trace(from.support, to.support);
+        if (!traced) continue;
+        const points = [from.position, ...traced.slice(1, -1), to.position];
+        const cost = points.slice(1).reduce((sum, point, index) => sum + distance(points[index], point), 0) / searchSpeed;
+        graph.edges.push({ from: from.id, to: to.id, points, cost, state: 'open' });
+        graph.edges.push({ from: to.id, to: from.id, points: [...points].reverse(), cost, state: 'open' });
+      }
     }
     // Compare actual continuous lengths and movement times for each available origin.
     // Centre-corridor costs alone can rank nearby teleport arrivals incorrectly.

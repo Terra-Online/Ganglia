@@ -45,7 +45,7 @@ const clipPolygon = (vertices, signedDistance) => {
   return output;
 };
 
-const closestOnSurface = (surface, target, planes) => {
+export const closestOnSurface = (surface, target, planes = []) => {
   let best = null, shortest = Infinity;
   const a = surface.vertices[0];
   for (let fan = 1; fan + 1 < surface.vertices.length; fan++) {
