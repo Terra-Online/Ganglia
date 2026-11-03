@@ -2,7 +2,7 @@ import { init, getNavMeshPositionsAndIndices, freeHeightfield, freeCompactHeight
   freeContourSet, freePolyMesh, freePolyMeshDetail } from '@recast-navigation/core';
 import { generateSoloNavMesh } from '@recast-navigation/generators';
 
-const tolerance = 1e-4;
+import { clipSurface, tolerance } from './clip-surface.mjs';
 
 function validateGeometry(geometry, allowEmpty = false) {
   const { positions, indices } = geometry ?? {};
@@ -111,52 +111,6 @@ export async function buildGroundSurfaces(geometry, options) {
     if (intermediates.polyMeshDetail) freePolyMeshDetail(intermediates.polyMeshDetail);
     intermediates.buildContext.destroy();
   }
-}
-
-function clipSurface(vertices, bounds) {
-  const [a, b, c] = vertices;
-  const determinant = (b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0]);
-  if (Math.abs(determinant) <= tolerance * tolerance) return null;
-  const riseX = ((b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1])) / determinant;
-  const riseZ = ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / determinant;
-  let clipped = vertices;
-  for (const [axis, boundary, keepAbove] of [
-    [0, bounds.min[0], true], [0, bounds.max[0], false],
-    [2, bounds.min[1], true], [2, bounds.max[1], false],
-  ]) {
-    const output = [];
-    for (let i = 0; i < clipped.length; i++) {
-      const from = clipped[i], to = clipped[(i + 1) % clipped.length];
-      const fromInside = keepAbove ? from[axis] >= boundary : from[axis] <= boundary;
-      const toInside = keepAbove ? to[axis] >= boundary : to[axis] <= boundary;
-      if (fromInside) output.push(from);
-      if (fromInside !== toInside) {
-        const ratio = (boundary - from[axis]) / (to[axis] - from[axis]);
-        const point = from.map((value, index) => value + ratio * (to[index] - value));
-        point[axis] = boundary;
-        output.push(point);
-      }
-    }
-    clipped = output;
-  }
-  // Recast returns Float32 world coordinates. A vertex just inside a core plane
-  // must share that exact grid plane with its clipped neighbors. Preserve the
-  // original detail triangle's height while correcting the horizontal rounding.
-  clipped = clipped.map(point => {
-    const x = Math.abs(point[0] - bounds.min[0]) <= tolerance ? bounds.min[0]
-      : Math.abs(point[0] - bounds.max[0]) <= tolerance ? bounds.max[0] : point[0];
-    const z = Math.abs(point[2] - bounds.min[1]) <= tolerance ? bounds.min[1]
-      : Math.abs(point[2] - bounds.max[1]) <= tolerance ? bounds.max[1] : point[2];
-    return [x, a[1] + riseX * (x - a[0]) + riseZ * (z - a[2]), z];
-  });
-  const points = clipped.filter((point, index) =>
-    point.some((value, axis) => Math.abs(value - clipped[(index + clipped.length - 1) % clipped.length][axis]) > tolerance));
-  const origin = points[0];
-  const area = points.reduce((sum, point, index) => {
-    const next = points[(index + 1) % points.length];
-    return sum + (point[0] - origin[0]) * (next[2] - origin[2]) - (next[0] - origin[0]) * (point[2] - origin[2]);
-  }, 0);
-  return points.length >= 3 && Math.abs(area) > tolerance * tolerance ? points : null;
 }
 
 function boundaryEdges(surfaces, axis, boundary) {
