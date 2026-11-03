@@ -1,6 +1,6 @@
 # 地表路线、传送与点位预览
 
-当前为 alpha 实现。Ganglia 负责投影、地表通路搜索、多起点成本比较、空气墙过滤和路线弧长采样；noclip 负责当前安装的数据解码与视角候选；Atlos 通过实际打包的依赖调用 Ganglia。
+当前为 alpha.2 实现。Ganglia 负责投影、地表通路搜索、多起点成本比较、空气墙过滤和路线弧长采样；noclip 负责当前安装的数据解码与视角候选；Atlos 通过实际打包的依赖调用 Ganglia。
 
 ## 已落地
 
@@ -27,3 +27,15 @@ noclip 导出器从末段 24 m 来路生成目标远端左右 30°/45°候选，
 `walk-routes` 将明确的资产/区域/状态/玩家体积选择写入绑定数据，输出 Ganglia 路线与 Atlos 可消费的数据。`oem-views --arrival-routes ... --rebuild` 可重建现有预计算缓存，输入哈希与视角算法版本隔离检查点。尚未进行全部点位的路线约束重烘焙，也未更新线上数据。
 
 参考：[Unity 导航内部工作方式](https://docs.unity.cn/2022.2/Documentation/Manual/nav-InnerWorkings.html)、[Detour 查询接口](https://github.com/recastnavigation/recastnavigation/blob/main/Detour/Include/DetourNavMeshQuery.h)。公开导出中的空方法体不足以确认游戏完整寻路算法或“最近传送点”的内部排序。
+
+## 玩家碰撞地面构建
+
+新增独立的 `@oem/ganglia/build` 离线入口，将明确选择的世界坐标碰撞三角形
+经 Recast 生成为带细节高度的 `Surface[]`。运行时入口不加载生成器或 WASM。
+工厂地面可以直接参与构建，不依赖 AI 的工厂排除区域；建筑、顶棚、实际障碍仍然参与。
+普通连接按向上、向下台阶参数中的较小值构建，并保留一个竖直体素的余量。
+较大落差与跳跃仍需有向连接和轨迹/落地检查，本次构建器不会自动放行。
+
+16 项库测试通过，包括小台阶、坡面、断路、低顶棚、窄通道与未知空气墙。
+这是合成几何验证；真实关卡碰撞的世界摆放、完整工厂覆盖与跳跃验证仍未完成。
+noclip 导出的常见玩家体型作为默认值，显式请求可以覆盖，数据必须保持版本绑定。

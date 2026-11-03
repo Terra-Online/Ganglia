@@ -1,12 +1,16 @@
 {
   "name": "@oem/ganglia",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Conservative ground-route planning for Open Endfield Map",
   "type": "module",
   "exports": {
     ".": {
       "types": "./src/index.d.ts",
       "import": "./src/index.mjs"
+    },
+    "./build": {
+      "types": "./src/build.d.ts",
+      "import": "./src/build.mjs"
     }
   },
   "files": [
@@ -21,5 +25,9 @@
   "engines": {
     "node": ">=22"
   },
-  "license": "AGPL-3.0-only"
+  "license": "AGPL-3.0-only",
+  "dependencies": {
+    "@recast-navigation/core": "0.44.0",
+    "@recast-navigation/generators": "0.44.0"
+  }
 }
