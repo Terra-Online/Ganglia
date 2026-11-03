@@ -1,6 +1,6 @@
 {
   "name": "@oem/ganglia",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.7",
   "description": "Conservative ground-route planning for Open Endfield Map",
   "type": "module",
   "exports": {
@@ -11,6 +11,10 @@
     "./build": {
       "types": "./src/build.d.ts",
       "import": "./src/build.mjs"
+    },
+    "./collision": {
+      "types": "./src/collision.d.ts",
+      "import": "./src/collision.mjs"
     }
   },
   "files": [

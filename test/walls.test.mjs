@@ -26,3 +26,16 @@ test('bent wall polylines do not fill their whole bounding box or bridge stacked
  assert.equal(blockedByWalls([0,4,1],[4,0,1],[bent],profile),false);
  assert.equal(blockedByWalls([1,0,1],[1,0,4.8],[bent],profile),true);
 });
+
+test('filled hazard prisms preserve concavities, interior exclusion and rounded clearance',()=>{
+  const zone={min:[0,0,0],max:[4,4,4],state:'unknown',polygon:[[0,0],[4,0],[4,1],[1,1],[1,4],[0,4]]};
+  const profile={radius:.2,height:1.6};
+  assert.equal(blockedByWalls([2,1,2],[3,1,3],[zone],profile),false);
+  assert.equal(blockedByWalls([2,1,.5],[3,1,.5],[zone],profile),true);
+  assert.equal(blockedByWalls([-.5,1,2],[.5,1,2],[zone],profile),true);
+  assert.equal(blockedByWalls([1.1,1,2],[1.1,1,3],[zone],profile),true);
+  assert.equal(blockedByWalls([.5,5,2],[.5,5,3],[zone],profile),false);
+  assert.equal(blockedByWalls([.5,-1,2],[.5,-1,3],[zone],profile),true);
+  assert.equal(blockedByWalls([.5,1,2],[.5,1,3],[{...zone,state:'inactive'}],profile),false);
+  assert.throws(()=>blockedByWalls([0,0,0],[1,0,1],[{...zone,points:[[0,0],[1,1]]}],profile),/polygon/);
+});

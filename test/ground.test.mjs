@@ -26,3 +26,23 @@ test('same-polygon shortcuts and stationary paths still obey wall exclusions', (
   assert.equal(planGroundRoute(surfaces, [start], [1.8,0,1], {...options, walls:[wall]}).status, 'no-verified-route');
   assert.equal(route({nodes:[{id:'a',position:[1,0,1]}],edges:[]}, 'a', 'a', {walls:[wall],profile:options.profile}).status, 'no-verified-route');
 });
+
+test('prepared queries straighten arbitrary endpoints and apply continuous sprint timing', async () => {
+  const { createGroundPlanner } = await import('../src/index.mjs');
+  const planner = createGroundPlanner(surfaces, { ...options,
+    locomotion: { speed: 1, sprintSpeed: 2, sprintAcceleration: 4 },
+  });
+  for (const z of [.2, .7, 1.5]) {
+    const start = { id: 'player', position: [.2,0,z], cost: 0, state: 'available' };
+    const result = planner.plan([start], [3.8,0,z]);
+    assert.equal(result.status, 'complete');
+    assert.ok(result.points.every(p => Math.abs(p[2] - z) < 1e-7));
+    assert.ok(Math.abs(result.length - 3.6) < 1e-7);
+    assert.ok(result.cost < 3.6);
+    assert.equal(result.segments[0].gait, 'sprint');
+    const stationary = planner.plan([start], start.position);
+    assert.equal(stationary.status, 'complete');
+    assert.equal(stationary.cost, 0);
+    assert.deepEqual(stationary.points, [start.position]);
+  }
+});

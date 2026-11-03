@@ -11,6 +11,16 @@ const segmentDistance = (a, b, c, d) => {
   return Math.min(toSegment(a,c,d), toSegment(b,c,d), toSegment(c,a,b), toSegment(d,a,b));
 };
 
+const insidePolygon = (point, ring) => {
+  let inside = false;
+  for (let i=0,j=ring.length-1;i<ring.length;j=i++) {
+    const a=ring[i],b=ring[j];
+    if ((a[1]>point[1])!==(b[1]>point[1]) &&
+        point[0]<(b[0]-a[0])*(point[1]-a[1])/(b[1]-a[1])+a[0]) inside=!inside;
+  }
+  return inside;
+};
+
 /** Segment against conservative air-wall volumes, expanded by player radius/height.
  * Feet positions are expected. Unknown state blocks just like an active wall.
  * Optional XZ polylines narrow the box test. Without them, bounds conservatively block.
@@ -26,10 +36,16 @@ export function blockedByWalls(start, end, walls, { radius, height }) {
         !['active', 'inactive', 'unknown'].includes(wall.state) || !Number.isFinite(wall.padding ?? 0) || (wall.padding ?? 0) < 0) throw new Error('Invalid wall');
     if (wall.points !== undefined && (!Array.isArray(wall.points) || wall.points.length < 2 ||
         wall.points.some(p => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('Invalid wall polyline');
+    if (wall.polygon !== undefined && (!Array.isArray(wall.polygon) || wall.polygon.length < 3 || wall.points !== undefined ||
+        wall.polygon.some(p => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('Invalid wall polygon');
     if (wall.state === 'inactive') continue;
     const margin = radius + (wall.padding ?? 0);
     const min = wall.min.map((v, i) => v - (i === 1 ? height : margin));
     const max = wall.max.map((v, i) => v + (i === 1 ? 0 : margin));
+    for (const p of wall.polygon ?? wall.points ?? []) {
+      min[0]=Math.min(min[0],p[0]-margin);min[2]=Math.min(min[2],p[1]-margin);
+      max[0]=Math.max(max[0],p[0]+margin);max[2]=Math.max(max[2],p[1]+margin);
+    }
     let near = 0, far = 1;
     for (let i = 0; i < 3; i++) {
       const delta = end[i] - start[i];
@@ -41,7 +57,7 @@ export function blockedByWalls(start, end, walls, { radius, height }) {
       }
     }
     if (near > far) continue;
-    if (!wall.points) { hit = true; continue; }
+    if (!wall.points && !wall.polygon) { hit = true; continue; }
     // Clip to vertical overlap before comparing XZ distances. A lower/upper walkway
     // may pass the same wall footprint without intersecting its collision height.
     let low = 0, high = 1;
@@ -52,9 +68,12 @@ export function blockedByWalls(start, end, walls, { radius, height }) {
     }
     const a = [0,2].map(i => start[i] + low*(end[i]-start[i]));
     const b = [0,2].map(i => start[i] + high*(end[i]-start[i]));
-    for (let i = 1; i < wall.points.length; i++) {
-      if (segmentDistance(a, b, wall.points[i-1], wall.points[i]) <= margin + 1e-9) hit = true;
+    const ring = wall.polygon ?? wall.points;
+    if (wall.polygon && (insidePolygon(a,ring) || insidePolygon(b,ring))) { hit = true; continue; }
+    for (let i = 1; i < ring.length; i++) {
+      if (segmentDistance(a, b, ring[i-1], ring[i]) <= margin + 1e-9) hit = true;
     }
+    if (wall.polygon && segmentDistance(a,b,ring.at(-1),ring[0]) <= margin + 1e-9) hit=true;
   }
   return hit;
 }

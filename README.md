@@ -37,8 +37,10 @@ routes are conservative corridor paths, **not continuous shortest paths**. Parti
 matching, funnel shortening and detail-height reconstruction are not implemented.
 
 `blockedByWalls` applies player radius/height and optional wall padding. Unknown walls
-block. Optional XZ wall polylines narrow the bounding-volume test, including vertical
-overlap. Without polylines, bounds conservatively block. This covers vertical air walls,
+block. Optional XZ `points` describe thin wall polylines; `polygon` describes a filled
+ring extruded between the bounds' Y limits, including concave footprints. The two are
+mutually exclusive. Both tests include vertical overlap and rounded horizontal clearance.
+Without a footprint, bounds conservatively block. This covers vertical air walls and reset prisms,
 not arbitrary collision meshes. Pass `{ walls, profile }` to graph queries; the high-level
 planner requires them. Even stationary paths and endpoint connectors obey exclusions.
 
@@ -126,3 +128,53 @@ offline mesh. Queries still use Ganglia's complete-route graph search; a Detour 
 path is never presented as a completed route. The library tests synthetic floor, slope,
 step, gap, narrow passage, headroom and air-wall scenarios. Real game collision placement
 and complete factory coverage remain under investigation in noclip.
+
+## Continuous triangle collision checks
+
+`@oem/ganglia/collision` exports `createCollisionWorld({ positions, indices })`, which
+copies world-space triangles and indexes them in a BVH. Its
+`sweepCapsule(startFeet, endFeet, { radius, height, inflation? })` checks the entire
+straight translation of an upright capsule. Thin walls between clear endpoints still
+block. It computes distance from the swept axis parallelogram to triangle surfaces;
+it does not approximate the sweep with isolated point samples. The result is either
+`null` or `{ triangle, distance }` for any touched face, not a first-impact time.
+
+For a curved trajectory, bound the deviation of each curve interval from its chord
+and pass that bound as `inflation`. This enlarges the capsule in every direction.
+For constant acceleration, a bound is `|acceleration| * duration² / 8`. Split intervals
+at velocity discontinuities. Touching counts as collision; takeoff/landing support and
+contact handling remain the importer's responsibility.
+
+These queries use double-sided thin triangles, not solid-volume containment. Start
+from verified free space: being wholly inside a closed mesh is not a surface overlap.
+The importer still owns complete active collision coverage, physical motion, landing
+support, and hazard checks. A clear geometric sweep alone must not create a traversable
+connection. This entry point has no WASM or renderer dependency.
+
+`createGroundPlanner(surfaces, options)` prepares topology and a ground-support BVH
+once for repeated arbitrary start/goal queries. `planGroundRoute` uses this same
+pipeline for a single query. After corridor search, any-angle visibility tracing
+removes centre/midpoint detours across open 3D portals, reconstructs ground heights,
+and checks the supplied exclusion walls. Off-mesh takeoff/landing endpoints split
+walking runs. Surfaces must already provide the selected body's clearance. Gaps,
+closed portals and stacked floors cannot be repaired by smoothing.
+
+Optional `locomotion: { speed, sprintSpeed, sprintAcceleration, stamina? }` retimes
+continuous ground paths, carries velocity through straight spans, and exposes
+`gait: 'run' | 'sprint'` on walking segments. `stamina` explicitly supplies capacity,
+initial energy, activationCost, optional sprintDrain, recoveryRate, recoveryDelay and reserve.
+Explicit flags permit recovery during sustained sprint or non-ground movement.
+`sprintThrough` names authored movement modes that preserve the active gait. Resource values
+are never inferred from a separate evasive dash mechanic. Without a stamina policy,
+sustained sprint has no resource expenditure. The resource scheduler carries entry charges and recovery state across the whole
+journey and compares sprinting with saving the activation for a later ground run.
+Non-walking samples retain their authored timing. Recovery and gait continuation
+follow the supplied policy.
+
+This is a feasible continuous route within selected topology, with a conservative
+gait schedule. Corridor selection and bounded any-angle simplification do not prove
+a globally shortest continuous path, and the scheduler searches run-level sprint allocations, not every possible
+interior activation time or waiting strategy. It retains up to 256 nondominated
+labels and reports a truncated search if that limit is reached. Ground turns of at least 30 degrees reset
+to running speed before sprint acceleration. Scene-state changes require rebuilding
+the prepared planner. No all-pairs route cache is needed.
