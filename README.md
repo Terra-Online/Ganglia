@@ -143,8 +143,8 @@ Nominally feasible samples precede those relying on navigation-height tolerance.
 Exhausting generation work still permits validation of already retained candidates.
 Seed-pair generation also runs in resumable batches, preserving its iterator and
 queued refinements. One difficult transfer cannot consume all generation work before
-an alternative multi-hop chain is explored. `maxCandidates` caps local batches,
-with at most 128 candidates per batch. Query-wide seed, pair, contact and arc limits
+an alternative multi-hop chain is explored. `maxCandidates` bounds local generation
+and retained candidate batches. Seed, pair, contact and arc limits
 are reported separately. Cached optimistic region adjacency remains available
 after generation budgets run out.
 These bounds and ordering costs never grant movement access or establish optimality.
@@ -164,19 +164,27 @@ separate, and a region connection can still fail the final ground route or gait 
 `planJumpRoute(surfaces, collisionWorld, arrivals, target, options)` is the reusable
 query entry point for ground, jump and jump-down/drop combinations. Supply the
 ordinary ground options, an explicit `model`, `runAirSpeed`, interaction volume,
-and discovery limits. It first retains a ground route when available. Otherwise,
-verified directed frontiers expand both from reachable ground and backward from
+and discovery limits. It first retains a ground route when available. Unresolved
+queries first propose region chains with broad, cheap boundary-pair generation and separately bounded
+physical arc checks. This keeps narrow feasible transfers near the flight envelope
+from being lost to early validation of poor nearby witnesses. Verified directed
+frontiers then expand both from reachable ground and backward from
 goal-connected surfaces. Search work is balanced between the two sides, allowing
 a productive multi-hop chain to continue while the opposite side needs refinement.
 Each accepted landing expands directed ground reachability before the next pass.
 Static topology, standing support, ledge approaches and motion checks are reused
-across frontier passes. Coarse spatial regions receive candidates before fine
+across frontier passes. Supported continuous ground approaches can also join
+overlapping patches without a shared navigation edge. Landing witnesses include
+boundary pullbacks and surface intersections with the optimistic flight envelope.
+Each witness still requires actual support, flight timing and swept-body checks.
+Coarse spatial regions receive candidates before fine
 body-scale refinements. Continuous ground transfers are reused while the target
 remains fixed. Landing queries alternate source and destination heights,
 so intermediate steps compete with lower floors near the goal. Motion variants
 advance in rounds across candidate transfers, and each swept trajectory consumes
-the shared arc budget. Geometry checks and seeds share one query-wide work budget across these passes,
-with no fixed hop-depth limit. Both cases then search jump alternatives and compare
+the shared arc budget. Frontier passes and shortcut search share the remaining
+query work budget. The initial region proposal has separate bounded generation
+and arc limits, with no fixed hop-depth limit. Both cases then search jump alternatives and compare
 complete routes.
 
 A successful walk no longer ends movement discovery. Takeoff streams cover each

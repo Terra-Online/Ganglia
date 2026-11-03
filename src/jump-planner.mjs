@@ -1,5 +1,6 @@
 import { createGroundPlanner } from './ground.mjs';
 import { findJumpFrontier, findJumpShortcuts } from './shortcuts.mjs';
+import { findJumpConnections } from './traversal.mjs';
 
 /** Solve directed ground/jump/drop action combinations for arbitrary arrivals.
  * Geometry, collision, state, walls and body must belong to one immutable snapshot.
@@ -44,6 +45,16 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
     let incumbent = starts.length === 1 ? best : planner.plan([arrival], goal, { interaction });
     const discoveryOptions = { ...options, from: arrival.position, to: goal };
     let remaining = options.maxCandidates;
+    // Cheap region-chain proposals cover simple transfers before broad frontiers.
+    // The same bounded stage runs for every unresolved query.
+    const proposalBudget = Math.min(128, Math.floor(remaining / 8));
+    if (incumbent.status !== 'complete' && proposalBudget > 0) {
+      const proposal = findJumpConnections(surfaces, world, discoveryOptions,
+        { arcAttempts: proposalBudget * 2, regionSearches: proposalBudget });
+      connections.push(...search(proposal));
+      remaining -= proposalBudget;
+      if (proposal.connections.length) incumbent = planner.plan([arrival], goal, { interaction, connections });
+    }
     const batches = [Math.min(128, remaining), Math.min(128, remaining)], spent = [0, 0];
     const exhausted = new Set();
     const cache = { standing: new Map(), motions: new Map(), exits: new Map(), approaches: new Map() };

@@ -1,5 +1,5 @@
 import { surfaceGraph, projectPoint } from './surfaces.mjs';
-import { routeFrom } from './routes.mjs';
+import { createRoutePlanner } from './routes.mjs';
 import { validateMotion } from './motion.mjs';
 import { createGoalProjector } from './goals.mjs';
 import { createGroundStraightener } from './straighten.mjs';
@@ -25,6 +25,8 @@ export function createGroundPlanner(surfaces, options) {
   // resource scheduler verifies the complete selected motion sequence afterwards.
   const searchSpeed = options.locomotion?.sprintSpeed ?? speed;
   const base = surfaceGraph(surfaces, { speed: searchSpeed, portals: options.portals });
+  const routeBase = createRoutePlanner(base, { walls, profile });
+  const baseCenters = new Map(base.nodes.map(node => [node.id, node.position]));
   const byId = new Map(surfaces.map(surface => [surface.id, surface]));
   const straighten = createGroundStraightener(surfaces, options);
   const projectGoal = createGoalProjector(surfaces);
@@ -35,10 +37,10 @@ export function createGroundPlanner(surfaces, options) {
     // transfers while dropping them when the target changes, bounding cross-query storage.
     const key = JSON.stringify([goal, query.interaction]);
     if (key !== targetKey) { visibility.clear(); targetKey = key; }
-    const graph = { nodes: [...base.nodes], edges: [...base.edges] };
+    const graph = { nodes: [], edges: [] };
     const targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
     if (!targets.length) return { status: 'unmapped' };
-    const centers = new Map(graph.nodes.map(n => [n.id, n.position]));
+    const centers = baseCenters;
     const endpoints = new Map();
     let serial = 0;
     const unique = () => {
@@ -72,7 +74,7 @@ export function createGroundPlanner(surfaces, options) {
       if (typeof start.id !== 'string' || ids.has(start.id) || !Number.isFinite(start.cost) || start.cost < 0 ||
           !['available', 'locked', 'unknown'].includes(start.state)) throw new Error('Invalid arrival');
       ids.add(start.id);
-      const projected = projectPoint(surfaces, start.position, { maxVertical });
+      const projected = projectGoal(start.position, { maxVertical })[0];
       if (!projected || start.state !== 'available') continue;
       arrivals.push({ id: start.id, node: endpoint(projected), cost: start.cost, state: start.state });
     }
@@ -135,7 +137,7 @@ export function createGroundPlanner(surfaces, options) {
     let best = null;
     for (const arrival of arrivals) {
       if (best && arrival.cost >= best.cost) continue;
-      const candidate = routeFrom(graph, [arrival], targetIds, { walls, profile });
+      const candidate = routeBase(graph, [arrival], targetIds);
       if (candidate.status !== 'complete') continue;
       const continuous = straightenRoute(candidate, straighten, speed);
       const timed = options.locomotion ? retimeGroundRoute(continuous, options.locomotion) : continuous;

@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findJumpConnections, exposedBoundaries } from '../src/traversal.mjs';
+import { findJumpConnections, exposedBoundaries, standingFoot } from '../src/traversal.mjs';
 import { jumpConnection } from '../src/jumps.mjs';
 import { planGroundRoute } from '../src/ground.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
+import { createGoalProjector } from '../src/goals.mjs';
 
 const floor = (id, x0, x1, y, z0 = -2, z1 = 2) => ({
   id,
@@ -375,4 +376,13 @@ test('partial shared edges retain their exposed ledge interval and perpendicular
   const delta = [ledge.b[0] - ledge.a[0], ledge.b[2] - ledge.a[2]];
   assert.equal(delta[0] * ledge.inward[0] + delta[1] * ledge.inward[1], 0);
   assert.ok(ledge.inward[0] < 0);
+});
+
+test('corrected standing feet use the closest eligible navigation support', () => {
+  const surfaces = [floor('voxel', 0, 4, 0.1), floor('support', 0, 4, 0)];
+  const world = createCollisionWorld(geometry([floor('physical', 0, 4, 0)]));
+  const result = standingFoot({ surface: 'voxel', position: [2, 0.1, 0] }, world,
+    { ...options, blocked: () => false, project: createGoalProjector(surfaces) });
+  assert.equal(result.surface, 'support');
+  assert.ok(Math.abs(result.position[1] - 0.005) < 1e-12);
 });

@@ -18,13 +18,25 @@ export function route(graph, start, goal, constraints) {
  * Entry costs and corridor costs use the same units. Unknown/locked arrivals are excluded.
  */
 export function routeFrom(graph, starts, goal, constraints) {
-  const blocked = constraints ? createWallChecker(constraints.walls, constraints.profile) : null;
-  const nodes = new Map();
+  return search(prepareGraph(graph, constraints), starts, goal);
+}
+
+// The ground planner owns its immutable base graph. Only query endpoints and
+// newly validated actions need corridor checks on each successive planning pass.
+export function createRoutePlanner(graph, constraints) {
+  const base = prepareGraph(graph, constraints);
+  return (extra, starts, goal) => search(prepareGraph(extra, null, base), starts, goal);
+}
+
+function prepareGraph(graph, constraints, base) {
+  const blocked = base?.blocked ?? (constraints ? createWallChecker(constraints.walls, constraints.profile) : null);
+  const nodes = new Map(base?.nodes);
   for (const node of graph.nodes) {
     if (typeof node.id !== 'string' || nodes.has(node.id) || !finitePoint(node.position)) throw new Error('Invalid node');
     nodes.set(node.id, node.position);
   }
-  const edges = new Map();
+  const edges = new Map(base?.edges);
+  const copied = new Set();
   for (const edge of graph.edges) {
     if (!nodes.has(edge.from) || !nodes.has(edge.to) || !Number.isFinite(edge.cost) || edge.cost < 0 ||
         !['open', 'closed', 'unknown'].includes(edge.state) || !Array.isArray(edge.points) ||
@@ -33,10 +45,17 @@ export function routeFrom(graph, starts, goal, constraints) {
         distance(edge.points.at(-1), nodes.get(edge.to)) > 1e-6) throw new Error('Invalid corridor');
     validateMotion(edge);
     if (edge.state === 'open' && (!blocked || !edge.points.slice(1).some((p, i) => blocked(edge.points[i], p)))) {
-      if (!edges.has(edge.from)) edges.set(edge.from, []);
+      if (!copied.has(edge.from)) {
+        edges.set(edge.from, [...(edges.get(edge.from) ?? [])]);
+        copied.add(edge.from);
+      }
       edges.get(edge.from).push(edge);
     }
   }
+  return { nodes, edges, blocked };
+}
+
+function search({ nodes, edges, blocked }, starts, goal) {
   const requested = Array.isArray(goal) ? goal : [goal];
   const mapped = requested.filter(id => nodes.has(id));
   if (!mapped.length) return { status: 'unmapped' };

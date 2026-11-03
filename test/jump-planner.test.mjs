@@ -114,7 +114,7 @@ test('reaches floors beneath a platform using outward and returning air control'
     for (let index = 1; index < drop.points.length; index++) {
       assert.equal(collision.sweepCapsule(drop.points[index - 1], drop.points[index], settings.profile), null);
     }
-    assert.equal(result.diagnostics.searches[0].reason, 'reachable-frontier');
+    assert.ok(result.diagnostics.searches.some(search => search.accepted > 0));
     const original = { ...settings.model };
     delete original.airAcceleration; delete original.airDeceleration;
     assert.notEqual(planJumpRoute(surfaces, collision, starts, goal, { ...settings, model: original }).route.status, 'complete');
@@ -142,4 +142,18 @@ test('searches distant openings before exhausting nearby tessellation refinement
     assert.ok(drop);
     assert.ok(drop.points[0][0] >= 69 && drop.points[0][0] <= 75);
   }
+});
+
+test('uses continuous ground approaches across overlapping patches before jumping', () => {
+  const surfaces = [floor('arrival', 0.4, 4.4, 20, -1.6, 1.6),
+    floor('extension', 3.4, 7.6, 20, -1.6, 1.6), floor('goal', 8, 12, 0, -1.6, 1.6)];
+  const collision = createCollisionWorld(geometry([floor('upper', 0, 8, 20), floor('lower', 8, 12, 0)]));
+  const walls = [-2, 2].map(z => ({ min: [-1, 10, z - .05], max: [9, 30, z + .05], state: 'unknown' }));
+  const result = planJumpRoute(surfaces, collision, arrival([2, 20, 0]), [10, 0, 0], {
+    ...options, walls, maxDrop: 30, maxCandidates: 1500,
+  });
+  assert.equal(result.route.status, 'complete');
+  const air = result.route.segments.find(segment => segment.mode !== 'walk');
+  assert.ok(air);
+  assert.ok(air.points[0][0] > 4.4);
 });

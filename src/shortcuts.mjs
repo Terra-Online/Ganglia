@@ -1,5 +1,6 @@
 import { surfaceGraph, projectPoint } from './surfaces.mjs';
-import { createGoalProjector, closestOnSurface } from './goals.mjs';
+import { createGoalProjector } from './goals.mjs';
+import { landingCandidates, boundaryLanding } from './landings.mjs';
 import { createBoundsIndex } from './bounds.mjs';
 import { createMinHeap } from './heap.mjs';
 import { createWallChecker } from './walls.mjs';
@@ -7,7 +8,7 @@ import { createGroundStraightener } from './straighten.mjs';
 import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.mjs';
 import { exposedBoundaries, interleave, standingFoot, validateDiscovery } from './traversal.mjs';
 
-const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
+const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const horizontal = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 
 function prepareGeometry(surfaces, options) {
@@ -19,7 +20,9 @@ function prepareGeometry(surfaces, options) {
     byId: new Map(surfaces.map(surface => [surface.id, surface])),
     centers: new Map(graph.nodes.map(node => [node.id, node.position])),
     project: createGoalProjector(surfaces),
-    boundaries: exposedBoundaries(surfaces, portals ?? []),
+    boundaries: exposedBoundaries(surfaces, portals ?? []).map(boundary => ({ ...boundary,
+      min: [0, 1, 2].map(axis => Math.min(boundary.a[axis], boundary.b[axis])),
+      max: [0, 1, 2].map(axis => Math.max(boundary.a[axis], boundary.b[axis])) })),
     landingSurfaces: surfaces.map(surface => ({ ...surface,
       min: [0, 1, 2].map(axis => Math.min(...surface.vertices.map(point => point[axis]))),
       max: [0, 1, 2].map(axis => Math.max(...surface.vertices.map(point => point[axis]))) })),
@@ -87,11 +90,24 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   if (cache) cache.geometry = prepared;
   const { blocked, byId, centers, project, boundaries } = prepared;
   const connections = [];
+  let visibility = cache?.visibility;
+  const traces = cache?.traces ?? new Map();
+  if (cache) cache.traces = traces;
+  const groundTrace = (start, end) => {
+    const key = JSON.stringify([start, end]);
+    if (!traces.has(key)) {
+      visibility ??= createGroundStraightener(surfaces, { walls, profile });
+      if (cache) cache.visibility = visibility;
+      traces.set(key, visibility.trace(start, end));
+    }
+    return traces.get(key);
+  };
   const approaches = cache?.approaches ?? new Map();
   const motionVariants = createMotionVariants(model, world, profile, cache?.exits, approaches);
   const graph = { nodes: prepared.graph.nodes, edges: [...prepared.graph.edges] };
-  const source = projectPoint(surfaces, from, { maxVertical });
-  const goals = project(to, { maxVertical, interaction });
+  const source = cache?.source ?? project(from, { maxVertical })[0];
+  const goals = cache?.goals ?? project(to, { maxVertical, interaction });
+  if (cache) { cache.source = source; cache.goals = goals; }
   diagnostics.goalFaces = goals.length;
   if (!source || !goals.length) { diagnostics.reason = 'unmapped-endpoint'; return { connections, diagnostics }; }
   for (const connection of existing) {
@@ -103,6 +119,9 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     const b = projectPoint(toFaces, connection.points.at(-1), { maxVertical });
     if (!a || !b) continue;
     if (connection.points.slice(1).some((point, index) => blocked(connection.points[index], point))) continue;
+    const approach = groundTrace(source.position, a.position);
+    if (approach) graph.edges.push({ from: source.surface, to: a.surface,
+      cost: approach.slice(1).reduce((sum, point, index) => sum + distance(approach[index], point), 0) });
     graph.edges.push({ from: a.surface, to: b.surface, points: connection.points,
       cost: distance(centers.get(a.surface), a.position) + connection.times.at(-1) * speed +
         distance(b.position, centers.get(b.surface)) });
@@ -124,11 +143,28 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   const lowerBound = (start, end, airTime) =>
     (horizontal(from, start) + Math.max(0, horizontal(end, to) - (interaction?.radius ?? 0))) /
       travelSpeed + airTime;
-  const insets = [...new Set([0, profile.radius, 1, 2, 3, 0.5, 1.5, 2.5, profile.radius * 0.5])];
+  const insets = [...new Set([0, profile.radius, 1, 2, 3, 0.5, 1.5, 2.5, profile.radius * 0.5, profile.radius * 0.25])];
   const takeoffs = [], seen = new Set();
   // Ordering is a heuristic only. It must not exclude a jump because a polygon
   // centre corridor overestimates the continuous approach or departure distance.
-  const nearLine = (a, b) => distance(from, a.midpoint) + distance(a.midpoint, to) - distance(from, b.midpoint) - distance(b.midpoint, to);
+  const ordering = cache?.ordering ?? (() => {
+    const scores = new Map(boundaries.map(edge => {
+      const source = distance(from, edge.midpoint), target = distance(edge.midpoint, to);
+      return [edge, { source, target, line: source + target }];
+    }));
+    return { scores, source: [...boundaries].sort((a, b) => scores.get(a).source - scores.get(b).source), target: [...boundaries].sort((a, b) => scores.get(a).target - scores.get(b).target),
+      line: [...boundaries].sort((a, b) => scores.get(a).line - scores.get(b).line) };
+  })();
+  if (cache) cache.ordering = ordering;
+  const nearLine = (a, b) => ordering.scores.get(a).line - ordering.scores.get(b).line;
+  const goalBounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+  for (const surface of prepared.landingSurfaces) if (departure.has(surface.id)) {
+    for (let axis = 0; axis < 3; axis++) {
+      goalBounds.min[axis] = Math.min(goalBounds.min[axis], surface.min[axis]);
+      goalBounds.max[axis] = Math.max(goalBounds.max[axis], surface.max[axis]);
+    }
+  }
+  const goalCenter = goalBounds.min.map((value, axis) => (value + goalBounds.max[axis]) / 2);
   const regionSize = Math.max(sampleSpacing, diversity, maxHorizontalDistance / 2);
   const regionOf = (position, size = regionSize) => [Math.floor(position[0] / size),
     Math.floor(position[1] / Math.max(profile.height, model.maxJumpHeight)),
@@ -144,26 +180,29 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   };
   // Visit coarse spatial regions before refining body-scale offsets. A distant
   // opening must compete with nearby ledges even on a densely triangulated floor.
-  const sourceEdges = spread(boundaries.filter(boundary => reverse
-    ? !departure.has(boundary.surface) : approach.has(boundary.surface))
-    .sort((a, b) => reverse ? distance(a.midpoint, to) - distance(b.midpoint, to)
-      : approach.get(a.surface) - approach.get(b.surface) || nearLine(a, b)), edge => edge.midpoint);
+  const sourceEdges = spread(reverse ? ordering.target.filter(boundary => !departure.has(boundary.surface))
+    : boundaries.filter(boundary => approach.has(boundary.surface))
+      .sort((a, b) => approach.get(a.surface) - approach.get(b.surface) || nearLine(a, b)), edge => edge.midpoint);
   const goalEdges = frontier ? [] : spread(boundaries.filter(boundary => departure.has(boundary.surface))
     .sort((a, b) => departure.get(a.surface) - departure.get(b.surface) || nearLine(a, b)), edge => edge.midpoint);
-  const otherEdges = frontier ? [] : spread(boundaries.filter(boundary => !approach.has(boundary.surface) ||
-    !departure.has(boundary.surface)).sort(nearLine), edge => edge.midpoint);
-  const orderedEdges = frontier ? sourceEdges :
+  const otherEdges = frontier ? [] : spread(ordering.line.filter(boundary => !approach.has(boundary.surface) ||
+    !departure.has(boundary.surface)), edge => edge.midpoint);
+  // Overlapping ground patches can be continuously connected without a shared
+  // polygon edge. Give their ledges bounded work and prove the approach lazily.
+  const visibleEdges = frontier && !reverse
+    ? spread(ordering.source.filter(boundary => !approach.has(boundary.surface)), edge => edge.midpoint) : [];
+  const orderedEdges = frontier ? interleave([sourceEdges, visibleEdges].filter(edges => edges.length), boundaries.length) :
     interleave([sourceEdges, goalEdges, otherEdges].filter(edges => edges.length), boundaries.length * 3);
   const seedStream = function* (boundary) {
-    const samples = Math.max(1, Math.ceil(boundary.length / sampleSpacing));
+    const samples = Math.max(1, Math.ceil(boundary.length / Math.min(sampleSpacing, profile.radius / 4)));
     const dx = boundary.b[0] - boundary.a[0], dz = boundary.b[2] - boundary.a[2];
     const nearest = reference => Math.max(0, Math.min(1,
       ((reference[0] - boundary.a[0]) * dx + (reference[2] - boundary.a[2]) * dz) / (dx * dx + dz * dz)));
-    const fractions = new Set([nearest(to), nearest(from), 0.5]);
+    const fractions = new Set([nearest(to), nearest(goalCenter), nearest(from), 0.5]);
     const refinement = Math.min(samples, Math.floor(diagnostics.limits.seedChecks / insets.length));
     if (refinement < samples) diagnostics.truncated = true;
     for (let index = 0; index < refinement; index++) fractions.add((index + 0.5) / refinement);
-    for (const fraction of fractions) for (const inset of insets) {
+    for (const inset of insets) for (const fraction of fractions) {
       const seed = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
       seed[0] += boundary.inward[0] * inset; seed[2] += boundary.inward[1] * inset;
       yield { seed, exit: [seed[0] - boundary.inward[0] * (inset + profile.radius * 3),
@@ -193,8 +232,14 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   }
   const landingSurfaces = prepared.landingSurfaces.filter(surface => !frontier ||
     (reverse ? departure.has(surface.id) : !approach.has(surface.id)));
-  const landingQueries = [landingSurfaces.filter(surface => departure.has(surface.id)),
-    landingSurfaces.filter(surface => !departure.has(surface.id))].filter(entries => entries.length).map(createBoundsIndex);
+  const eligible = id => !frontier || (reverse ? departure.has(id) : !approach.has(id));
+  const landingBoundaries = boundaries.filter(boundary => eligible(boundary.surface));
+  const landingQueries = [
+    ...(frontier ? [true, false].map(connected => ({ boundary: true,
+      entries: landingBoundaries.filter(edge => departure.has(edge.surface) === connected) })) : []),
+    ...[true, false].map(connected => ({ boundary: false,
+      entries: landingSurfaces.filter(surface => departure.has(surface.id) === connected) })),
+  ].filter(group => group.entries.length).map(({ boundary, entries }) => ({ boundary, query: createBoundsIndex(entries) }));
   const pairs = new Map();
   let active = takeoffs.flatMap(start => {
     const bounds = {
@@ -204,7 +249,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
         start.position[2] + maxHorizontalDistance],
     };
     const heights = new Set([start.position[1], Math.min(bounds.max[1], Math.max(bounds.min[1], to[1]))]);
-    return [...heights].flatMap(height => landingQueries.map(query => ({ start,
+    return [...heights].flatMap(height => landingQueries.map(({ query, boundary }) => ({ start, boundary,
       iterator: query.nearest(bounds, [start.position[0], height, start.position[2]]) })));
   });
   pairing: while (active.length) {
@@ -216,10 +261,11 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       pending.push(query);
       diagnostics.neighbourChecks++;
       const start = query.start, surface = next.value;
-      if (surface.id === start.surface) continue;
-      for (const reference of [start.position, to]) {
-        const end = closestOnSurface(surface, reference);
-        if (!end) continue;
+      const ends = query.boundary
+        ? project(boundaryLanding(surface, start.position, profile.radius / 2), { maxVertical })
+        : landingCandidates(surface, start.position, to, model, profile.radius);
+      for (const end of ends) {
+        if (!end || end.surface === start.surface) continue;
         const span = horizontal(start.position, end.position), drop = start.position[1] - end.position[1];
         if (span > maxHorizontalDistance || drop > maxDrop + 2 * endpointTolerance) continue;
         const duration = jumpDuration(start.position[1] + endpointTolerance, end.position[1] - endpointTolerance,
@@ -228,12 +274,12 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
             lowerBound(start.position, end.position, span / Math.max(Number.EPSILON, model.maxHorizontalSpeed)) >= durationLimit) continue;
         const nominal = jumpDuration(start.position[1], end.position[1],
           { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
-        const remaining = departure.has(surface.id)
-          ? departure.get(surface.id) + distance(centers.get(surface.id), end.position) : distance(end.position, to);
+        const remaining = departure.has(end.surface)
+          ? departure.get(end.surface) + distance(centers.get(end.surface), end.position) : distance(end.position, to);
         const score = (start.walk + remaining) / speed + (nominal ?? duration);
         const key = `${cellOf(start.position)}:${cellOf(end.position)}`;
         const group = pairs.get(key) ?? [];
-        group.push({ start, end, score, connected: approach.has(start.surface) && departure.has(surface.id),
+        group.push({ start, end, score, connected: approach.has(start.surface) && departure.has(end.surface),
           uncertain: nominal === null || span > nominal * model.maxHorizontalSpeed });
         group.sort((a, b) => Number(a.uncertain) - Number(b.uncertain) || a.score - b.score);
         // Retain fine pullbacks for railings without letting one dense triangle
@@ -262,8 +308,6 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     .map(orderLaunches), maxCandidates);
   diagnostics.candidatePairs = [...pairs.values()].reduce((sum, group) => sum + group.length, 0);
   if (ordered.length < diagnostics.candidatePairs) diagnostics.truncated = true;
-  const visibility = frontier ? null : cache?.visibility ?? createGroundStraightener(surfaces, { walls, profile });
-  if (cache && visibility) cache.visibility = visibility;
   const cached = cache?.standing ?? new Map(), motions = cache?.motions ?? new Map();
   const accepted = new Set(), tried = new Set();
   const retained = [[], []];
@@ -277,7 +321,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     if (cached.has(key)) return cached.get(key);
     if (diagnostics.endpointChecks >= diagnostics.limits.endpointChecks) { diagnostics.truncated = true; return null; }
     diagnostics.endpointChecks++;
-    const foot = standingFoot(seed, world, { profile, maxVertical, maxSlope, blocked });
+    const foot = standingFoot(seed, world, { profile, maxVertical, maxSlope, blocked, project });
     if (foot.reason) diagnostics.rejected[foot.reason]++;
     const value = foot.reason ? null : foot;
     cached.set(key, value);
@@ -295,15 +339,19 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       const cell = `${cellOf(candidate.start.position)}:${cellOf(candidate.end.position)}`;
       if (accepted.has(cell)) continue;
       if (!entry.variants) {
-        const start = standing(candidate.start), end = standing(candidate.end);
-        if (!start || !end || start.position[1] - end.position[1] > maxDrop) continue;
+        const start = standing(candidate.start);
+        if (!start) continue;
+        if (frontier && !reverse && !approach.has(start.surface) &&
+            !groundTrace(source.position, candidate.start.position)) continue;
+        const end = standing(candidate.end);
+        if (!end || start.position[1] - end.position[1] > maxDrop) continue;
         if (frontier && (reverse
           ? departure.has(start.surface) || !departure.has(end.surface)
-          : !approach.has(start.surface) || approach.has(end.surface))) continue;
+          : approach.has(end.surface))) continue;
         const key = JSON.stringify([start.position, end.position, candidate.start.exit]);
         if (tried.has(key)) continue;
         tried.add(key);
-        const ground = visibility?.trace(candidate.start.position, candidate.end.position);
+        const ground = frontier ? null : groundTrace(candidate.start.position, candidate.end.position);
         Object.assign(entry, { start, end,
           groundTime: ground ? ground.slice(1).reduce((sum, point, index) => sum + distance(ground[index], point), 0) / speed : Infinity,
           variants: motionVariants(start.position, end.position, candidate.start.exit) });

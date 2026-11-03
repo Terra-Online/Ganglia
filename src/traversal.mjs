@@ -1,9 +1,10 @@
 import { surfaceGraph, surfacePortals } from './surfaces.mjs';
 import { createBoundsIndex } from './bounds.mjs';
 import { createMinHeap } from './heap.mjs';
-import { createGoalProjector, closestOnSurface } from './goals.mjs';
+import { createGoalProjector } from './goals.mjs';
+import { landingCandidates } from './landings.mjs';
 import { createWallChecker } from './walls.mjs';
-import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.mjs';
+import { jumpConnection, jumpDuration } from './jumps.mjs';
 
 const finitePoint = (point) => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
@@ -146,6 +147,8 @@ export const exposedBoundaries = (surfaces, portals) => {
         if (inward[0] * (center[0] - midpoint[0]) + inward[1] * (center[2] - midpoint[2]) < 0) {
           inward[0] *= -1; inward[1] *= -1;
         }
+        const interiorX = center[0] - midpoint[0], interiorZ = center[2] - midpoint[2];
+        const interiorLength = Math.hypot(interiorX, interiorZ);
         boundaries.push({
           surface: surface.id,
           edge,
@@ -154,6 +157,9 @@ export const exposedBoundaries = (surfaces, portals) => {
           midpoint,
           length,
           inward,
+          // The centroid direction also samples diagonal pullbacks on narrow
+          // triangles. The perpendicular normal remains the physical exit axis.
+          interior: [interiorX / interiorLength, interiorZ / interiorLength],
         });
       }
     }
@@ -238,16 +244,18 @@ export const validateDiscovery = (world, options) => {
   }
 };
 
-export const standingFoot = (nav, world, { profile, maxVertical, maxSlope, blocked }) => {
+export const standingFoot = (nav, world, { profile, maxVertical, maxSlope, blocked, project }) => {
   const support = world.groundAt(nav.position, { maxUp: profile.radius, maxDown: profile.radius, maxSlope });
   if (!support) return { reason: 'support' };
   const position = [...support.position];
   position[1] += profile.radius * (1 / support.normal[1] - 1) + 0.005;
-  // Support correction is vertical. Keep the sampled navigation face, rather
-  // than reattaching a shared-edge point to an unrelated overlapping polygon.
+  // Real support corrects voxel and slope height. Bind the corrected foot to the
+  // closest eligible navigation support, matching subsequent ground queries.
   if (Math.abs(position[1] - nav.position[1]) > Math.min(maxVertical, profile.radius)) return { reason: 'projection' };
   if (blocked(position, position) || world.sweepCapsule(position, position, profile) !== null) return { reason: 'clearance' };
-  return { position, surface: nav.surface };
+  const mapped = project(position, { maxVertical: Math.min(maxVertical, profile.radius) })[0];
+  if (!mapped) return { reason: 'projection' };
+  return { position, surface: mapped.surface };
 };
 
 /** Discover directed jumps along optimistic region chains, validating local links lazily.
@@ -257,7 +265,7 @@ export const standingFoot = (nav, world, { profile, maxVertical, maxSlope, block
  * Optional interaction queries all eligible goal faces together and groups them by
  * directed ground component. Sampling limits remain explicit, so failure is inconclusive.
  */
-export function findJumpConnections(surfaces, world, options) {
+export function findJumpConnections(surfaces, world, options, workLimits) {
   const {
     profile, portals = [], walls, from, to, interaction, maxVertical, maxSlope, maxDrop,
     maxHorizontalDistance, sampleSpacing, maxCandidates, maxLinks, model,
@@ -265,7 +273,6 @@ export function findJumpConnections(surfaces, world, options) {
 
   validateDiscovery(world, options);
   const blocked = createWallChecker(walls, profile);
-  const motionVariants = createMotionVariants(model, world, profile);
   const diagnostics = {
     reason: 'searched', components: 0, boundaryEdges: 0, endpointChecks: 0,
     standingEndpoints: 0, neighbourChecks: 0, pairChecks: 0, candidatePairs: 0,
@@ -273,7 +280,7 @@ export function findJumpConnections(surfaces, world, options) {
     validatedPairs: 0, pairBatches: 0, deferredPairs: 0, generationBatches: 0, seedChecks: 0, goalFaces: 0, goalComponents: 0,
     sourceEndpoints: 0, targetEndpoints: 0, sourceCandidates: 0, directCandidates: 0,
     limits: {
-      maxCandidates, maxLinks, arcAttempts: maxCandidates * 2,
+      maxCandidates, maxLinks, arcAttempts: Math.min(maxCandidates * 2, workLimits?.arcAttempts ?? Infinity),
       endpointChecks: maxCandidates * 32, neighbourChecks: maxCandidates * 512,
       pairChecks: maxCandidates * 64, seedChecks: maxCandidates * 64,
     },
@@ -350,8 +357,8 @@ export function findJumpConnections(surfaces, world, options) {
     diagnostics.pairChecks < diagnostics.limits.pairChecks;
   const generationAvailable = () => diagnostics.seedChecks < diagnostics.limits.seedChecks && pairingAvailable();
   const neighbours = b => {
-    if (incoming.has(b.id)) return incoming.get(b.id);
     if (!generationAvailable()) return [...(groundIncoming.get(b.id) ?? []), ...(preparedIncoming.get(b.id) ?? [])];
+    if (incoming.has(b.id)) return incoming.get(b.id);
     const entries = [...(groundIncoming.get(b.id) ?? [])];
     const bounds = {
       min: [b.min[0] - maxHorizontalDistance, b.min[1] - model.maxJumpHeight - 2 * endpointTolerance, b.min[2] - maxHorizontalDistance],
@@ -415,8 +422,9 @@ export function findJumpConnections(surfaces, world, options) {
     const nav = project(seed, { maxVertical })[0];
     if (!nav || componentOf(nav.surface) !== component) diagnostics.rejected.projection++;
     else {
-      const sampled = standingFoot(nav, world, { profile, maxVertical, maxSlope, blocked });
+      const sampled = standingFoot(nav, world, { profile, maxVertical, maxSlope, blocked, project });
       if (sampled.reason) diagnostics.rejected[sampled.reason]++;
+      else if (componentOf(sampled.surface) !== component) diagnostics.rejected.projection++;
       else {
         result = sampled;
         diagnostics.standingEndpoints++;
@@ -431,106 +439,111 @@ export function findJumpConnections(surfaces, world, options) {
   const insets = [...new Set([
     0, profile.radius * 0.25, profile.radius * 0.5, profile.radius, 0.5, 1, 1.5, 2, 2.5, 3,
   ])].sort((a, b) => a - b);
-  const seedsFor = function* (region, other, reach) {
-    const seen = new Set();
+  const seedsFor = (region, other, takeoff, reach, limit) => {
+    const seeds = [], seen = new Set();
     const center = other.min.map((value, axis) => (value + other.max[axis]) / 2);
     const edges = region.boundaries.filter(boundary =>
       horizontalGap(boundary, other) <= reach + insets.at(-1) &&
-      boundary.max[1] + model.maxJumpHeight + endpointTolerance >= other.min[1] &&
-      boundary.min[1] - maxDrop - endpointTolerance <= other.max[1])
+      (takeoff
+        ? boundary.max[1] + model.maxJumpHeight + endpointTolerance >= other.min[1] &&
+          boundary.min[1] - maxDrop - endpointTolerance <= other.max[1]
+        : boundary.min[1] <= other.max[1] + model.maxJumpHeight + endpointTolerance &&
+          boundary.max[1] >= other.min[1] - maxDrop - endpointTolerance))
       .sort((a, b) => horizontalGap(a, other) - horizontalGap(b, other) ||
-        distance(a.midpoint, center) - distance(b.midpoint, center));
-    const stream = function* (boundary) {
+        distance(a.midpoint, takeoff ? to : from) - distance(b.midpoint, takeoff ? to : from));
+    let generated = 0;
+    for (const boundary of edges) {
       const samples = Math.max(1, Math.ceil(boundary.length / sampleSpacing));
       const dx = boundary.b[0] - boundary.a[0], dz = boundary.b[2] - boundary.a[2];
       const nearest = Math.max(0, Math.min(1,
         ((center[0] - boundary.a[0]) * dx + (center[2] - boundary.a[2]) * dz) / (dx * dx + dz * dz)));
+      // Always try the closest part of a long ledge before uniform refinement.
       const fractions = new Set([nearest, 0.5]);
-      const refinement = Math.min(samples, Math.floor(diagnostics.limits.seedChecks / insets.length));
+      const refinement = Math.min(samples, Math.max(0, Math.floor((limit - generated) / insets.length)));
       if (refinement < samples) diagnostics.truncated = true;
       for (let sample = 0; sample < refinement; sample++) fractions.add((sample + 0.5) / refinement);
       for (const fraction of fractions) for (const inset of insets) {
-        const point = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
-        point[0] += boundary.inward[0] * inset;
-        point[2] += boundary.inward[1] * inset;
-        yield { point, exit: [point[0] - boundary.inward[0] * (inset + profile.radius * 3),
-          point[2] - boundary.inward[1] * (inset + profile.radius * 3)] };
-      }
-    };
-    // Each ledge gets a first witness before dense local pullback refinement.
-    let streams = edges.map(stream);
-    while (streams.length) {
-      const pending = [];
-      for (const iterator of streams) {
-        if (diagnostics.seedChecks >= diagnostics.limits.seedChecks) {
+        if (generated >= limit || diagnostics.seedChecks >= diagnostics.limits.seedChecks) {
           diagnostics.truncated = true;
-          return;
+          return seeds;
         }
-        const next = iterator.next();
-        if (next.done) continue;
-        pending.push(iterator);
+        generated++;
         diagnostics.seedChecks++;
-        const key = JSON.stringify(next.value);
+        const point = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
+        point[0] += boundary.interior[0] * inset;
+        point[2] += boundary.interior[1] * inset;
+        const key = JSON.stringify(point);
         if (seen.has(key)) continue;
         seen.add(key);
-        const nav = project(next.value.point, { maxVertical })[0];
-        if (nav && componentOf(nav.surface) === region.component) yield { position: nav.position, exit: next.value.exit };
+        const nav = project(point, { maxVertical })[0];
+        // Pullbacks can leave a thin platform. Reject those cheap navigation
+        // misses before they consume landing diversity or physical sweep work.
+        if (!nav || componentOf(nav.surface) !== region.component) continue;
+        seeds.push(nav.position);
       }
-      streams = pending;
     }
+    return seeds;
+  };
+
+  const spreadSeeds = seeds => {
+    const cells = new Map();
+    for (const seed of seeds) {
+      const key = seed.map(value => Math.floor(value / (profile.radius * 2))).join('/');
+      const group = cells.get(key) ?? [];
+      group.push(seed);
+      cells.set(key, group);
+    }
+    return interleave([...cells.values()], seeds.length);
   };
 
   const pairsFor = function* ({ a, b, reach }) {
-    const takeoffs = seedsFor(a, b, reach);
-    const queryFaces = b.surfaceIndex ??= createBoundsIndex(b.surfaces.map(surface => ({
-      surface, ...boundsOf(surface.vertices),
-    })));
-    let active = [], exhausted = false;
-    while (active.length || !exhausted) {
-      // Keep takeoff and landing generation resumable. Enumerating an entire
-      // large component per transfer exhausts query-wide work before other
-      // optimistic chains receive even their first physical check.
-      for (let count = 0; count < 8 && !exhausted; count++) {
-        const next = takeoffs.next();
-        if (next.done) { exhausted = true; break; }
-        const { position: start, exit } = next.value;
-        const duration = jumpDuration(start[1] + endpointTolerance,
-          Math.max(b.min[1] - endpointTolerance, start[1] + endpointTolerance - maxDrop),
-          { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
-        if (duration === null) continue;
-        const reach = Math.min(maxHorizontalDistance, duration * model.maxHorizontalSpeed);
-        const bounds = {
-          min: [start[0] - reach, start[1] - maxDrop - 2 * endpointTolerance, start[2] - reach],
-          max: [start[0] + reach, start[1] + model.maxJumpHeight + 2 * endpointTolerance, start[2] + reach],
-        };
-        const reference = [start[0], Math.min(bounds.max[1], Math.max(bounds.min[1], to[1])), start[2]];
-        active.push({ start, exit, faces: queryFaces.nearest(bounds, reference) });
-      }
+    if (diagnostics.seedChecks >= diagnostics.limits.seedChecks) {
+      diagnostics.truncated = true;
+      return;
+    }
+    const available = diagnostics.limits.seedChecks - diagnostics.seedChecks;
+    const takeoffs = spreadSeeds(seedsFor(a, b, true, reach, Math.floor(available / 2)));
+    const landings = spreadSeeds(seedsFor(b, a, false, reach, diagnostics.limits.seedChecks - diagnostics.seedChecks));
+    const queryLandings = createBoundsIndex(landings.map(point => ({ min: point, max: point, point })));
+
+    const queryFaces = createBoundsIndex(b.surfaces.map(surface => ({ surface, ...boundsOf(surface.vertices) })));
+    let active = [];
+    for (const start of takeoffs) {
+      const duration = jumpDuration(start[1] + endpointTolerance,
+        Math.max(b.min[1] - endpointTolerance, start[1] + endpointTolerance - maxDrop),
+        { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
+      if (duration === null) continue;
+      const reach = Math.min(maxHorizontalDistance, duration * model.maxHorizontalSpeed);
+      const bounds = {
+        min: [start[0] - reach, start[1] - maxDrop - 2 * endpointTolerance, start[2] - reach],
+        max: [start[0] + reach, start[1] + model.maxJumpHeight + 2 * endpointTolerance, start[2] + reach],
+      };
+      active.push({ start, boundary: true, landings: queryLandings.nearest(bounds, to) },
+        { start, boundary: false, landings: queryFaces.nearest(bounds, to) });
+    }
+    while (active.length) {
       const pending = [];
       for (const query of active) {
-        const next = query.faces.next();
-        if (next.done) continue;
-        pending.push(query);
-        const surface = next.value.surface;
-        const center = surface.vertices[0].map((_, axis) =>
-          surface.vertices.reduce((sum, point) => sum + point[axis], 0) / surface.vertices.length);
-        for (const reference of [query.start, to, center]) {
-          const endpoint = closestOnSurface(surface, reference);
-          if (endpoint) yield { start: query.start, exit: query.exit, end: endpoint.position };
+        let exhausted = false;
+        for (let count = 0; count < 8; count++) {
+          const landing = query.landings.next();
+          if (landing.done) { exhausted = true; break; }
+          if (query.boundary) yield { start: query.start, end: landing.value.point, boundary: true };
+          else for (const point of landingCandidates(landing.value.surface, query.start, to, model, profile.radius)) {
+            yield { start: query.start, end: point.position, boundary: false };
+          }
         }
+        if (!exhausted) pending.push(query);
       }
       active = pending;
     }
   };
 
-  // Generate a few validation batches at a time, allowing competing multi-hop
-  // transfers to receive work before one large overlapping floor uses the budget.
-  const batchSize = Math.min(maxCandidates, 128);
   const candidatesFor = entry => {
     const { a, b } = entry;
     const generation = entry.generation ??= { pairs: pairsFor(entry), pending: [], cursor: 0, done: false };
     const nextBatch = () => {
-      const candidates = generation.pending.slice(generation.cursor, generation.cursor + batchSize);
+      const candidates = generation.pending.slice(generation.cursor, generation.cursor + maxCandidates);
       generation.cursor += candidates.length;
       diagnostics.candidatePairs += candidates.length;
       if (a.component === sourceComponent) {
@@ -544,12 +557,12 @@ export function findJumpConnections(surfaces, world, options) {
     diagnostics.generationBatches++;
     const previousPairs = diagnostics.pairChecks, previousNeighbours = diagnostics.neighbourChecks;
     const buckets = new Map(), diversity = profile.radius * 2;
-    const compare = (a, b) => Number(a.uncertain) - Number(b.uncertain) || a.score - b.score;
-    while (pairingAvailable() && diagnostics.pairChecks - previousPairs < batchSize * 4 &&
-        diagnostics.neighbourChecks - previousNeighbours < batchSize * 32) {
+    const compare = (a, b) => Number(b.boundary) - Number(a.boundary) || Number(a.uncertain) - Number(b.uncertain) || a.score - b.score;
+    while (pairingAvailable() && diagnostics.pairChecks - previousPairs < maxCandidates * 4 &&
+        diagnostics.neighbourChecks - previousNeighbours < maxCandidates * 32) {
       const pair = generation.pairs.next();
       if (pair.done) { generation.done = true; break; }
-      const { start, exit, end } = pair.value;
+      const { start, end, boundary } = pair.value;
       diagnostics.neighbourChecks++;
       const drop = start[1] - end[1], span = horizontal(start, end);
       if (-drop > model.maxJumpHeight + 2 * endpointTolerance || drop > maxDrop + 2 * endpointTolerance || span > maxHorizontalDistance) {
@@ -568,7 +581,7 @@ export function findJumpConnections(surfaces, world, options) {
       const destinations = buckets.get(launch) ?? new Map();
       const bucket = destinations.get(landingKey) ?? [];
       const nominal = jumpDuration(start[1], end[1], { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
-      bucket.push({ start, exit, end, uncertain: nominal === null || span > nominal * model.maxHorizontalSpeed,
+      bucket.push({ start, end, boundary, uncertain: nominal === null || span > nominal * model.maxHorizontalSpeed,
         score: (nominal ?? duration) +
         (distance(from, start) + distance(end, to)) / Math.max(1, model.maxHorizontalSpeed) });
       destinations.set(landingKey, bucket);
@@ -605,7 +618,7 @@ export function findJumpConnections(surfaces, world, options) {
       const candidate = search.candidates[search.cursor++];
       const start = standing(candidate.start, a.component), end = standing(candidate.end, b.component);
       if (!start || !end) continue;
-      const key = JSON.stringify([start.position, candidate.exit, end.position]);
+      const key = JSON.stringify([start.position, end.position]);
       if (search.tried.has(key)) continue;
       search.tried.add(key);
       // Support correction may change heights enough to invalidate a raw pair.
@@ -616,8 +629,7 @@ export function findJumpConnections(surfaces, world, options) {
         diagnostics.rejected.range++;
         continue;
       }
-      for (const variant of motionVariants(start.position, end.position, candidate.exit)) {
-        const { mode } = variant;
+      for (const mode of ['jump', 'drop']) {
         if (mode === 'jump' && model.maxJumpHeight === 0) continue;
         if (mode === 'drop' && end.position[1] > start.position[1]) continue;
         if (diagnostics.attempted >= diagnostics.limits.arcAttempts) {
@@ -625,11 +637,8 @@ export function findJumpConnections(surfaces, world, options) {
           return null;
         }
         diagnostics.attempted++;
-        const motion = { ...model, profile, walls, wallCheck: blocked, ...variant,
-          sweep: (from, to, body) => world.sweepCapsule(from, to, body) };
-        const arc = mode === 'drop'
-          ? runOffConnection(start.position, end.position, { ...motion, world, maxSlope })
-          : jumpConnection(start.position, end.position, motion);
+        const arc = jumpConnection(start.position, end.position, { ...model, profile, walls, mode,
+          sweep: (from, to, body) => world.sweepCapsule(from, to, body) });
         if (!arc) { diagnostics.rejected.motion++; continue; }
         return { id: `traversal/${a.id}/${b.id}`, ...arc, state: 'open', endpointTolerance,
           fromSurface: start.surface, toSurface: end.surface };
@@ -653,7 +662,7 @@ export function findJumpConnections(surfaces, world, options) {
   };
 
   const validated = new Set();
-  while (connections.length < maxLinks) {
+  while (connections.length < maxLinks && diagnostics.regionSearches < (workLimits?.regionSearches ?? maxCandidates)) {
     diagnostics.regionSearches++;
     const chain = findChain();
     if (!chain) break;
@@ -686,6 +695,7 @@ export function findJumpConnections(surfaces, world, options) {
       break;
     }
   }
+  if (diagnostics.regionSearches >= (workLimits?.regionSearches ?? maxCandidates) && !diagnostics.targetReached) diagnostics.truncated = true;
   diagnostics.targetReached ??= false;
   if (connections.length >= maxLinks && !diagnostics.targetReached) diagnostics.truncated = true;
   return { connections, diagnostics };
