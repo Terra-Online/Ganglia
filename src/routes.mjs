@@ -1,4 +1,5 @@
 import { blockedByWalls } from './walls.mjs';
+import { validateMotion, routeSegment } from './motion.mjs';
 // Edges are directed, clearance-checked corridors supplied by the navigation importer.
 // This module never connects points by proximity or projects between floors.
 const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
@@ -28,6 +29,7 @@ export function routeFrom(graph, starts, goal, constraints) {
         edge.points.length < 2 || !edge.points.every(finitePoint) ||
         distance(edge.points[0], nodes.get(edge.from)) > 1e-6 ||
         distance(edge.points.at(-1), nodes.get(edge.to)) > 1e-6) throw new Error('Invalid corridor');
+    validateMotion(edge);
     if (edge.state === 'open' && (!constraints || !edge.points.slice(1).some((p, i) =>
         blockedByWalls(edge.points[i], p, constraints.walls, constraints.profile)))) {
       if (!edges.has(edge.from)) edges.set(edge.from, []);
@@ -90,6 +92,7 @@ export function routeFrom(graph, starts, goal, constraints) {
         if (distance(points.at(-1), point) > 1e-9) points.push([...point]);
       }
       return { status: 'complete', start: origins.get(goal), cost: costs.get(goal), points,
+        arrivalCost: costs.get(root), segments: path.map(routeSegment),
         length: points.slice(1).reduce((sum, p, i) => sum + distance(points[i], p), 0) };
     }
     for (const edge of edges.get(current) ?? []) {

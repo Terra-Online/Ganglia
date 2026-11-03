@@ -5,13 +5,13 @@ with TypeScript declarations. It runs in Node and browsers. Camera rules belong 
 noclip; game asset decoding belongs to its extractor.
 
 ```js
-import { planGroundRoute, sampleRoute } from '@oem/ganglia';
+import { planGroundRoute, sampleJourney } from '@oem/ganglia';
 const result = planGroundRoute(surfaces, arrivals, target, {
   speed: 3, maxVertical: 0.5,
   profile: { radius: 0.4, height: 2 }, walls,
 });
 if (result.status === 'complete') {
-  const position = sampleRoute(result.points, elapsedSeconds * 3);
+  const { position, mode } = sampleJourney(result, elapsedSeconds);
 }
 ```
 
@@ -24,7 +24,7 @@ No proximity bridge, jump, climb, floor snap or off-mesh connection is invented.
 Arrivals supply `{ id, position, cost, state }`. Costs are seconds; availability is
 `available`, `locked` or `unknown`. Include the player at cost zero and unlocked teleport
 platforms/base centres at their teleport overhead. The result identifies the selected
-arrival and contains only its ground segment. Unknown or locked arrivals are excluded.
+arrival and contains only the journey after arrival. Unknown or locked arrivals are excluded.
 Projection is vertical, within `maxVertical`; it never snaps a point over a gap onto a
 nearby island. A base centre's bounding-box height is only a seed: resolve its ground
 height before planning. The target and starts retain their projected coordinates.
@@ -47,11 +47,41 @@ are available for importers. `sampleRoute(points, meters)` samples arc length wi
 smoothing through corners. `unmapped` or `no-verified-route` means the inputs cannot prove
 a route, not that the game destination is absolutely unreachable.
 
-Run `npm test`, then `npm pack` for an installable archive. The package includes modules,
+Run `npm pack` (which runs the tests) for an installable archive. The package includes modules,
 declarations and the repository's AGPL-3.0 license, never game assets. Registry publication
 is separate. Atlos consumes this archive as a package dependency. Runtime player-state
 integration, complete player navigation coverage and in-game traversal validation remain
 outstanding; this is an alpha implementation.
+
+## Directed movement and playback
+
+`GroundOptions.connections` accepts explicit `{ id, mode, points, times, state }`
+connections. Modes are `rope`, `jump`, `drop` and `launch`; each connection grants
+only its supplied direction. Availability uses `open`, `closed`, `unknown`. Both
+endpoints must already lie on a supplied surface (1e-6 m numerical tolerance).
+The importer must validate the entire trajectory, landing, body clearance and
+movement state before marking a connection open. The planner also checks every
+sample interval against air walls; it never exempts a rope or launch from them.
+An authored device position alone is not a verified connection.
+
+Times start at zero, correspond one-to-one with points, and end at the segment's
+travel cost in seconds. They preserve variable speed and pauses; non-walking
+segments require a positive duration. Lower-level graph edges accept the same
+`mode`, `times` and optional `connection` identifier. Walking edges without times
+retain their existing constant-speed interpolation over the supplied corridor.
+
+Complete routes retain `points` for spatial consumers such as camera selection,
+and add timed `segments` plus `arrivalCost`. `sampleJourney(route, seconds)` returns
+`{ position, mode, connection? }` after the chosen arrival, and `mode: 'complete'`
+at the end. It interpolates supplied samples without fitting a new curve. Include
+startup/exit time in the supplied trajectory when known. `sampleRoute` remains an
+arc-length utility; do not use a single walking speed to animate mixed movement.
+
+Acceleration buffs are not automatically applied to subsequent edges. Their
+remaining duration and effect must be part of the importer's graph state; joining
+all such states at the same location would incorrectly grant a permanent boost.
+Game-specific trajectory generation and movement-state expansion are not yet
+implemented. Synthetic directed-connection tests do not establish game reachability.
 
 ## Offline player navigation build
 
