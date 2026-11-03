@@ -1,3 +1,4 @@
+import { blockedByWalls } from './walls.mjs';
 // Edges are directed, clearance-checked corridors supplied by the navigation importer.
 // This module never connects points by proximity or projects between floors.
 const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
@@ -7,10 +8,17 @@ const finitePoint = p => Array.isArray(p) && p.length === 3 && p.every(Number.is
  * Endpoint IDs must come from a floor-aware projection by the caller.
  * Cost is supplied in seconds; optimality is on this graph, not continuous space.
  */
-export function route(graph, start, goal) {
+export function route(graph, start, goal, constraints) {
+  return routeFrom(graph, [{ id: start, node: start, cost: 0, state: 'available' }], goal, constraints);
+}
+
+/** Compare walking and available teleport arrivals in one multi-source search.
+ * Entry costs and corridor costs use the same units. Unknown/locked arrivals are excluded.
+ */
+export function routeFrom(graph, starts, goal, constraints) {
   const nodes = new Map();
   for (const node of graph.nodes) {
-    if (nodes.has(node.id) || !finitePoint(node.position)) throw new Error('Invalid node');
+    if (typeof node.id !== 'string' || nodes.has(node.id) || !finitePoint(node.position)) throw new Error('Invalid node');
     nodes.set(node.id, node.position);
   }
   const edges = new Map();
@@ -20,36 +28,74 @@ export function route(graph, start, goal) {
         edge.points.length < 2 || !edge.points.every(finitePoint) ||
         distance(edge.points[0], nodes.get(edge.from)) > 1e-6 ||
         distance(edge.points.at(-1), nodes.get(edge.to)) > 1e-6) throw new Error('Invalid corridor');
-    if (edge.state === 'open') {
+    if (edge.state === 'open' && (!constraints || !edge.points.slice(1).some((p, i) =>
+        blockedByWalls(edge.points[i], p, constraints.walls, constraints.profile)))) {
       if (!edges.has(edge.from)) edges.set(edge.from, []);
       edges.get(edge.from).push(edge);
     }
   }
-  if (!nodes.has(start) || !nodes.has(goal)) return { status: 'unmapped' };
+  if (!nodes.has(goal)) return { status: 'unmapped' };
+  if (constraints && blockedByWalls(nodes.get(goal), nodes.get(goal), constraints.walls, constraints.profile)) return { status: 'no-verified-route' };
   // Dijkstra: arbitrary authored travel times need not admit a Euclidean heuristic.
-  const costs = new Map([[start, 0]]), previous = new Map(), pending = new Set([start]);
-  while (pending.size) {
-    let current;
-    for (const id of pending) if (current === undefined || costs.get(id) < costs.get(current)) current = id;
-    pending.delete(current);
+  const costs = new Map(), previous = new Map(), origins = new Map(), heap = [];
+  const push = (item) => {
+    let index = heap.length; heap.push(item);
+    while (index > 0) {
+      const parent = (index - 1) >> 1;
+      if (heap[parent].cost <= item.cost) break;
+      heap[index] = heap[parent]; index = parent;
+    }
+    heap[index] = item;
+  };
+  const pop = () => {
+    const first = heap[0], last = heap.pop();
+    if (heap.length) {
+      let i = 0;
+      while (i * 2 + 1 < heap.length) {
+        let child = i * 2 + 1;
+        if (child + 1 < heap.length && heap[child + 1].cost < heap[child].cost) child++;
+        if (heap[child].cost >= last.cost) break;
+        heap[i] = heap[child]; i = child;
+      }
+      heap[i] = last;
+    }
+    return first;
+  };
+  const sourceIds = new Set();
+  for (const start of starts) {
+    if (typeof start.id !== 'string' || sourceIds.has(start.id) || !Number.isFinite(start.cost) || start.cost < 0 ||
+        !['available','locked','unknown'].includes(start.state)) throw new Error('Invalid arrival');
+    sourceIds.add(start.id);
+    if (start.state !== 'available' || !nodes.has(start.node)) continue;
+    if (constraints && blockedByWalls(nodes.get(start.node), nodes.get(start.node), constraints.walls, constraints.profile)) continue;
+    if (start.cost < (costs.get(start.node) ?? Infinity)) {
+      costs.set(start.node, start.cost); origins.set(start.node, start.id);
+      push({ id: start.node, cost: start.cost });
+    }
+  }
+  if (!heap.length) return { status: 'unmapped' };
+  while (heap.length) {
+    const entry = pop(), current = entry.id;
+    if (entry.cost !== costs.get(current)) continue;
     if (current === goal) {
       const path = [];
-      for (let id = goal; id !== start;) {
+      let root = goal;
+      for (let id = goal; previous.has(id);) {
         const edge = previous.get(id);
-        path.push(edge); id = edge.from;
+        path.push(edge); id = edge.from; root = id;
       }
       path.reverse();
-      const points = [[...nodes.get(start)]];
+      const points = [[...nodes.get(root)]];
       for (const edge of path) for (const point of edge.points.slice(1)) {
         if (distance(points.at(-1), point) > 1e-9) points.push([...point]);
       }
-      return { status: 'complete', cost: costs.get(goal), points,
+      return { status: 'complete', start: origins.get(goal), cost: costs.get(goal), points,
         length: points.slice(1).reduce((sum, p, i) => sum + distance(points[i], p), 0) };
     }
     for (const edge of edges.get(current) ?? []) {
       const cost = costs.get(current) + edge.cost;
       if (cost < (costs.get(edge.to) ?? Infinity)) {
-        costs.set(edge.to, cost); previous.set(edge.to, edge); pending.add(edge.to);
+        costs.set(edge.to, cost); previous.set(edge.to, edge); origins.set(edge.to, origins.get(current)); push({ id: edge.to, cost });
       }
     }
   }
@@ -66,25 +112,4 @@ export function sampleRoute(points, meters) {
     remaining -= length;
   }
   return [...points.at(-1)];
-}
-
-/** Camera candidates beyond the goal, looking obliquely back along the arrival route.
- * Output still requires renderer visibility, clearance and route-in-frame checks.
- * Arrival is measured over a lookback distance rather than one tiny final edge.
- */
-export function arrivalViews(points, { lookback = 12, distance: back = 16, height = 8 } = {}) {
-  if (points.length < 2 || !points.every(finitePoint) || ![lookback, back, height].every(Number.isFinite) ||
-      lookback <= 0 || back <= 0 || height < 0) return [];
-  const target = points.at(-1);
-  const before = sampleRoute([...points].reverse(), lookback);
-  const dx = target[0] - before[0], dz = target[2] - before[2], length = Math.hypot(dx, dz);
-  if (length < 0.1) return [];
-  const ux = dx / length, uz = dz / length;
-  return [-45, -30, 30, 45].map(degrees => {
-    const angle = degrees * Math.PI / 180;
-    const x = back * (ux * Math.cos(angle) - uz * Math.sin(angle));
-    const z = back * (ux * Math.sin(angle) + uz * Math.cos(angle));
-    return { position: [target[0] + x, target[1] + height, target[2] + z],
-      yaw: Math.atan2(-x, -z), pitch: -Math.atan2(height, back) };
-  });
 }

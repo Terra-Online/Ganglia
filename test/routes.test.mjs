@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { route, sampleRoute, arrivalViews } from '../src/routes.mjs';
+import { route, sampleRoute } from '../src/routes.mjs';
 const nodes = [
   { id: 'a', position: [0, 0, 0] }, { id: 'b', position: [0, 0, 5] },
   { id: 'c', position: [5, 0, 5] }, { id: 'upper', position: [0, 8, 0] },
@@ -20,16 +20,6 @@ test('blocked shortcut uses directed verified corridors; overlapping floor stays
 test('rejects invalid costs and discontinuous edge geometry', () => {
   assert.throws(() => route({ nodes, edges: [edge('a', 'c', -1)] }, 'a', 'c'));
   assert.throws(() => route({ nodes, edges: [{ ...edge('a', 'c', 1), points: [[1, 0, 0], [5, 0, 5]] }] }, 'a', 'c'));
-});
-test('east-to-west arrival places all cameras west of target, neither parallel nor perpendicular', () => {
-  const views = arrivalViews([[30, 0, 0], [0.01, 0, 0], [0, 0, 0]]);
-  assert.equal(views.length, 4);
-  for (const view of views) {
-    assert.ok(view.position[0] < 0);
-    const cosine = -view.position[0] / 16;
-    assert.ok(cosine > 0.7 && cosine < 0.9);
-  }
-  assert.deepEqual(arrivalViews([[0, 0, 0], [0, 8, 0]]), []);
 });
 test('animation handles duplicate points and clamps endpoints without cutting corners', () => {
   const points = [[0, 0, 0], [0, 0, 0], [0, 0, 5], [5, 0, 5]];

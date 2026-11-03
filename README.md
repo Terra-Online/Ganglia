@@ -1,53 +1,54 @@
 # Ganglia
 
-**Ganglia** is a progressive path optimization engine designed exclusively for the [Open Endfield Map](https://github.com/your-org/open-endfield-map), an unofficial web map project for **Arknights: Endfield**.
+`@oem/ganglia` is an experimental, dependency-free ESM ground-routing package for OEM,
+with TypeScript declarations. It runs in Node and browsers. Camera rules belong to
+noclip; game asset decoding belongs to its extractor.
 
-It calculates traversal routes between interactable map nodes on-demand, based on user requests, while adhering to game-specific map constraints. Ganglia returns a fast, approximate path initially and refines the path incrementally as more users request the same routes.
+```js
+import { planGroundRoute, sampleRoute } from '@oem/ganglia';
+const result = planGroundRoute(surfaces, arrivals, target, {
+  speed: 3, maxVertical: 0.5,
+  profile: { radius: 0.4, height: 2 }, walls,
+});
+if (result.status === 'complete') {
+  const position = sampleRoute(result.points, elapsedSeconds * 3);
+}
+```
 
-Built in **C++** and compiled to **WebAssembly**, Ganglia operates directly in the browser or server, optimized for quick and progressive path generation.
+Surfaces are convex, consistently wound, world-coordinate polygons selected for one
+build, scene, state and movement profile. Importers must respect navigation area masks,
+clearance, dynamic obstacles and detail heights. Optional `portals` lists the edge indices
+that may connect; an empty list closes every edge. Only matching full 3D edges connect.
+No proximity bridge, jump, climb, floor snap or off-mesh connection is invented.
 
----
+Arrivals supply `{ id, position, cost, state }`. Costs are seconds; availability is
+`available`, `locked` or `unknown`. Include the player at cost zero and unlocked teleport
+platforms/base centres at their teleport overhead. The result identifies the selected
+arrival and contains only its ground segment. Unknown or locked arrivals are excluded.
+Projection is vertical, within `maxVertical`; it never snaps a point over a gap onto a
+nearby island. A base centre's bounding-box height is only a seed: resolve its ground
+height before planning. The target and starts retain their projected coordinates.
 
-## 🌐 Features
+`route(graph, start, goal, constraints)` and `routeFrom(graph, arrivals, goal, constraints)`
+are lower-level entry points for prebuilt directed corridor graphs. The latter takes
+node-based arrivals `{ id, node, cost, state }`. Binary-heap multi-source Dijkstra finds
+the minimum cost on the supplied graph. Unknown/closed edges are excluded. Polygon-centre
+routes are conservative corridor paths, **not continuous shortest paths**. Partial portal
+matching, funnel shortening and detail-height reconstruction are not implemented.
 
-- ⚡ **Fast initial response**: Uses Nearest Neighbor + 2-opt for quick, approximate pathfinding.
-- 🔁 **Progressive refinement**: As more users request paths, the algorithm incrementally optimizes the route.
-- 🧠 **Shared cache**: Path optimization is progressively improved and shared across users.
-- 🗺️ **Flexible input**: Accepts JSON-defined map nodes.
-- 🚀 **WebAssembly powered**: Runs in the browser or server using WASM, providing optimal performance.
+`blockedByWalls` applies player radius/height and optional wall padding. Unknown walls
+block. Optional XZ wall polylines narrow the bounding-volume test, including vertical
+overlap. Without polylines, bounds conservatively block. This covers vertical air walls,
+not arbitrary collision meshes. Pass `{ walls, profile }` to graph queries; the high-level
+planner requires them. Even stationary paths and endpoint connectors obey exclusions.
 
----
+`surfaceGraph(surfaces, { speed })` and `projectPoint(surfaces, position, { maxVertical })`
+are available for importers. `sampleRoute(points, meters)` samples arc length without
+smoothing through corners. `unmapped` or `no-verified-route` means the inputs cannot prove
+a route, not that the game destination is absolutely unreachable.
 
-## 🎯 Purpose
-
-**Ganglia** is developed **specifically for the Open Endfield Map project** and is **not intended for general-purpose or third-party use**.
-
-In the context of Open Endfield Map, Ganglia handles:
-- On-demand pathfinding for interactable points on the map.
-- Initial approximate paths based on Nearest Neighbor + 2-opt.
-- Incremental path improvement as additional users request the same routes.
-
----
-
-## 🔧 Architecture Overview
-
-1. **Initial Path**: Generated on demand using Nearest Neighbor + 2-opt (quick but approximate).
-2. **Dynamic Cache**: Path data is cached and reused for future requests.
-3. **User-driven Refinement**: Paths are progressively improved with each subsequent request.
-4. **Route Finalization**: Once a path has been sufficiently refined, it becomes a stable, optimized route.
-
----
-
-## 📦 Integration
-
-- **Input**: JSON map + list of interactable nodes.
-- **Output**: Ordered node sequence and full path segments for map rendering.
-- **Usage**: Exposed via C++ interface or WASM JavaScript bindings.
-
----
-
-## 🧪 Status
-
-> Ganglia is under active development for Open Endfield Map.
-> Not intended for reuse outside this context.
-> Contributions welcome within the scope of the project.
+Run `npm test`, then `npm pack` for an installable archive. The package includes modules,
+declarations and the repository's AGPL-3.0 license, never game assets. Registry publication
+is separate. Atlos consumes this archive as a package dependency. Runtime player-state
+integration, complete player navigation coverage and in-game traversal validation remain
+outstanding; this is an alpha implementation.
