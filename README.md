@@ -97,6 +97,8 @@ import { buildGroundSurfaces } from '@oem/ganglia/build';
 const surfaces = await buildGroundSurfaces({ positions, indices }, {
   profile, maxSlope: 46, stepUp: 0.4, stepDown: 0.6,
   cellSize: 0.1, cellHeight: 0.05,
+  // Optional world XZ rectangle; retains the input's full vertical extent.
+  bounds: { min: [0, 0], max: [64, 64] },
 });
 ```
 
@@ -108,10 +110,14 @@ The build rounds clearance up and reserves one vertical voxel from the smaller s
 limit. It admits no implicit jumps or large drops. Larger downward allowances require
 validated **directed** transitions; they never authorize climbing the same height.
 
-Voxelization is approximate, not a continuous collision proof. Detail heights can differ
-from collision floors by a vertical voxel. Use a small explicit projection tolerance;
+Voxelization is approximate, not a continuous collision proof. Detail heights differ
+from collision floors because of rasterization and interpolation. Validate a small explicit projection tolerance;
 do not snap across gaps or floors. This initial builder handles bounded regions (at most
-8 million XZ cells and 8190 vertical cells), not independently stitched tiles. Provide
+8 million XZ cells and 8190 vertical cells). Dense geometry can exceed the native contour
+vertex limit even within that budget; build errors retain the native diagnostic. Optional
+`bounds` restricts voxelization in XZ without dropping intersecting actors or clipping
+ceilings in Y. Include every collider intersecting the rectangle, regardless of its origin.
+Region edges are clearance-eroded. Builds are not automatically stitched; provide
 overlap/border ownership before attempting region stitching. It does not fill absent
 physical geometry, decode game colliders, infer dynamic states or validate jump arcs.
 

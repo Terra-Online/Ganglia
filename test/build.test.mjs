@@ -55,3 +55,19 @@ test('rejects invalid geometry and unsafe voxel budgets before native allocation
   await assert.rejects(buildGroundSurfaces(geometry,{...options,cellHeight:1}),/voxel profile/);
   await assert.rejects(build(quad(0,10000,0,10000,0)),/voxel limits/);
 });
+
+test('bounds restrict extended actors without dropping intersecting floor or headroom', async () => {
+  const config = {...options, bounds:{min:[0,0],max:[10,8]}};
+  // Large source actors remain available to rasterization; only the build rectangle is clipped.
+  const geometry = [...quad(-1000,1000,-1000,1000,0), ...quad(4,6,-1000,1000,1.4)];
+  const surfaces = await build(geometry,config);
+  assert.ok(projectPoint(surfaces,[1,0,4],{maxVertical:.15}));
+  assert.ok(projectPoint(surfaces,[9,0,4],{maxVertical:.15}));
+  assert.equal(projectPoint(surfaces,[-1,0,4],{maxVertical:.15}),null);
+  assert.equal(route(surfaces,[1,0,4],[9,0,4]).status,'no-verified-route');
+  const floor = await build(quad(-1000,1000,-1000,1000,0),config);
+  assert.equal(route(floor,[1,0,4],[9,0,4]).status,'complete');
+  for (const bounds of [{min:[0,0],max:[0,8]}, {min:[NaN,0],max:[10,8]}, {min:[0],max:[10,8]}]) {
+    await assert.rejects(build(geometry,{...options,bounds}),/bounds/);
+  }
+});

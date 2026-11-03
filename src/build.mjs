@@ -33,6 +33,17 @@ export async function buildGroundSurfaces(geometry, options) {
       vertices.push(v); min[axis] = Math.min(min[axis], v); max[axis] = Math.max(max[axis], v);
     }
   }
+  // Streamed actors may extend far outside the requested region. Clip the voxel
+  // build in XZ, while retaining every input's vertical extent for headroom.
+  if (options.bounds !== undefined) {
+    const b = options.bounds;
+    if (!b || !Array.isArray(b.min) || !Array.isArray(b.max) || b.min.length !== 2 || b.max.length !== 2 ||
+        ![...b.min, ...b.max].every(Number.isFinite) || b.min.some((v, i) => v >= b.max[i])) {
+      throw new Error('Invalid ground build bounds');
+    }
+    min[0] = b.min[0]; min[2] = b.min[1];
+    max[0] = b.max[0]; max[2] = b.max[1];
+  }
   const width = Math.ceil((max[0] - min[0]) / cellSize);
   const depth = Math.ceil((max[2] - min[2]) / cellSize);
   if (width < 1 || depth < 1 || width * depth > 8_000_000 || (max[1] - min[1]) / cellHeight > 8190) {
@@ -43,6 +54,7 @@ export async function buildGroundSurfaces(geometry, options) {
   if (height < 3 || height > 255 || radius > 255 || climb > 255) throw new Error('Unsupported ground build voxel profile');
   await init();
   const result = generateSoloNavMesh(vertices, Array.from(indices, (_, i) => i), {
+    bounds: [min, max],
     cs: cellSize, ch: cellHeight, walkableSlopeAngle: maxSlope,
     walkableHeight: height, walkableRadius: radius,
     // Reserve one vertical voxel for rasterization error. The larger downward
@@ -51,7 +63,10 @@ export async function buildGroundSurfaces(geometry, options) {
     minRegionArea: 0, mergeRegionArea: 0, maxSimplificationError: 0.5,
     detailSampleDist: 1, detailSampleMaxError: 1,
   });
-  if (!result.success) throw new Error('Ground build failed: ' + result.error);
+  if (!result.success) {
+    const details = result.intermediates.buildContext.logs.map(entry => entry.msg).join('; ');
+    throw new Error('Ground build failed: ' + result.error + (details ? ' (' + details + ')' : ''));
+  }
   try {
     const [points, triangles] = getNavMeshPositionsAndIndices(result.navMesh);
     const surfaces = [];

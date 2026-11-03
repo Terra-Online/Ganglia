@@ -14,6 +14,11 @@ export interface BuildOptions {
   /** Horizontal and vertical voxel dimensions in metres. */
   cellSize: number;
   cellHeight: number;
+  /** Optional XZ build rectangle in world metres. Full input height is retained.
+   * Region edges are clearance-eroded; adjacent builds are not automatically stitched.
+   * Supply complete intersecting collision geometry, including outside-origin actors.
+   */
+  bounds?: { min: [number, number]; max: [number, number] };
 }
 /** Offline voxel build from complete, state-selected collision geometry, including
  * obstacles and ceilings. No gap, jump or drop links are invented. Detail heights
