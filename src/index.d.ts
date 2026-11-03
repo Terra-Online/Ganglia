@@ -92,7 +92,7 @@ export function jumpConnection(start: Vec3, end: Vec3, options: JumpModel & {
 }): { mode: 'jump' | 'drop'; points: Vec3[]; times: number[]; motionValidation: 'model-based' } | null;
 export interface DiscoveryOptions {
   profile: { radius: number; height: number }; portals?: Portal[]; walls: Wall[];
-  from: Vec3; to: Vec3; maxVertical: number; maxSlope: number; maxDrop: number;
+  from: Vec3; to: Vec3; interaction?: InteractionGoal; maxVertical: number; maxSlope: number; maxDrop: number;
   maxHorizontalDistance: number; sampleSpacing: number; maxCandidates: number; maxLinks: number;
   model: JumpModel;
 }
@@ -100,7 +100,9 @@ export interface DiscoveryDiagnostics {
   reason: string; components: number; boundaryEdges: number; endpointChecks: number;
   standingEndpoints: number; neighbourChecks: number; pairChecks: number; candidatePairs: number;
   attempted: number; accepted: number; truncated: boolean;
-  limits: { maxCandidates: number; maxLinks: number; arcAttempts: number; endpointChecks: number; neighbourChecks: number; pairChecks: number };
+  limits: { maxCandidates: number; maxLinks: number; arcAttempts: number; endpointChecks: number; neighbourChecks: number; pairChecks: number; seedChecks: number };
+  regionSearches: number; regionPairs: number; validatedPairs: number; pairBatches: number; deferredPairs: number; generationBatches: number; seedChecks: number;
+  goalFaces: number; goalComponents: number;
   rejected: { projection: number; support: number; clearance: number; range: number; motion: number };
   sourceEndpoints?: number; targetEndpoints?: number; sourceComponent?: number; targetComponent?: number;
   sourceCandidates?: number; directCandidates?: number; targetReached?: boolean;

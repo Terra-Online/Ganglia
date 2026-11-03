@@ -1,3 +1,4 @@
+import { createMinHeap } from './heap.mjs';
 import { createWallChecker } from './walls.mjs';
 import { validateMotion, routeSegment } from './motion.mjs';
 // Edges are directed, clearance-checked corridors supplied by the navigation importer.
@@ -42,30 +43,8 @@ export function routeFrom(graph, starts, goal, constraints) {
   const goals = new Set(mapped.filter(id => !blocked || !blocked(nodes.get(id), nodes.get(id))));
   if (!goals.size) return { status: 'no-verified-route' };
   // Dijkstra: arbitrary authored travel times need not admit a Euclidean heuristic.
-  const costs = new Map(), previous = new Map(), origins = new Map(), heap = [];
-  const push = (item) => {
-    let index = heap.length; heap.push(item);
-    while (index > 0) {
-      const parent = (index - 1) >> 1;
-      if (heap[parent].cost <= item.cost) break;
-      heap[index] = heap[parent]; index = parent;
-    }
-    heap[index] = item;
-  };
-  const pop = () => {
-    const first = heap[0], last = heap.pop();
-    if (heap.length) {
-      let i = 0;
-      while (i * 2 + 1 < heap.length) {
-        let child = i * 2 + 1;
-        if (child + 1 < heap.length && heap[child + 1].cost < heap[child].cost) child++;
-        if (heap[child].cost >= last.cost) break;
-        heap[i] = heap[child]; i = child;
-      }
-      heap[i] = last;
-    }
-    return first;
-  };
+  const costs = new Map(), previous = new Map(), origins = new Map(), heap = createMinHeap();
+  const { push, pop } = heap;
   const sourceIds = new Set();
   for (const start of starts) {
     if (typeof start.id !== 'string' || sourceIds.has(start.id) || !Number.isFinite(start.cost) || start.cost < 0 ||
@@ -78,8 +57,8 @@ export function routeFrom(graph, starts, goal, constraints) {
       push({ id: start.node, cost: start.cost });
     }
   }
-  if (!heap.length) return { status: 'unmapped' };
-  while (heap.length) {
+  if (!heap.size) return { status: 'unmapped' };
+  while (heap.size) {
     const entry = pop(), current = entry.id;
     if (entry.cost !== costs.get(current)) continue;
     if (goals.has(current)) {

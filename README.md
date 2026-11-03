@@ -114,9 +114,34 @@ search limits bound offline work. Standing feet require real collision support,
 capsule clearance and acceptable slope. Each accepted arc also checks air walls.
 The result includes explicit truncation diagnostics. Sampling can miss valid
 links, and passing this model still requires in-game movement validation.
-Endpoint work reserves shares for the source, target and intermediate regions.
-Supported boundary feet and body-scale 3D diversity keep unrelated mesh growth
-from consuming the useful local search budget.
+The search groups ground polygons by directed, wall-filtered connectivity. A
+backward region search uses spatial bounds, height and horizontal distance to
+order optimistic chains. It generates neighbouring region pairs on demand and
+collision-checks only local transfers on proposed chains. Rejected transfers
+trigger another chain search; accepted trajectories and standing checks are reused.
+Arc validation runs in small scheduling batches. Difficult shortcuts are deferred
+with their remaining candidates intact so a nearby multi-hop chain can be tried
+before that shortcut consumes the entire query budget.
+Local pairing spreads work across takeoff regions and queries landing samples in
+3D goal-distance order. Candidate ordering estimates approach, flight and departure
+time; minimizing horizontal flight span alone can favour blocked vertical drops.
+Nominally feasible samples precede those relying on navigation-height tolerance.
+Exhausting generation work still permits validation of already retained candidates.
+Seed-pair generation also runs in resumable batches, preserving its iterator and
+queued refinements. One difficult transfer cannot consume all generation work before
+an alternative multi-hop chain is explored. `maxCandidates` bounds an ordered local
+batch; query-wide seed, pair, contact and arc limits are reported separately.
+These bounds and ordering costs never grant movement access or establish optimality.
+
+Optional `interaction` uses the same standing-volume contract as ground planning.
+All eligible target faces participate together, grouped by component; there is no
+fixed face-count cutoff or repeated search for faces in the same region. Local
+sampling visits body-scale launch regions, then diverse landings and fine offsets,
+retaining narrow platforms and railing pullbacks. Work limits cover seed generation,
+neighbour/pair checks, stationary contacts, arc attempts and retained links. They
+remain shared across the complete query and are exposed in diagnostics. This
+discovery seeks a feasible region chain; corridor and resource optimization remain
+separate, and a region connection can still fail the final ground route or gait policy.
 
 ## Offline player navigation build
 

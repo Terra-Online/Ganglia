@@ -1,4 +1,6 @@
 import { surfaceGraph, surfacePortals } from './surfaces.mjs';
+import { createBoundsIndex } from './bounds.mjs';
+import { createMinHeap } from './heap.mjs';
 import { createGoalProjector } from './goals.mjs';
 import { createWallChecker } from './walls.mjs';
 import { jumpConnection, jumpDuration } from './jumps.mjs';
@@ -89,7 +91,7 @@ const onEdge = (point, a, b) => {
   );
 };
 
-const exposedBoundaries = (surfaces, portals, from, to) => {
+const exposedBoundaries = (surfaces, portals) => {
   const covered = new Set();
   for (const portal of surfacePortals(surfaces)) {
     // Skipping the whole edge at a partial portal is conservative for discovery.
@@ -130,146 +132,48 @@ const exposedBoundaries = (surfaces, portals, from, to) => {
         midpoint,
         length,
         inward,
-        score: Math.min(distance(from, midpoint), distance(to, midpoint)),
       });
     }
   }
-  return boundaries.sort((a, b) => a.score - b.score);
+  return boundaries;
 };
 
-const interleaveGroups = (entries, componentOf, preferred, batchSize) => {
-  const groups = new Map();
-  for (const entry of entries) {
-    const component = componentOf(entry),
-      group = groups.get(component) ?? [];
-    group.push(entry);
-    groups.set(component, group);
-  }
-  const components = [...groups.keys()].sort(
-    (a, b) => (preferred.includes(a) ? 0 : 1) - (preferred.includes(b) ? 0 : 1),
-  );
-  let active = components.map((component) => ({
-    entries: groups.get(component),
-    cursor: 0,
-    batch: preferred.includes(component) ? batchSize : 1,
-  }));
+const horizontalGap = (a, b) => Math.hypot(...[0, 2].map(axis =>
+  Math.max(a.min[axis] - b.max[axis], b.min[axis] - a.max[axis], 0)));
+
+const boundsOf = vertices => ({
+  min: [0, 1, 2].map(axis => Math.min(...vertices.map(point => point[axis]))),
+  max: [0, 1, 2].map(axis => Math.max(...vertices.map(point => point[axis]))),
+});
+
+const interleave = (lists, limit) => {
   const result = [];
-  while (active.length) {
+  let active = lists.map(entries => ({ entries, cursor: 0 }));
+  while (active.length && result.length < limit) {
     const pending = [];
     for (const group of active) {
-      const end = Math.min(group.entries.length, group.cursor + group.batch);
-      for (let index = group.cursor; index < end; index++) result.push(group.entries[index]);
-      group.cursor = end;
-      if (end < group.entries.length) pending.push(group);
+      if (result.length >= limit) break;
+      result.push(group.entries[group.cursor++]);
+      if (group.cursor < group.entries.length) pending.push(group);
     }
-    // Drained groups leave the queue immediately. An imbalanced component must
-    // not revisit thousands of exhausted groups before endpoint budgets apply.
     active = pending;
   }
   return result;
 };
 
-const candidatePool = (limit, diagnostics) => {
-  const pairs = new Map();
-  let count = 0;
-  const worst = (list) =>
-    list.reduce((current, candidate) => (candidate.score > current.score ? candidate : current));
-  const remove = (key, candidate) => {
-    const list = pairs.get(key);
-    list.splice(list.indexOf(candidate), 1);
-    count--;
-    if (!list.length) pairs.delete(key);
-  };
-  return {
-    add(candidate) {
-      const key = `${candidate.from.component}/${candidate.to.component}`;
-      const list = pairs.get(key) ?? [];
-      const duplicate = list.find((previous) => previous.spatial === candidate.spatial);
-      if (duplicate) {
-        diagnostics.truncated = true;
-        if (candidate.score >= duplicate.score) return;
-        remove(key, duplicate);
-      }
-      const pairLimit = Math.min(96, limit);
-      if (list.length >= pairLimit) {
-        diagnostics.truncated = true;
-        const previous = worst(list);
-        if (candidate.score >= previous.score) return;
-        remove(key, previous);
-      }
-      if (count >= limit) {
-        diagnostics.truncated = true;
-        const all = [...pairs].flatMap(([pair, values]) => values.map((value) => ({ pair, value })));
-        const counts = [0, 0, 0];
-        for (const previous of all) counts[previous.value.priority]++;
-        const reserve = [Math.ceil(limit / 4), Math.ceil(limit / 2), 0];
-        let eligible = all.filter(
-          (previous) =>
-            previous.value.priority >= candidate.priority ||
-            counts[previous.value.priority] > reserve[previous.value.priority],
-        );
-        if (!eligible.length) return;
-        const diverse = eligible.filter((previous) => pairs.get(previous.pair).length > 1 || list.length > 0);
-        if (diverse.length) eligible = diverse;
-        const previous = eligible.reduce((a, b) =>
-          a.value.priority > b.value.priority ||
-          (a.value.priority === b.value.priority && a.value.score > b.value.score)
-            ? a
-            : b,
-        );
-        if (
-          list.length &&
-          candidate.priority === previous.value.priority &&
-          candidate.score >= previous.value.score
-        )
-          return;
-        remove(previous.pair, previous.value);
-      }
-      const retained = pairs.get(key) ?? [];
-      retained.push(candidate);
-      pairs.set(key, retained);
-      count++;
-    },
-    ordered() {
-      const lists = [...pairs.values()].map((list) => list.sort((a, b) => a.score - b.score));
-      const output = [];
-      for (let round = 0; output.length < count; round++) {
-        const next = lists
-          .flatMap((list) => (list[round] ? [list[round]] : []))
-          .sort((a, b) => a.score - b.score);
-        output.push(...next);
-      }
-      return output;
-    },
-  };
-};
-
-/** Discover directed model-based jumps between separated ground components.
- * Every limit, body and motion parameter is caller supplied. Candidate endpoints
- * retain actual collision support and pass a stationary capsule contact sweep.
- * Thin-surface queries do not prove occupancy outside closed solids. Callers retain
- * the selected ground/body-clearance and initial-volume-occupancy assumptions.
- * Graph-open results mean
- * the supplied model passed, with motionValidation explicitly model-based.
- * Intermediate components participate, allowing paths that require several jumps.
- * Sampling and budgets can miss traversals; diagnostics report any truncation.
+/** Discover directed jumps along optimistic region chains, validating local links lazily.
+ * Ground, body, state and collision inputs must describe the same immutable snapshot.
+ * Region bounds only order search. Every returned connection has supported feet,
+ * stationary body clearance and a swept, wall-checked trajectory under the supplied model.
+ * Optional interaction queries all eligible goal faces together and groups them by
+ * directed ground component. Sampling limits remain explicit, so failure is inconclusive.
  */
 export function findJumpConnections(surfaces, world, options) {
   const {
-    profile,
-    portals = [],
-    walls,
-    from,
-    to,
-    maxVertical,
-    maxSlope,
-    maxDrop,
-    maxHorizontalDistance,
-    sampleSpacing,
-    maxCandidates,
-    maxLinks,
-    model,
+    profile, portals = [], walls, from, to, interaction, maxVertical, maxSlope, maxDrop,
+    maxHorizontalDistance, sampleSpacing, maxCandidates, maxLinks, model,
   } = options ?? {};
+
   if (
     !profile ||
     !finitePoint(from) ||
@@ -318,357 +222,428 @@ export function findJumpConnections(surfaces, world, options) {
   }
   const blocked = createWallChecker(walls, profile);
   const diagnostics = {
-    reason: 'searched',
-    components: 0,
-    boundaryEdges: 0,
-    endpointChecks: 0,
-    standingEndpoints: 0,
-    neighbourChecks: 0,
-    pairChecks: 0,
-    candidatePairs: 0,
-    attempted: 0,
-    accepted: 0,
-    truncated: false,
+    reason: 'searched', components: 0, boundaryEdges: 0, endpointChecks: 0,
+    standingEndpoints: 0, neighbourChecks: 0, pairChecks: 0, candidatePairs: 0,
+    attempted: 0, accepted: 0, truncated: false, regionSearches: 0, regionPairs: 0,
+    validatedPairs: 0, pairBatches: 0, deferredPairs: 0, generationBatches: 0, seedChecks: 0, goalFaces: 0, goalComponents: 0,
+    sourceEndpoints: 0, targetEndpoints: 0, sourceCandidates: 0, directCandidates: 0,
     limits: {
-      maxCandidates,
-      maxLinks,
-      arcAttempts: maxCandidates * 2,
-      endpointChecks: maxCandidates * 32,
-      neighbourChecks: maxCandidates * 512,
-      pairChecks: maxCandidates * 64,
+      maxCandidates, maxLinks, arcAttempts: maxCandidates * 2,
+      endpointChecks: maxCandidates * 32, neighbourChecks: maxCandidates * 512,
+      pairChecks: maxCandidates * 64, seedChecks: maxCandidates * 64,
     },
     rejected: { projection: 0, support: 0, clearance: 0, range: 0, motion: 0 },
   };
   const connections = [];
-  const graph = surfaceGraph(surfaces, { speed: 1, portals }),
-    topology = groundComponents(graph);
+  const graph = surfaceGraph(surfaces, { speed: 1, portals });
+  graph.edges = graph.edges.filter(edge => !edge.points.slice(1).some((point, index) =>
+    blocked(edge.points[index], point)));
+  const topology = groundComponents(graph);
   diagnostics.components = topology.count;
+  const componentOf = surface => topology.components[topology.ids.get(surface)];
   const project = createGoalProjector(surfaces);
-  const source = project(from, { maxVertical })[0],
-    target = project(to, { maxVertical })[0];
-  if (!source || !target) {
+  const source = project(from, { maxVertical })[0];
+  const targets = project(to, { maxVertical, interaction }).filter(target =>
+    !blocked(target.position, target.position));
+  if (!source || !targets.length || blocked(source.position, source.position)) {
     diagnostics.reason = 'unmapped-endpoint';
     return { connections, diagnostics };
   }
-  const componentOf = (surface) => topology.components[topology.ids.get(surface)];
-  if (canReach(topology, topology.ids.get(source.surface), topology.ids.get(target.surface))) {
+  const sourceComponent = componentOf(source.surface);
+  const targetComponents = new Set(targets.map(target => componentOf(target.surface)));
+  diagnostics.sourceComponent = sourceComponent;
+  diagnostics.targetComponent = componentOf(targets[0].surface);
+  diagnostics.goalFaces = targets.length;
+  diagnostics.goalComponents = targetComponents.size;
+  if (targets.some(target => canReach(topology, topology.ids.get(source.surface), topology.ids.get(target.surface)))) {
     diagnostics.reason = 'ground-connected';
+    diagnostics.targetReached = true;
     return { connections, diagnostics };
   }
-  const sourceComponent = componentOf(source.surface),
-    targetComponent = componentOf(target.surface);
-  const boundaries = exposedBoundaries(surfaces, portals, from, to);
-  // Keep local coverage tied to the body, rather than the query's distant reach
-  // bound or sample density. Otherwise a large world extent merges useful local
-  // endpoints, while finer sampling spends the budget repeatedly in one place.
-  const diversityCell = profile.radius * 12;
-  for (const boundary of boundaries) {
-    const component = componentOf(boundary.surface);
-    boundary.score =
-      component === sourceComponent
-        ? horizontal(boundary.midpoint, to)
-        : component === targetComponent
-          ? horizontal(boundary.midpoint, from)
-          : horizontal(from, boundary.midpoint) + horizontal(boundary.midpoint, to);
+
+  const regions = Array.from({ length: topology.count }, (_, component) => ({
+    id: String(component), component, min: [Infinity, Infinity, Infinity],
+    max: [-Infinity, -Infinity, -Infinity], boundaries: [],
+  }));
+  for (const surface of surfaces) {
+    const region = regions[componentOf(surface.id)];
+    for (const point of surface.vertices) for (let axis = 0; axis < 3; axis++) {
+      region.min[axis] = Math.min(region.min[axis], point[axis]);
+      region.max[axis] = Math.max(region.max[axis], point[axis]);
+    }
   }
-  boundaries.sort((a, b) => a.score - b.score);
-  const spreadBoundaries = interleaveGroups(
-    boundaries,
-    (boundary) =>
-      JSON.stringify([
-        componentOf(boundary.surface),
-        Math.floor(boundary.midpoint[0] / diversityCell),
-        Math.floor(boundary.midpoint[1] / diversityCell),
-        Math.floor(boundary.midpoint[2] / diversityCell),
-      ]),
-    [],
-    1,
-  );
-  const orderedBoundaries = interleaveGroups(
-    spreadBoundaries,
-    (boundary) => componentOf(boundary.surface),
-    [sourceComponent, targetComponent],
-    16,
-  );
+  const boundaries = exposedBoundaries(surfaces, portals);
+  for (const boundary of boundaries) {
+    Object.assign(boundary, boundsOf([boundary.a, boundary.b]));
+    regions[componentOf(boundary.surface)].boundaries.push(boundary);
+  }
   diagnostics.boundaryEdges = boundaries.length;
-  const endpointTolerance = Math.min(maxVertical, profile.radius),
-    cachedStanding = new Map();
+  const queryRegions = createBoundsIndex(regions);
+  const endpointTolerance = Math.min(maxVertical, profile.radius);
+  const transfers = new Map(), groundIncoming = new Map();
+  const transfer = (a, b, ground, reach) => {
+    const key = `${a.id}/${b.id}`;
+    if (transfers.has(key)) return transfers.get(key);
+    const gap = horizontalGap(a, b);
+    // This optimistic ordering favours short chains; it is never a travel-time
+    // proof or a grant of access through the overlapping region bounds.
+    const entry = { key, a, b, ground, reach, closed: false,
+      cost: ground ? 0 : 1 + gap / Math.max(1, model.maxHorizontalSpeed) };
+    transfers.set(key, entry);
+    return entry;
+  };
+  for (const edge of graph.edges) {
+    const a = regions[componentOf(edge.from)], b = regions[componentOf(edge.to)];
+    if (a === b) continue;
+    const entries = groundIncoming.get(b.id) ?? new Set();
+    entries.add(transfer(a, b, true, 0));
+    groundIncoming.set(b.id, entries);
+  }
+  const incoming = new Map(), preparedIncoming = new Map();
+  const pairingAvailable = () => diagnostics.neighbourChecks < diagnostics.limits.neighbourChecks &&
+    diagnostics.pairChecks < diagnostics.limits.pairChecks;
+  const generationAvailable = () => diagnostics.seedChecks < diagnostics.limits.seedChecks && pairingAvailable();
+  const neighbours = b => {
+    if (!generationAvailable()) return [...(groundIncoming.get(b.id) ?? []), ...(preparedIncoming.get(b.id) ?? [])];
+    if (incoming.has(b.id)) return incoming.get(b.id);
+    const entries = [...(groundIncoming.get(b.id) ?? [])];
+    const bounds = {
+      min: [b.min[0] - maxHorizontalDistance, b.min[1] - model.maxJumpHeight - 2 * endpointTolerance, b.min[2] - maxHorizontalDistance],
+      max: [b.max[0] + maxHorizontalDistance, b.max[1] + maxDrop + 2 * endpointTolerance, b.max[2] + maxHorizontalDistance],
+    };
+    for (const a of queryRegions(bounds)) {
+      if (a === b || !a.boundaries.length || !b.boundaries.length) continue;
+      const drop = Math.min(maxDrop, a.max[1] - b.min[1] + 2 * endpointTolerance);
+      if (-drop > model.maxJumpHeight || a.min[1] - b.max[1] - 2 * endpointTolerance > maxDrop) continue;
+      const duration = jumpDuration(drop, 0, { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
+      const reach = duration === null ? 0 : Math.min(maxHorizontalDistance, duration * model.maxHorizontalSpeed);
+      if (duration !== null && horizontalGap(a, b) <= reach) entries.push(transfer(a, b, false, reach));
+    }
+    incoming.set(b.id, entries);
+    diagnostics.regionPairs = transfers.size;
+    return entries;
+  };
+
+  const sourceRegion = regions[sourceComponent];
+  const heuristic = region => Math.hypot(...[0, 1, 2].map(axis =>
+    Math.max(region.min[axis] - from[axis], from[axis] - region.max[axis], 0))) /
+      Math.max(1, model.maxHorizontalSpeed) +
+    Math.max(0, region.min[1] - from[1]) / Math.max(1, model.maxJumpHeight);
+  const findChain = () => {
+    const pending = createMinHeap(), costs = new Map(), next = new Map();
+    for (const component of targetComponents) {
+      const region = regions[component];
+      costs.set(region.id, 0);
+      pending.push({ region, travelled: 0, cost: heuristic(region) });
+    }
+    while (pending.size) {
+      const { region, travelled } = pending.pop();
+      if (travelled !== costs.get(region.id)) continue;
+      if (region === sourceRegion) {
+        const chain = [];
+        for (let entry = next.get(region.id); entry; entry = next.get(entry.b.id)) chain.push(entry);
+        return chain;
+      }
+      for (const entry of neighbours(region)) {
+        if (entry.closed) continue;
+        const cost = travelled + entry.cost;
+        if (cost >= (costs.get(entry.a.id) ?? Infinity)) continue;
+        costs.set(entry.a.id, cost);
+        next.set(entry.a.id, entry);
+        pending.push({ region: entry.a, travelled: cost, cost: cost + heuristic(entry.a) });
+      }
+    }
+    return null;
+  };
+
+  const cachedStanding = new Map();
   const standing = (seed, component) => {
     const key = JSON.stringify([component, seed]);
     if (cachedStanding.has(key)) return cachedStanding.get(key);
+    if (diagnostics.endpointChecks >= diagnostics.limits.endpointChecks) {
+      diagnostics.truncated = true;
+      return null;
+    }
+    diagnostics.endpointChecks++;
     let result = null;
     const nav = project(seed, { maxVertical })[0];
     if (!nav || componentOf(nav.surface) !== component) diagnostics.rejected.projection++;
     else {
-      const support = world.groundAt(nav.position, {
-        maxUp: profile.radius,
-        maxDown: profile.radius,
-        maxSlope,
-      });
+      const support = world.groundAt(nav.position, { maxUp: profile.radius, maxDown: profile.radius, maxSlope });
       if (!support) diagnostics.rejected.support++;
       else {
         const feet = [...support.position];
         feet[1] += profile.radius * (1 / support.normal[1] - 1) + 0.005;
         const attachment = project(feet, { maxVertical: endpointTolerance })[0];
         if (!attachment || componentOf(attachment.surface) !== component) diagnostics.rejected.projection++;
-        else if (
-          blocked(feet, feet) ||
-          world.sweepCapsule(feet, feet, profile) !== null
-        )
-          diagnostics.rejected.clearance++;
-        else result = { position: feet, surface: attachment.surface, component };
+        else if (blocked(feet, feet) || world.sweepCapsule(feet, feet, profile) !== null) diagnostics.rejected.clearance++;
+        else {
+          result = { position: feet, surface: attachment.surface };
+          diagnostics.standingEndpoints++;
+          if (component === sourceComponent) diagnostics.sourceEndpoints++;
+          if (targetComponents.has(component)) diagnostics.targetEndpoints++;
+        }
       }
     }
     cachedStanding.set(key, result);
     return result;
   };
-  const takeoffs = [],
-    landings = [],
-    uniqueTakeoffs = new Set(),
-    uniqueLandings = new Set();
-  // Navigation boundaries may already include the body's baked clearance. Keep
-  // those supported feet and short offsets, then retain larger railing pullbacks.
+
   const insets = [...new Set([
     0, profile.radius * 0.25, profile.radius * 0.5, profile.radius, 0.5, 1, 1.5, 2, 2.5, 3,
   ])].sort((a, b) => a - b);
-  const add = (list, seen, endpoint) => {
-    const key = JSON.stringify(endpoint.position);
-    if (!seen.has(key)) {
-      seen.add(key);
-      list.push(endpoint);
-    }
-  };
-  const seeds = function* (entries) {
-    for (const boundary of entries) {
-      const component = componentOf(boundary.surface),
-        samples = Math.max(1, Math.ceil(boundary.length / sampleSpacing));
-      for (let sample = 0; sample < samples; sample++) {
-        const fraction = (sample + 0.5) / samples;
-        const edgePoint = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
-        for (const inset of insets) {
-          yield {
-            component,
-            inset,
-            position: [
-              edgePoint[0] + boundary.inward[0] * inset,
-              edgePoint[1],
-              edgePoint[2] + boundary.inward[1] * inset,
-            ],
-          };
-        }
-      }
-    }
-  };
-  // Reserve query work for both requested components regardless of the number
-  // of unrelated islands. Intermediate components retain half the initial work,
-  // and exhausted groups relinquish their share to the remaining groups.
-  let samplingGroups = [
-    { iterator: seeds(orderedBoundaries.filter((entry) => componentOf(entry.surface) === sourceComponent)), batch: 1 },
-    { iterator: seeds(orderedBoundaries.filter((entry) => componentOf(entry.surface) === targetComponent)), batch: 1 },
-    { iterator: seeds(orderedBoundaries.filter((entry) => ![sourceComponent, targetComponent].includes(componentOf(entry.surface)))), batch: 2 },
-  ];
-  sampling: while (samplingGroups.length) {
-    const pending = [];
-    for (const group of samplingGroups) {
-      let exhausted = false;
-      for (let count = 0; count < group.batch; count++) {
-        const next = group.iterator.next();
-        if (next.done) {
-          exhausted = true;
-          break;
-        }
-        if (diagnostics.endpointChecks >= diagnostics.limits.endpointChecks) {
+  const seedsFor = (region, other, takeoff, reach, limit) => {
+    const seeds = [], seen = new Set();
+    const center = other.min.map((value, axis) => (value + other.max[axis]) / 2);
+    const edges = region.boundaries.filter(boundary =>
+      horizontalGap(boundary, other) <= reach + insets.at(-1) &&
+      (takeoff
+        ? boundary.max[1] + model.maxJumpHeight + endpointTolerance >= other.min[1] &&
+          boundary.min[1] - maxDrop - endpointTolerance <= other.max[1]
+        : boundary.min[1] <= other.max[1] + model.maxJumpHeight + endpointTolerance &&
+          boundary.max[1] >= other.min[1] - maxDrop - endpointTolerance))
+      .sort((a, b) => horizontalGap(a, other) - horizontalGap(b, other) ||
+        distance(a.midpoint, takeoff ? to : from) - distance(b.midpoint, takeoff ? to : from));
+    let generated = 0;
+    for (const boundary of edges) {
+      const samples = Math.max(1, Math.ceil(boundary.length / sampleSpacing));
+      const dx = boundary.b[0] - boundary.a[0], dz = boundary.b[2] - boundary.a[2];
+      const nearest = Math.max(0, Math.min(1,
+        ((center[0] - boundary.a[0]) * dx + (center[2] - boundary.a[2]) * dz) / (dx * dx + dz * dz)));
+      // Always try the closest part of a long ledge before uniform refinement.
+      const fractions = new Set([nearest, 0.5]);
+      const refinement = Math.min(samples, Math.max(0, Math.floor((limit - generated) / insets.length)));
+      if (refinement < samples) diagnostics.truncated = true;
+      for (let sample = 0; sample < refinement; sample++) fractions.add((sample + 0.5) / refinement);
+      for (const fraction of fractions) for (const inset of insets) {
+        if (generated >= limit || diagnostics.seedChecks >= diagnostics.limits.seedChecks) {
           diagnostics.truncated = true;
-          break sampling;
+          return seeds;
         }
-        diagnostics.endpointChecks++;
-        const { position, component, inset } = next.value;
-        const endpoint = standing(position, component);
-        if (!endpoint) continue;
-        add(takeoffs, uniqueTakeoffs, { ...endpoint, inset });
-        if (inset <= 1) add(landings, uniqueLandings, endpoint);
+        generated++;
+        diagnostics.seedChecks++;
+        const point = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
+        point[0] += boundary.inward[0] * inset;
+        point[2] += boundary.inward[1] * inset;
+        const key = JSON.stringify(point);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const nav = project(point, { maxVertical })[0];
+        // Pullbacks can leave a thin platform. Reject those cheap navigation
+        // misses before they consume landing diversity or physical sweep work.
+        if (!nav || componentOf(nav.surface) !== region.component) continue;
+        seeds.push(nav.position);
       }
-      if (!exhausted) pending.push(group);
     }
-    samplingGroups = pending;
-  }
-  diagnostics.standingEndpoints = takeoffs.length;
-  diagnostics.sourceEndpoints = takeoffs.filter((endpoint) => endpoint.component === sourceComponent).length;
-  diagnostics.targetEndpoints = takeoffs.filter((endpoint) => endpoint.component === targetComponent).length;
-  const cellSize = maxHorizontalDistance,
-    grid = new Map();
-  const cell = (position) => [Math.floor(position[0] / cellSize), Math.floor(position[2] / cellSize)];
-  for (const landing of landings) {
-    const key = cell(landing.position).join('/'),
-      list = grid.get(key) ?? [];
-    list.push(landing);
-    grid.set(key, list);
-  }
-  const pool = candidatePool(maxCandidates, diagnostics);
-  takeoffs.sort((a, b) => horizontal(a.position, to) - horizontal(b.position, to));
-  const pairingCell = profile.radius * 2;
-  const spreadTakeoffs = interleaveGroups(
-    takeoffs,
-    (endpoint) => JSON.stringify([
-      endpoint.component,
-      ...endpoint.position.map((value) => Math.floor(value / pairingCell)),
-    ]),
-    [],
-    1,
-  );
-  const orderedTakeoffs = interleaveGroups(spreadTakeoffs, (endpoint) => endpoint.component, [sourceComponent], 8);
-  pairing: for (const takeoff of orderedTakeoffs) {
-    const [x, z] = cell(takeoff.position),
-      neighbours = [];
-    for (let dx = -1; dx <= 1; dx++)
-      for (let dz = -1; dz <= 1; dz++) {
-        for (const landing of grid.get(`${x + dx}/${z + dz}`) ?? []) {
-          if (takeoff.component === landing.component) continue;
-          if (diagnostics.neighbourChecks >= diagnostics.limits.neighbourChecks) {
-            diagnostics.truncated = true;
-            break;
-          }
-          diagnostics.neighbourChecks++;
-          const span = horizontal(takeoff.position, landing.position),
-            drop = takeoff.position[1] - landing.position[1];
-          if (span > maxHorizontalDistance || drop > maxDrop || -drop > model.maxJumpHeight) {
-            diagnostics.rejected.range++;
-            continue;
-          }
-          const duration = jumpDuration(takeoff.position[1], landing.position[1], {
-            ...model,
-            mode: model.maxJumpHeight > 0 ? 'jump' : 'drop',
-          });
-          if (duration === null || span > duration * model.maxHorizontalSpeed) {
-            diagnostics.rejected.range++;
-            continue;
-          }
-          const spatial = JSON.stringify([
-            ...takeoff.position.map((value) => Math.floor(value / pairingCell)),
-            ...landing.position.map((value) => Math.floor(value / pairingCell)),
-          ]);
-          const priority =
-            takeoff.component === sourceComponent && landing.component === targetComponent
-              ? 0
-              : takeoff.component === sourceComponent || landing.component === targetComponent
-                ? 1
-                : 2;
-          neighbours.push({
-            from: takeoff,
-            to: landing,
-            spatial,
-            priority,
-            score: distance(from, takeoff.position) + span + distance(landing.position, to),
-          });
+    return seeds;
+  };
+
+  const spreadSeeds = seeds => {
+    const cells = new Map();
+    for (const seed of seeds) {
+      const key = seed.map(value => Math.floor(value / (profile.radius * 2))).join('/');
+      const group = cells.get(key) ?? [];
+      group.push(seed);
+      cells.set(key, group);
+    }
+    return interleave([...cells.values()], seeds.length);
+  };
+
+  const pairsFor = function* ({ a, b, reach }) {
+    if (diagnostics.seedChecks >= diagnostics.limits.seedChecks) {
+      diagnostics.truncated = true;
+      return;
+    }
+    const available = diagnostics.limits.seedChecks - diagnostics.seedChecks;
+    const takeoffs = spreadSeeds(seedsFor(a, b, true, reach, Math.floor(available / 2)));
+    const landings = spreadSeeds(seedsFor(b, a, false, reach, diagnostics.limits.seedChecks - diagnostics.seedChecks));
+    const queryLandings = createBoundsIndex(landings.map(point => ({ min: point, max: point, point })));
+
+    let active = [];
+    for (const start of takeoffs) {
+      const duration = jumpDuration(start[1] + endpointTolerance,
+        Math.max(b.min[1] - endpointTolerance, start[1] + endpointTolerance - maxDrop),
+        { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
+      if (duration === null) continue;
+      const reach = Math.min(maxHorizontalDistance, duration * model.maxHorizontalSpeed);
+      const bounds = {
+        min: [start[0] - reach, start[1] - maxDrop - 2 * endpointTolerance, start[2] - reach],
+        max: [start[0] + reach, start[1] + model.maxJumpHeight + 2 * endpointTolerance, start[2] + reach],
+      };
+      active.push({ start, landings: queryLandings.nearest(bounds, to) });
+    }
+    while (active.length) {
+      const pending = [];
+      for (const query of active) {
+        let exhausted = false;
+        for (let count = 0; count < 8; count++) {
+          const landing = query.landings.next();
+          if (landing.done) { exhausted = true; break; }
+          yield { start: query.start, end: landing.value.point };
         }
+        if (!exhausted) pending.push(query);
       }
-    neighbours.sort(
-      (a, b) =>
-        (a.to.component === targetComponent ? 0 : 1) - (b.to.component === targetComponent ? 0 : 1) ||
-        a.score - b.score,
-    );
-    const distinct = new Map();
-    for (const candidate of neighbours) {
-      const key = `${candidate.to.component}/${candidate.spatial}`;
-      if (!distinct.has(key)) distinct.set(key, candidate);
+      active = pending;
     }
-    for (const candidate of [...distinct.values()].slice(0, 32)) {
-      if (diagnostics.pairChecks >= diagnostics.limits.pairChecks) {
-        diagnostics.truncated = true;
-        break pairing;
+  };
+
+  const candidatesFor = entry => {
+    const { a, b } = entry;
+    const generation = entry.generation ??= { pairs: pairsFor(entry), pending: [], cursor: 0, done: false };
+    const nextBatch = () => {
+      const candidates = generation.pending.slice(generation.cursor, generation.cursor + maxCandidates);
+      generation.cursor += candidates.length;
+      diagnostics.candidatePairs += candidates.length;
+      if (a.component === sourceComponent) {
+        diagnostics.sourceCandidates += candidates.length;
+        if (targetComponents.has(b.component)) diagnostics.directCandidates += candidates.length;
+      }
+      return candidates;
+    };
+    if (generation.cursor < generation.pending.length) return nextBatch();
+    if (generation.done || !pairingAvailable()) return [];
+    diagnostics.generationBatches++;
+    const previousPairs = diagnostics.pairChecks, previousNeighbours = diagnostics.neighbourChecks;
+    const buckets = new Map(), diversity = profile.radius * 2;
+    const compare = (a, b) => Number(a.uncertain) - Number(b.uncertain) || a.score - b.score;
+    while (pairingAvailable() && diagnostics.pairChecks - previousPairs < maxCandidates * 4 &&
+        diagnostics.neighbourChecks - previousNeighbours < maxCandidates * 32) {
+      const pair = generation.pairs.next();
+      if (pair.done) { generation.done = true; break; }
+      const { start, end } = pair.value;
+      diagnostics.neighbourChecks++;
+      const drop = start[1] - end[1], span = horizontal(start, end);
+      if (-drop > model.maxJumpHeight + 2 * endpointTolerance || drop > maxDrop + 2 * endpointTolerance || span > maxHorizontalDistance) {
+        diagnostics.rejected.range++;
+        continue;
+      }
+      const duration = jumpDuration(start[1] + endpointTolerance, end[1] - endpointTolerance,
+        { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
+      if (duration === null || span > duration * model.maxHorizontalSpeed) {
+        diagnostics.rejected.range++;
+        continue;
       }
       diagnostics.pairChecks++;
-      pool.add(candidate);
+      const launch = start.map(value => Math.floor(value / diversity)).join('/');
+      const landingKey = end.map(value => Math.floor(value / diversity)).join('/');
+      const destinations = buckets.get(launch) ?? new Map();
+      const bucket = destinations.get(landingKey) ?? [];
+      const nominal = jumpDuration(start[1], end[1], { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
+      bucket.push({ start, end, uncertain: nominal === null || span > nominal * model.maxHorizontalSpeed,
+        score: (nominal ?? duration) +
+        (distance(from, start) + distance(end, to)) / Math.max(1, model.maxHorizontalSpeed) });
+      destinations.set(landingKey, bucket);
+      buckets.set(launch, destinations);
     }
-    if (distinct.size > 32) diagnostics.truncated = true;
-    if (diagnostics.neighbourChecks >= diagnostics.limits.neighbourChecks) {
+    // Visit each body-scale launch region before its second landing sample.
+    // Within one launch region, retain spatially diverse landings and then fine
+    // offsets. This includes railing pullbacks without losing narrow platforms.
+    const launches = [...buckets.values()].map(destinations => {
+      const lists = [...destinations.values()].map(list => list.sort(compare))
+        .sort((a, b) => compare(a[0], b[0]));
+      return interleave(lists, diagnostics.pairChecks - previousPairs);
+    }).sort((a, b) => compare(a[0], b[0]));
+    generation.pending = interleave(launches, diagnostics.pairChecks - previousPairs);
+    generation.cursor = 0;
+    if (!generation.done) diagnostics.truncated = true;
+    return nextBatch();
+  };
+
+  const validate = entry => {
+    const { a, b } = entry;
+    if (!entry.search) {
+      entry.search = { candidates: [], cursor: 0, tried: new Set() };
+      const entries = preparedIncoming.get(b.id) ?? [];
+      entries.push(entry);
+      preparedIncoming.set(b.id, entries);
+    }
+    const search = entry.search, firstAttempt = diagnostics.attempted;
+    if (search.cursor >= search.candidates.length) {
+      search.candidates = candidatesFor(entry);
+      search.cursor = 0;
+    }
+    while (search.cursor < search.candidates.length) {
+      const candidate = search.candidates[search.cursor++];
+      const start = standing(candidate.start, a.component), end = standing(candidate.end, b.component);
+      if (!start || !end) continue;
+      const key = JSON.stringify([start.position, end.position]);
+      if (search.tried.has(key)) continue;
+      search.tried.add(key);
+      // Support correction may change heights enough to invalidate a raw pair.
+      if (start.position[1] - end.position[1] > maxDrop || horizontal(start.position, end.position) > maxHorizontalDistance) continue;
+      const duration = jumpDuration(start.position[1], end.position[1],
+        { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
+      if (duration === null || horizontal(start.position, end.position) > duration * model.maxHorizontalSpeed) {
+        diagnostics.rejected.range++;
+        continue;
+      }
+      for (const mode of ['jump', 'drop']) {
+        if (mode === 'jump' && model.maxJumpHeight === 0) continue;
+        if (mode === 'drop' && end.position[1] > start.position[1]) continue;
+        if (diagnostics.attempted >= diagnostics.limits.arcAttempts) {
+          diagnostics.truncated = true;
+          return null;
+        }
+        diagnostics.attempted++;
+        const arc = jumpConnection(start.position, end.position, { ...model, profile, walls, mode,
+          sweep: (from, to, body) => world.sweepCapsule(from, to, body) });
+        if (!arc) { diagnostics.rejected.motion++; continue; }
+        return { id: `traversal/${a.id}/${b.id}`, ...arc, state: 'open', endpointTolerance,
+          fromSurface: start.surface, toSurface: end.surface };
+      }
+      // A difficult optimistic shortcut must not exhaust the query before a
+      // nearby multi-hop chain is tried. Deferred batches retain their cursor
+      // and remain searchable; this is scheduling, not an extra coverage limit.
+      if (diagnostics.attempted - firstAttempt >= 32 && search.cursor < search.candidates.length) {
+        entry.cost += Math.max(1, heuristic(entry.b));
+        diagnostics.deferredPairs++;
+        return undefined;
+      }
+    }
+    const generation = entry.generation;
+    if (generation.cursor < generation.pending.length || (!generation.done && pairingAvailable())) {
+      entry.cost += Math.max(1, heuristic(entry.b));
+      diagnostics.deferredPairs++;
+      return undefined;
+    }
+    return null;
+  };
+
+  const validated = new Set();
+  while (connections.length < maxLinks) {
+    diagnostics.regionSearches++;
+    const chain = findChain();
+    if (!chain) break;
+    let complete = true;
+    for (const entry of chain) {
+      if (entry.ground || validated.has(entry.key)) continue;
+      const connection = validate(entry);
+      diagnostics.pairBatches++;
+      if (!connection) {
+        if (connection === null) {
+          entry.closed = true;
+          diagnostics.validatedPairs++;
+        }
+        complete = false;
+        break;
+      }
+      diagnostics.validatedPairs++;
+      validated.add(entry.key);
+      connections.push(connection);
+      diagnostics.accepted++;
+      if (connections.length >= maxLinks) break;
+    }
+    if (complete && chain.every(entry => entry.ground || validated.has(entry.key))) {
+      diagnostics.targetReached = true;
+      break;
+    }
+    if (diagnostics.attempted >= diagnostics.limits.arcAttempts ||
+        diagnostics.endpointChecks >= diagnostics.limits.endpointChecks) {
       diagnostics.truncated = true;
       break;
     }
   }
-
-  const candidates = pool.ordered(),
-    tried = new Set();
-  diagnostics.candidatePairs = candidates.length;
-  diagnostics.sourceComponent = sourceComponent;
-  diagnostics.targetComponent = targetComponent;
-  diagnostics.sourceCandidates = candidates.filter(
-    (candidate) => candidate.from.component === sourceComponent,
-  ).length;
-  diagnostics.directCandidates = candidates.filter(
-    (candidate) => candidate.from.component === sourceComponent && candidate.to.component === targetComponent,
-  ).length;
-  const componentEdges = new Map();
-  for (const edge of graph.edges) {
-    const a = componentOf(edge.from),
-      b = componentOf(edge.to);
-    if (a === b) continue;
-    const neighbours = componentEdges.get(a) ?? new Set();
-    neighbours.add(b);
-    componentEdges.set(a, neighbours);
-  }
-  const reachable = new Set([sourceComponent]);
-  const expand = () => {
-    const queue = [...reachable];
-    for (let head = 0; head < queue.length; head++)
-      for (const next of componentEdges.get(queue[head]) ?? []) {
-        if (!reachable.has(next)) {
-          reachable.add(next);
-          queue.push(next);
-        }
-      }
-  };
-  expand();
-  let advanced = true;
-  while (advanced && connections.length < maxLinks && !reachable.has(targetComponent)) {
-    advanced = false;
-    const frontier = candidates
-      .filter(
-        (candidate) =>
-          !tried.has(candidate) &&
-          reachable.has(candidate.from.component) &&
-          !reachable.has(candidate.to.component),
-      )
-      .sort(
-        (a, b) =>
-          (a.to.component === targetComponent ? 0 : 1) - (b.to.component === targetComponent ? 0 : 1) ||
-          a.score - b.score,
-      );
-    for (const candidate of frontier) {
-      tried.add(candidate);
-      for (const mode of ['jump', 'drop']) {
-        if (mode === 'jump' && model.maxJumpHeight === 0) continue;
-        const arc = jumpConnection(candidate.from.position, candidate.to.position, {
-          ...model,
-          profile,
-          walls,
-          mode,
-          sweep: (start, end, body) => world.sweepCapsule(start, end, body),
-        });
-        diagnostics.attempted++;
-        if (!arc) {
-          diagnostics.rejected.motion++;
-          continue;
-        }
-        connections.push({
-          id: `traversal/${candidate.from.component}/${candidate.to.component}/${connections.length}`,
-          ...arc,
-          state: 'open',
-          endpointTolerance,
-          fromSurface: candidate.from.surface,
-          toSurface: candidate.to.surface,
-        });
-        diagnostics.accepted++;
-        reachable.add(candidate.to.component);
-        expand();
-        advanced = true;
-        break;
-      }
-      if (advanced) break;
-    }
-  }
-  diagnostics.targetReached = reachable.has(targetComponent);
+  diagnostics.targetReached ??= false;
   if (connections.length >= maxLinks && !diagnostics.targetReached) diagnostics.truncated = true;
-
   return { connections, diagnostics };
 }

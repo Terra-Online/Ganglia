@@ -216,8 +216,10 @@ test('keeps pre-budget grouping work bounded for highly imbalanced components', 
     Map.prototype.get = get;
   }
   assert.ok(lookups < surfaces.length * 100, `${lookups} map lookups exceed the indexing work budget`);
-  assert.equal(result.diagnostics.endpointChecks, 32);
-  assert.equal(result.diagnostics.truncated, true);
+  // The optimistic region graph can now reject the large empty gap before any
+  // collision work. The budget must bound work, not force it to be exhausted.
+  assert.equal(result.diagnostics.endpointChecks, 0);
+  assert.equal(result.diagnostics.targetReached, false);
 });
 
 test('preserves collision-world method receivers during arc sweeps', () => {
@@ -279,10 +281,69 @@ test('retains endpoint coverage for both requested components under a bounded gl
     ...options,
     maxCandidates: 16,
   });
-  // A single long boundary previously spent the entire budget before querying
-  // the other requested component, even though both have supported standing area.
-  assert.ok(result.diagnostics.sourceEndpoints > 50);
-  assert.ok(result.diagnostics.targetEndpoints > 50);
-  assert.equal(result.diagnostics.endpointChecks, result.diagnostics.limits.endpointChecks);
+  // A single long boundary previously exhausted the budget before reaching the
+  // other platform. Lazy validation must reach both and complete the actual link.
+  assert.ok(result.diagnostics.sourceEndpoints > 0);
+  assert.ok(result.diagnostics.targetEndpoints > 0);
+  assert.ok(result.diagnostics.endpointChecks <= result.diagnostics.limits.endpointChecks);
+  assert.equal(result.diagnostics.targetReached, true);
+  assert.ok(result.connections.some(connection => connection.fromSurface === 'upper' && connection.toSurface === 'lower'));
+});
+
+test('finds three short ascending hops through narrow box tops in translated and rotated scenes', () => {
+  const base = [floor('ground', -4, 4, 0, -8, 3),
+    floor('box-1', 5, 5.6, 1.35, -0.8, 0.8),
+    floor('box-2', 6.6, 6.9, 2.7, -0.6, 0.6),
+    floor('target', 7.9, 11, 4.05, -1, 1)];
+  const physical = [base[0], floor('solid-1', 4.65, 5.95, 1.35, -1.15, 1.15),
+    floor('solid-2', 6.25, 7.25, 2.7, -0.95, 0.95), base[3]];
+  for (const angle of [0, 0.6, 1.7]) {
+    const transform = ([x, y, z]) => [120 + x * Math.cos(angle) - z * Math.sin(angle),
+      y + 37, -85 + x * Math.sin(angle) + z * Math.cos(angle)];
+    const surfaces = base.map(surface => ({ ...surface, vertices: surface.vertices.map(transform) }));
+    const world = createCollisionWorld(geometry(physical.map(surface => ({ ...surface, vertices: surface.vertices.map(transform) }))));
+    const result = findJumpConnections(surfaces, world, { ...options,
+      from: transform([0, 0, -6]), to: transform([9, 4.05, 0]),
+      model: { ...options.model, gravity: 40, fallingGravity: 38, maxJumpHeight: 2.1, maxHorizontalSpeed: 6.5 },
+    });
+    assert.equal(result.diagnostics.targetReached, true);
+    assert.equal(result.connections.length, 3);
+    const route = planGroundRoute(surfaces,
+      [{ id: 'player', position: transform([0, 0, -6]), cost: 0, state: 'available' }],
+      transform([9, 4.05, 0]), { speed: 5, maxVertical: 0.5, walls: [],
+        profile: options.profile, connections: result.connections });
+    assert.equal(route.status, 'complete');
+    assert.equal(route.segments.filter(segment => segment.mode === 'jump').length, 3);
+  }
+});
+
+test('searches all interaction faces together and deduplicates their region', () => {
+  const upper = floor('upper', 0, 4, 4), lower = [];
+  for (let index = 0; index < 20; index++) lower.push(floor(`lower/${index}`, 7 + index * 0.2, 7.2 + index * 0.2, 0));
+  const result = findJumpConnections([upper, ...lower], createCollisionWorld(geometry([upper, floor('physical-lower', 7, 11, 0)])), {
+    ...options, to: [9, 1, 0], interaction: { radius: 2 },
+  });
+  assert.ok(result.diagnostics.goalFaces > 8);
+  assert.equal(result.diagnostics.goalComponents, 1);
+  assert.equal(result.diagnostics.targetReached, true);
+  assert.equal(result.diagnostics.validatedPairs, 1);
+});
+
+test('keeps goal-directed landing coverage on a large subdivided floor under raw-pair truncation', () => {
+  const upper = floor('upper', 0, 4, 4), lower = [];
+  for (let index = 0; index < 200; index++) lower.push(floor(`lower/${index}`, 7, 20, 0, -40 + index * 0.4, -40 + (index + 1) * 0.4));
+  const triangles = [
+    [[3.9, 4, -50], [3.9, 5.9, -50], [3.9, 5.9, 50]],
+    [[3.9, 4, -50], [3.9, 5.9, 50], [3.9, 4, 50]],
+  ];
+  const base = geometry([upper, floor('physical-lower', 7, 20, 0, -40, 40)]);
+  const offset = base.positions.length / 3;
+  const world = createCollisionWorld({ positions: [...base.positions, ...triangles.flat(2)],
+    indices: [...base.indices, ...Array.from({ length: 6 }, (_, index) => offset + index)] });
+  const result = findJumpConnections([upper, ...lower], world, { ...options,
+    to: [9, 0, -20], maxCandidates: 64 });
+  assert.equal(result.diagnostics.targetReached, true);
   assert.equal(result.diagnostics.truncated, true);
+  assert.ok(result.diagnostics.pairChecks <= result.diagnostics.limits.pairChecks);
+  assert.ok(result.connections.some(connection => connection.fromSurface === 'upper'));
 });

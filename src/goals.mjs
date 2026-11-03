@@ -1,3 +1,4 @@
+import { createBoundsIndex } from './bounds.mjs';
 import { projectPoint } from './surfaces.mjs';
 
 const finitePoint = point => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
@@ -70,43 +71,6 @@ const closestOnSurface = (surface, target, planes) => {
   return best && { surface: surface.id, position: best, distance: Math.sqrt(shortest) };
 };
 
-const overlaps = (node, bounds) => node.min.every((value, axis) => value <= bounds.max[axis] && node.max[axis] >= bounds.min[axis]);
-const sphereTouches = (node, target, radius) => node.min.reduce((squared, value, axis) => {
-  const distance = Math.max(value - target[axis], 0, target[axis] - node.max[axis]);
-  return squared + distance * distance;
-}, 0) <= radius * radius;
-
-const createIndex = surfaces => {
-  const build = entries => {
-    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    for (const entry of entries) for (let axis = 0; axis < 3; axis++) {
-      min[axis] = Math.min(min[axis], entry.min[axis]);
-      max[axis] = Math.max(max[axis], entry.max[axis]);
-    }
-    if (entries.length <= 8) return { min, max, entries };
-    const spans = max.map((value, axis) => value - min[axis]);
-    const axis = spans.indexOf(Math.max(...spans));
-    entries.sort((a, b) => a.min[axis] + a.max[axis] - b.min[axis] - b.max[axis]);
-    const middle = Math.floor(entries.length / 2);
-    return { min, max, left: build(entries.slice(0, middle)), right: build(entries.slice(middle)) };
-  };
-  const root = surfaces.length ? build([...surfaces]) : null;
-  return function* (bounds, target, radius) {
-    const stack = root ? [root] : [];
-    while (stack.length) {
-      const node = stack.pop();
-      if (!overlaps(node, bounds) || (radius !== undefined && !sphereTouches(node, target, radius))) continue;
-      if (node.entries) {
-        for (const entry of node.entries) {
-          if (overlaps(entry, bounds) && (radius === undefined || sphereTouches(entry, target, radius))) yield entry;
-        }
-      } else {
-        stack.push(node.left, node.right);
-      }
-    }
-  };
-};
-
 /** Prepare repeated foot-position or interaction-region goal queries.
  * Surfaces must be selected convex ground polygons for one scene, state and body.
  * The index owns a snapshot. Rebuild it when the ground changes.
@@ -132,7 +96,7 @@ export function createGoalProjector(surfaces) {
       min: [0, 1, 2].map(axis => Math.min(...vertices.map(point => point[axis]))),
       max: [0, 1, 2].map(axis => Math.max(...vertices.map(point => point[axis]))) };
   });
-  const query = createIndex(snapshot);
+  const query = createBoundsIndex(snapshot);
   return (target, options) => {
     if (!finitePoint(target) || !options) throw new Error('Invalid goal query');
     const { maxVertical, interaction } = options;
