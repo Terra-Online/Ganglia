@@ -60,12 +60,29 @@ test('discovers directed model-based jumps between supported separated platforms
   }
 });
 
+test('retains supported narrow landing regions whose navigation already includes body clearance', () => {
+  const upper = floor('upper', 0, 4, 4);
+  const landing = floor('landing', 7, 7.3, 0, -0.1, 0.1);
+  // The collision floor is wider than its baked, body-eroded navigation region.
+  const world = createCollisionWorld(geometry([upper, floor('physical-landing', 6.6, 7.7, 0, -0.5, 0.5)]));
+  const result = findJumpConnections([upper, landing], world, {
+    ...options,
+    to: [7.15, 0, 0],
+  });
+  const connection = result.connections.find((entry) => entry.toSurface === 'landing');
+  assert.ok(connection);
+  assert.ok(world.groundAt(connection.points.at(-1), { maxUp: 0.1, maxDown: 0.1, maxSlope: 46 }));
+  assert.equal(world.sweepCapsule(connection.points.at(-1), connection.points.at(-1), options.profile), null);
+  assert.equal(result.diagnostics.targetReached, true);
+});
+
 test('can discover several hops through an intermediate ground component', () => {
   const surfaces = [floor('a', 0, 4, 0), floor('b', 7, 11, 0), floor('c', 14, 18, 0)];
   const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), {
     ...options,
     from: [2, 0, 0],
     to: [16, 0, 0],
+    model: { ...options.model, maxHorizontalSpeed: 6 },
   });
   assert.ok(result.connections.some((c) => c.fromSurface === 'a' && c.toSurface === 'b'));
   assert.ok(result.connections.some((c) => c.fromSurface === 'b' && c.toSurface === 'c'));
@@ -238,4 +255,34 @@ test('keeps useful local jumps when sampling is denser and the distant reach bou
       );
       assert.equal(result.diagnostics.targetReached, true);
     }
+});
+
+test('retains local routes when connected ground extends beyond the requested approach', () => {
+  const base = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
+  const extended = [...base, floor('upper-extension', -100, 0, 4), floor('lower-extension', 11, 100, 0)];
+  for (const surfaces of [base, extended]) {
+    const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), options);
+    const route = planGroundRoute(surfaces,
+      [{ id: 'player', position: options.from, cost: 0, state: 'available' }], options.to,
+      { speed: 5, maxVertical: options.maxVertical, walls: [], profile: options.profile, connections: result.connections });
+    assert.equal(result.diagnostics.targetReached, true);
+    assert.equal(route.status, 'complete');
+  }
+});
+
+test('retains endpoint coverage for both requested components under a bounded global sampling budget', () => {
+  const surfaces = [floor('upper', 0, 4, 4, -50, 50), floor('lower', 7, 11, 0, -50, 50)];
+  for (let index = 0; index < 100; index++) {
+    surfaces.push(floor(`distant/${index}`, 1000 + index * 3, 1001 + index * 3, 0));
+  }
+  const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), {
+    ...options,
+    maxCandidates: 16,
+  });
+  // A single long boundary previously spent the entire budget before querying
+  // the other requested component, even though both have supported standing area.
+  assert.ok(result.diagnostics.sourceEndpoints > 50);
+  assert.ok(result.diagnostics.targetEndpoints > 50);
+  assert.equal(result.diagnostics.endpointChecks, result.diagnostics.limits.endpointChecks);
+  assert.equal(result.diagnostics.truncated, true);
 });

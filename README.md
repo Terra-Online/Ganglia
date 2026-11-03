@@ -114,6 +114,9 @@ search limits bound offline work. Standing feet require real collision support,
 capsule clearance and acceptable slope. Each accepted arc also checks air walls.
 The result includes explicit truncation diagnostics. Sampling can miss valid
 links, and passing this model still requires in-game movement validation.
+Endpoint work reserves shares for the source, target and intermediate regions.
+Supported boundary feet and body-scale 3D diversity keep unrelated mesh growth
+from consuming the useful local search budget.
 
 ## Offline player navigation build
 

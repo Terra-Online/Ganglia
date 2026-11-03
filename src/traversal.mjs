@@ -378,6 +378,7 @@ export function findJumpConnections(surfaces, world, options) {
       JSON.stringify([
         componentOf(boundary.surface),
         Math.floor(boundary.midpoint[0] / diversityCell),
+        Math.floor(boundary.midpoint[1] / diversityCell),
         Math.floor(boundary.midpoint[2] / diversityCell),
       ]),
     [],
@@ -425,6 +426,11 @@ export function findJumpConnections(surfaces, world, options) {
     landings = [],
     uniqueTakeoffs = new Set(),
     uniqueLandings = new Set();
+  // Navigation boundaries may already include the body's baked clearance. Keep
+  // those supported feet and short offsets, then retain larger railing pullbacks.
+  const insets = [...new Set([
+    0, profile.radius * 0.25, profile.radius * 0.5, profile.radius, 0.5, 1, 1.5, 2, 2.5, 3,
+  ])].sort((a, b) => a - b);
   const add = (list, seen, endpoint) => {
     const key = JSON.stringify(endpoint.position);
     if (!seen.has(key)) {
@@ -432,29 +438,59 @@ export function findJumpConnections(surfaces, world, options) {
       list.push(endpoint);
     }
   };
-  sampling: for (const boundary of orderedBoundaries) {
-    const component = componentOf(boundary.surface),
-      samples = Math.max(1, Math.ceil(boundary.length / sampleSpacing));
-    for (let sample = 0; sample < samples; sample++) {
-      const fraction = (sample + 0.5) / samples;
-      const edgePoint = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
-      for (const inset of [0.5, 1, 1.5, 2, 2.5, 3]) {
+  const seeds = function* (entries) {
+    for (const boundary of entries) {
+      const component = componentOf(boundary.surface),
+        samples = Math.max(1, Math.ceil(boundary.length / sampleSpacing));
+      for (let sample = 0; sample < samples; sample++) {
+        const fraction = (sample + 0.5) / samples;
+        const edgePoint = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
+        for (const inset of insets) {
+          yield {
+            component,
+            inset,
+            position: [
+              edgePoint[0] + boundary.inward[0] * inset,
+              edgePoint[1],
+              edgePoint[2] + boundary.inward[1] * inset,
+            ],
+          };
+        }
+      }
+    }
+  };
+  // Reserve query work for both requested components regardless of the number
+  // of unrelated islands. Intermediate components retain half the initial work,
+  // and exhausted groups relinquish their share to the remaining groups.
+  let samplingGroups = [
+    { iterator: seeds(orderedBoundaries.filter((entry) => componentOf(entry.surface) === sourceComponent)), batch: 1 },
+    { iterator: seeds(orderedBoundaries.filter((entry) => componentOf(entry.surface) === targetComponent)), batch: 1 },
+    { iterator: seeds(orderedBoundaries.filter((entry) => ![sourceComponent, targetComponent].includes(componentOf(entry.surface)))), batch: 2 },
+  ];
+  sampling: while (samplingGroups.length) {
+    const pending = [];
+    for (const group of samplingGroups) {
+      let exhausted = false;
+      for (let count = 0; count < group.batch; count++) {
+        const next = group.iterator.next();
+        if (next.done) {
+          exhausted = true;
+          break;
+        }
         if (diagnostics.endpointChecks >= diagnostics.limits.endpointChecks) {
           diagnostics.truncated = true;
           break sampling;
         }
         diagnostics.endpointChecks++;
-        const seed = [
-          edgePoint[0] + boundary.inward[0] * inset,
-          edgePoint[1],
-          edgePoint[2] + boundary.inward[1] * inset,
-        ];
-        const endpoint = standing(seed, component);
+        const { position, component, inset } = next.value;
+        const endpoint = standing(position, component);
         if (!endpoint) continue;
         add(takeoffs, uniqueTakeoffs, { ...endpoint, inset });
         if (inset <= 1) add(landings, uniqueLandings, endpoint);
       }
+      if (!exhausted) pending.push(group);
     }
+    samplingGroups = pending;
   }
   diagnostics.standingEndpoints = takeoffs.length;
   diagnostics.sourceEndpoints = takeoffs.filter((endpoint) => endpoint.component === sourceComponent).length;
@@ -470,7 +506,17 @@ export function findJumpConnections(surfaces, world, options) {
   }
   const pool = candidatePool(maxCandidates, diagnostics);
   takeoffs.sort((a, b) => horizontal(a.position, to) - horizontal(b.position, to));
-  const orderedTakeoffs = interleaveGroups(takeoffs, (endpoint) => endpoint.component, [sourceComponent], 8);
+  const pairingCell = profile.radius * 2;
+  const spreadTakeoffs = interleaveGroups(
+    takeoffs,
+    (endpoint) => JSON.stringify([
+      endpoint.component,
+      ...endpoint.position.map((value) => Math.floor(value / pairingCell)),
+    ]),
+    [],
+    1,
+  );
+  const orderedTakeoffs = interleaveGroups(spreadTakeoffs, (endpoint) => endpoint.component, [sourceComponent], 8);
   pairing: for (const takeoff of orderedTakeoffs) {
     const [x, z] = cell(takeoff.position),
       neighbours = [];
@@ -498,11 +544,8 @@ export function findJumpConnections(surfaces, world, options) {
             continue;
           }
           const spatial = JSON.stringify([
-            Math.floor(takeoff.position[0] / diversityCell),
-            Math.floor(takeoff.position[2] / diversityCell),
-            Math.floor(landing.position[0] / diversityCell),
-            Math.floor(landing.position[2] / diversityCell),
-            takeoff.inset,
+            ...takeoff.position.map((value) => Math.floor(value / pairingCell)),
+            ...landing.position.map((value) => Math.floor(value / pairingCell)),
           ]);
           const priority =
             takeoff.component === sourceComponent && landing.component === targetComponent
