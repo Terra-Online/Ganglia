@@ -18,7 +18,25 @@ export const createBoundsIndex = surfaces => {
     const middle = Math.floor(entries.length / 2);
     return { min, max, left: build(entries.slice(0, middle)), right: build(entries.slice(middle)) };
   };
-  const root = surfaces.length ? build([...surfaces]) : null;
+  return fromRoot(surfaces.length ? build([...surfaces]) : null);
+};
+
+// Filtered views reuse the immutable hierarchy. Repeated movement frontiers
+// change eligibility, without requiring another spatial sort of the same faces.
+const filterNode = (node, eligible) => {
+  if (!node) return null;
+  if (node.entries) {
+    const entries = node.entries.filter(eligible);
+    if (!entries.length) return null;
+    return entries.length === node.entries.length ? node : { ...node, entries };
+  }
+  const left = filterNode(node.left, eligible), right = filterNode(node.right, eligible);
+  if (!left) return right;
+  if (!right) return left;
+  return left === node.left && right === node.right ? node : { ...node, left, right };
+};
+
+const fromRoot = root => {
   const query = function* (bounds, target, radius) {
     const stack = root ? [root] : [];
     while (stack.length) {
@@ -49,6 +67,7 @@ export const createBoundsIndex = surfaces => {
       else { enqueue(node.left); enqueue(node.right); }
     }
   };
+  query.filter = eligible => fromRoot(filterNode(root, eligible));
   return query;
 };
 

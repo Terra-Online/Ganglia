@@ -173,7 +173,9 @@ goal-connected surfaces. Search work is balanced between the two sides, allowing
 a productive multi-hop chain to continue while the opposite side needs refinement.
 Each accepted landing expands directed ground reachability before the next pass.
 Static topology, standing support, ledge approaches and motion checks are reused
-across frontier passes. Supported continuous ground approaches can also join
+across frontier passes. Spatial hierarchies are built once. Eligibility views prune
+branches for each frontier without sorting the same geometry again.
+Supported continuous ground approaches can also join
 overlapping patches without a shared navigation edge. Landing witnesses include
 boundary pullbacks and surface intersections with the optimistic flight envelope.
 Each witness still requires actual support, flight timing and swept-body checks.

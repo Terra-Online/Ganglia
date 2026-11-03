@@ -16,16 +16,17 @@ function prepareGeometry(surfaces, options) {
   const blocked = createWallChecker(walls, profile);
   const graph = surfaceGraph(surfaces, { speed: 1, portals });
   graph.edges = graph.edges.filter(edge => !edge.points.slice(1).some((point, index) => blocked(edge.points[index], point)));
-  return { graph, blocked,
+  const boundaries = exposedBoundaries(surfaces, portals ?? []).map(boundary => ({ ...boundary,
+    min: [0, 1, 2].map(axis => Math.min(boundary.a[axis], boundary.b[axis])),
+    max: [0, 1, 2].map(axis => Math.max(boundary.a[axis], boundary.b[axis])) }));
+  const landingSurfaces = surfaces.map(surface => ({ ...surface,
+    min: [0, 1, 2].map(axis => Math.min(...surface.vertices.map(point => point[axis]))),
+    max: [0, 1, 2].map(axis => Math.max(...surface.vertices.map(point => point[axis]))) }));
+  return { graph, blocked, boundaries, landingSurfaces,
+    boundaryIndex: createBoundsIndex(boundaries), landingIndex: createBoundsIndex(landingSurfaces),
     byId: new Map(surfaces.map(surface => [surface.id, surface])),
     centers: new Map(graph.nodes.map(node => [node.id, node.position])),
     project: createGoalProjector(surfaces),
-    boundaries: exposedBoundaries(surfaces, portals ?? []).map(boundary => ({ ...boundary,
-      min: [0, 1, 2].map(axis => Math.min(boundary.a[axis], boundary.b[axis])),
-      max: [0, 1, 2].map(axis => Math.max(boundary.a[axis], boundary.b[axis])) })),
-    landingSurfaces: surfaces.map(surface => ({ ...surface,
-      min: [0, 1, 2].map(axis => Math.min(...surface.vertices.map(point => point[axis]))),
-      max: [0, 1, 2].map(axis => Math.max(...surface.vertices.map(point => point[axis]))) })),
   };
 }
 
@@ -230,16 +231,15 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     }
     streams = pending;
   }
-  const landingSurfaces = prepared.landingSurfaces.filter(surface => !frontier ||
-    (reverse ? departure.has(surface.id) : !approach.has(surface.id)));
   const eligible = id => !frontier || (reverse ? departure.has(id) : !approach.has(id));
-  const landingBoundaries = boundaries.filter(boundary => eligible(boundary.surface));
   const landingQueries = [
     ...(frontier ? [true, false].map(connected => ({ boundary: true,
-      entries: landingBoundaries.filter(edge => departure.has(edge.surface) === connected) })) : []),
+      query: prepared.boundaryIndex.filter(edge => eligible(edge.surface) &&
+        departure.has(edge.surface) === connected) })) : []),
     ...[true, false].map(connected => ({ boundary: false,
-      entries: landingSurfaces.filter(surface => departure.has(surface.id) === connected) })),
-  ].filter(group => group.entries.length).map(({ boundary, entries }) => ({ boundary, query: createBoundsIndex(entries) }));
+      query: prepared.landingIndex.filter(surface => eligible(surface.id) &&
+        departure.has(surface.id) === connected) })),
+  ];
   const pairs = new Map();
   let active = takeoffs.flatMap(start => {
     const bounds = {
