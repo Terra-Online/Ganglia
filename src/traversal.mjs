@@ -1,6 +1,6 @@
 import { surfaceGraph, surfacePortals } from './surfaces.mjs';
 import { createGoalProjector } from './goals.mjs';
-import { blockedByWalls } from './walls.mjs';
+import { createWallChecker } from './walls.mjs';
 import { jumpConnection, jumpDuration } from './jumps.mjs';
 
 const finitePoint = (point) => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
@@ -316,6 +316,7 @@ export function findJumpConnections(surfaces, world, options) {
   ) {
     throw new Error('Invalid traversal discovery options');
   }
+  const blocked = createWallChecker(walls, profile);
   const diagnostics = {
     reason: 'searched',
     components: 0,
@@ -410,7 +411,7 @@ export function findJumpConnections(surfaces, world, options) {
         const attachment = project(feet, { maxVertical: endpointTolerance })[0];
         if (!attachment || componentOf(attachment.surface) !== component) diagnostics.rejected.projection++;
         else if (
-          blockedByWalls(feet, feet, walls, profile) ||
+          blocked(feet, feet) ||
           world.sweepCapsule(feet, feet, profile) !== null
         )
           diagnostics.rejected.clearance++;

@@ -1,5 +1,13 @@
 import type { Vec3 } from './index.d.ts';
 import type { CollisionGeometry } from './build.d.ts';
+export interface CollisionOptions {
+  /** Inclusive XZ rectangle in world metres, retaining full vertical coverage.
+   * Triangles whose XZ bounds intersect this rectangle are indexed. All source
+   * geometry is validated even outside the selected rectangle. Queries outside
+   * this rectangle throw; capsule sweeps include radius and inflation in that guard.
+   */
+  bounds?: { min: [number, number]; max: [number, number] };
+}
 export interface Capsule { radius: number; height: number; inflation?: number }
 export interface CollisionWorld {
   /** Exact vertical triangle support, with unchanged XZ coordinates. Height limits
@@ -7,6 +15,7 @@ export interface CollisionWorld {
    * upward-facing triangles within the slope limit qualify. The closest height is
    * selected; equal distances prefer the higher surface. Capsule clearance, surface
    * state, initial occupancy and complete collision coverage remain caller checks.
+   * Throws if the queried XZ point falls outside an explicitly bounded world.
    */
   groundAt(position: Vec3, options: { maxUp: number; maxDown: number; maxSlope: number }):
     { position: Vec3; triangle: number; normal: Vec3 } | null;
@@ -15,6 +24,7 @@ export interface CollisionWorld {
    * Any touching triangle is returned, not necessarily the earliest impact. Distance is
    * from the swept axis to that triangle. Null does not establish landing support, motion
    * feasibility, initial occupancy inside solids, active state or complete world coverage.
+   * Throws if the full swept XZ body footprint lies outside an explicitly bounded world.
    */
   sweepCapsule(start: Vec3, end: Vec3, profile: Capsule): { triangle: number; distance: number } | null;
 }
@@ -22,4 +32,4 @@ export interface CollisionWorld {
  * Callers select active collision layers and start in verified free space.
  * Throws on malformed geometry or queries; does not mutate caller-owned arrays.
  */
-export function createCollisionWorld(geometry: CollisionGeometry): CollisionWorld;
+export function createCollisionWorld(geometry: CollisionGeometry, options?: CollisionOptions): CollisionWorld;

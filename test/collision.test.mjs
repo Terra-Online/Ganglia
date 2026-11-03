@@ -121,3 +121,48 @@ test('vertical support validates finite query bounds and slope units',()=>{
   assert.throws(()=>query.groundAt([0,1.7e308,0],{...supportOptions,maxUp:1.7e308}),/support bounds/);
   assert.equal(world([]).groundAt([0,0,0],supportOptions),null);
 });
+
+test('bounded indexing retains crossing floors and headroom with original source triangle IDs', () => {
+  const faces = [
+    [[100,0,-2],[100,2,-2],[100,2,2]],
+    supportFloor(0),
+    supportFloor(1.5),
+  ];
+  const geometry = { positions: faces.flat(2), indices: Array.from({ length: 9 }, (_, index) => index) };
+  const requested = { bounds: { min: [-1,-1], max: [1,1] } };
+  const query = createCollisionWorld(geometry, requested);
+  // Every floor vertex is outside the rectangle, while its interior crosses it.
+  assert.equal(query.groundAt([0,.1,0], supportOptions).triangle, 1);
+  assert.equal(query.sweepCapsule([-.5,.01,0],[.5,.01,0],profile).triangle, 2);
+  requested.bounds.min.fill(500);requested.bounds.max.fill(600);
+  geometry.positions.fill(999);geometry.indices.fill(0);
+  assert.equal(query.groundAt([0,.1,0], supportOptions).triangle, 1);
+  assert.equal(query.sweepCapsule([-.5,.01,0],[.5,.01,0],profile).triangle, 2);
+});
+
+test('bounded worlds guard the full capsule footprint and keep inclusive query boundaries', () => {
+  const query = createCollisionWorld({ positions: [], indices: [] }, { bounds: { min: [-1,-2], max: [1,2] } });
+  assert.equal(query.groundAt([-1,0,-2], supportOptions), null);
+  assert.throws(() => query.groundAt([-1-1e-12,0,-2], supportOptions), /indexed XZ bounds/);
+  assert.throws(() => query.groundAt([0,0,2+1e-12], supportOptions), /indexed XZ bounds/);
+  assert.equal(query.sweepCapsule([.5,0,1.5],[.5,0,1.5], { radius: .5, height: 1 }), null);
+  assert.throws(() => query.sweepCapsule([.5,0,1.5],[.5,0,1.5], { radius: .5, height: 1, inflation: 1e-12 }), /indexed XZ bounds/);
+  assert.throws(() => query.sweepCapsule([0,0,0],[.9,0,0], profile), /indexed XZ bounds/);
+  assert.equal(query.sweepCapsule([1,0,2],[1,0,2], { radius: 0, height: 1 }), null);
+});
+
+test('bounded worlds retain thin faces exactly on the indexed boundary', () => {
+  const geometry = { positions: [1,-1,-1, 1,2,-1, 1,.5,1], indices: [0,1,2] };
+  const query = createCollisionWorld(geometry, { bounds: { min: [-1,-1], max: [1,1] } });
+  assert.ok(query.sweepCapsule([.5,0,0],[.5,0,0], { radius: .5, height: 1 }));
+});
+
+test('crop bounds are finite and malformed excluded source geometry still fails', () => {
+  for (const bounds of [
+    { min: [0], max: [1,1] }, { min: [0,0], max: [1,Infinity] },
+    { min: [2,0], max: [1,1] }, { min: [0,Number.NaN], max: [1,1] },
+  ]) assert.throws(() => createCollisionWorld({ positions: [], indices: [] }, { bounds }), /collision XZ bounds/);
+  const bounds = { min: [-1,-1], max: [1,1] };
+  assert.throws(() => createCollisionWorld({ positions: [100,NaN,100], indices: [0,0,0] }, { bounds }), /finite/);
+  assert.throws(() => createCollisionWorld({ positions: [100,0,100], indices: [0,1,0] }, { bounds }), /index/);
+});

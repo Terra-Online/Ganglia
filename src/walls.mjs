@@ -21,59 +21,120 @@ const insidePolygon = (point, ring) => {
   return inside;
 };
 
+const finitePoint = point => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
+
+const validateProfile = profile => {
+  if (!profile || !Number.isFinite(profile.radius) || profile.radius < 0 ||
+      !Number.isFinite(profile.height) || profile.height <= 0) throw new Error('Invalid wall query');
+};
+
+const wallRecord = (wall, radius, height, snapshot) => {
+  if (!wall || !finitePoint(wall.min) || !finitePoint(wall.max) || wall.min.some((v, i) => v > wall.max[i]) ||
+      !['active', 'inactive', 'unknown'].includes(wall.state) || !Number.isFinite(wall.padding ?? 0) || (wall.padding ?? 0) < 0) throw new Error('Invalid wall');
+  if (wall.points !== undefined && (!Array.isArray(wall.points) || wall.points.length < 2 ||
+      wall.points.some(p => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('Invalid wall polyline');
+  if (wall.polygon !== undefined && (!Array.isArray(wall.polygon) || wall.polygon.length < 3 || wall.points !== undefined ||
+      wall.polygon.some(p => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('Invalid wall polygon');
+  if (wall.state === 'inactive') return null;
+  const margin = radius + (wall.padding ?? 0);
+  const min = wall.min.map((v, i) => v - (i === 1 ? height : margin));
+  const max = wall.max.map((v, i) => v + (i === 1 ? 0 : margin));
+  const points = wall.polygon ?? wall.points;
+  for (const p of points ?? []) {
+    min[0] = Math.min(min[0], p[0] - margin); min[2] = Math.min(min[2], p[1] - margin);
+    max[0] = Math.max(max[0], p[0] + margin); max[2] = Math.max(max[2], p[1] + margin);
+  }
+  return { min, max, margin, filled: wall.polygon !== undefined,
+    ring: snapshot && points ? points.map(p => [...p]) : points };
+};
+
+const segmentTouchesBounds = (start, end, min, max) => {
+  let near = 0, far = 1;
+  for (let axis = 0; axis < 3; axis++) {
+    const delta = end[axis] - start[axis];
+    if (Math.abs(delta) < 1e-12) {
+      if (start[axis] < min[axis] || start[axis] > max[axis]) return false;
+    } else {
+      const a = (min[axis] - start[axis]) / delta, b = (max[axis] - start[axis]) / delta;
+      near = Math.max(near, Math.min(a, b)); far = Math.min(far, Math.max(a, b));
+      if (near > far) return false;
+    }
+  }
+  return near <= far;
+};
+
+const touchesWall = (start, end, { min, max, margin, ring, filled }) => {
+  if (!segmentTouchesBounds(start, end, min, max)) return false;
+  if (!ring) return true;
+  // Clip to vertical overlap before comparing XZ distances. A lower/upper walkway
+  // may pass the same wall footprint without intersecting its collision height.
+  let low = 0, high = 1;
+  const dy = end[1] - start[1];
+  if (Math.abs(dy) >= 1e-12) {
+    const a = (min[1] - start[1]) / dy, b = (max[1] - start[1]) / dy;
+    low = Math.max(0, Math.min(a, b)); high = Math.min(1, Math.max(a, b));
+  }
+  const a = [start[0] + low * (end[0] - start[0]), start[2] + low * (end[2] - start[2])];
+  const b = [start[0] + high * (end[0] - start[0]), start[2] + high * (end[2] - start[2])];
+  if (filled && (insidePolygon(a, ring) || insidePolygon(b, ring))) return true;
+  for (let i = 1; i < ring.length; i++) {
+    if (segmentDistance(a, b, ring[i - 1], ring[i]) <= margin + 1e-9) return true;
+  }
+  return filled && segmentDistance(a, b, ring.at(-1), ring[0]) <= margin + 1e-9;
+};
+
+/** Snapshot and validate exclusions for repeated feet-segment queries with one body.
+ * Expanded 3D bounds include padding and all authored polyline/polygon vertices.
+ * Unknown state blocks. Later caller mutations require a new checker. Every wall,
+ * including inactive records, is validated before any query can return a hit.
+ */
+export function createWallChecker(walls, profile) {
+  validateProfile(profile);
+  const records = [];
+  for (const wall of walls) {
+    const record = wallRecord(wall, profile.radius, profile.height, true);
+    if (record) records.push(record);
+  }
+  const build = entries => {
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    for (const entry of entries) for (let axis = 0; axis < 3; axis++) {
+      min[axis] = Math.min(min[axis], entry.min[axis]);
+      max[axis] = Math.max(max[axis], entry.max[axis]);
+    }
+    if (entries.length <= 8) return { min, max, entries };
+    const spans = max.map((value, axis) => value - min[axis]);
+    const axis = spans.indexOf(Math.max(...spans));
+    entries.sort((a, b) => a.min[axis] + a.max[axis] - b.min[axis] - b.max[axis]);
+    const middle = Math.floor(entries.length / 2);
+    return { min, max, left: build(entries.slice(0, middle)), right: build(entries.slice(middle)) };
+  };
+  const root = records.length ? build(records) : null;
+  return (start, end) => {
+    if (!finitePoint(start) || !finitePoint(end)) throw new Error('Invalid wall query');
+    const stack = root ? [root] : [];
+    while (stack.length) {
+      const node = stack.pop();
+      if (!segmentTouchesBounds(start, end, node.min, node.max)) continue;
+      if (node.entries) {
+        for (const record of node.entries) if (touchesWall(start, end, record)) return true;
+      } else stack.push(node.left, node.right);
+    }
+    return false;
+  };
+}
+
 /** Segment against conservative air-wall volumes, expanded by player radius/height.
  * Feet positions are expected. Unknown state blocks just like an active wall.
  * Optional XZ polylines narrow the box test. Without them, bounds conservatively block.
  * This test covers vertical air walls, not arbitrary scene collision geometry.
  */
-export function blockedByWalls(start, end, walls, { radius, height }) {
-  const point = p => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite);
-  if (!point(start) || !point(end) || !Number.isFinite(radius) || radius < 0 ||
-      !Number.isFinite(height) || height <= 0) throw new Error('Invalid wall query');
+export function blockedByWalls(start, end, walls, profile) {
+  validateProfile(profile);
+  if (!finitePoint(start) || !finitePoint(end)) throw new Error('Invalid wall query');
   let hit = false;
   for (const wall of walls) {
-    if (!point(wall.min) || !point(wall.max) || wall.min.some((v, i) => v > wall.max[i]) ||
-        !['active', 'inactive', 'unknown'].includes(wall.state) || !Number.isFinite(wall.padding ?? 0) || (wall.padding ?? 0) < 0) throw new Error('Invalid wall');
-    if (wall.points !== undefined && (!Array.isArray(wall.points) || wall.points.length < 2 ||
-        wall.points.some(p => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('Invalid wall polyline');
-    if (wall.polygon !== undefined && (!Array.isArray(wall.polygon) || wall.polygon.length < 3 || wall.points !== undefined ||
-        wall.polygon.some(p => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('Invalid wall polygon');
-    if (wall.state === 'inactive') continue;
-    const margin = radius + (wall.padding ?? 0);
-    const min = wall.min.map((v, i) => v - (i === 1 ? height : margin));
-    const max = wall.max.map((v, i) => v + (i === 1 ? 0 : margin));
-    for (const p of wall.polygon ?? wall.points ?? []) {
-      min[0]=Math.min(min[0],p[0]-margin);min[2]=Math.min(min[2],p[1]-margin);
-      max[0]=Math.max(max[0],p[0]+margin);max[2]=Math.max(max[2],p[1]+margin);
-    }
-    let near = 0, far = 1;
-    for (let i = 0; i < 3; i++) {
-      const delta = end[i] - start[i];
-      if (Math.abs(delta) < 1e-12) {
-        if (start[i] < min[i] || start[i] > max[i]) { far = -1; break; }
-      } else {
-        const a = (min[i] - start[i]) / delta, b = (max[i] - start[i]) / delta;
-        near = Math.max(near, Math.min(a, b)); far = Math.min(far, Math.max(a, b));
-      }
-    }
-    if (near > far) continue;
-    if (!wall.points && !wall.polygon) { hit = true; continue; }
-    // Clip to vertical overlap before comparing XZ distances. A lower/upper walkway
-    // may pass the same wall footprint without intersecting its collision height.
-    let low = 0, high = 1;
-    const dy = end[1] - start[1];
-    if (Math.abs(dy) >= 1e-12) {
-      const a = (min[1]-start[1])/dy, b = (max[1]-start[1])/dy;
-      low = Math.max(0, Math.min(a,b)); high = Math.min(1, Math.max(a,b));
-    }
-    const a = [0,2].map(i => start[i] + low*(end[i]-start[i]));
-    const b = [0,2].map(i => start[i] + high*(end[i]-start[i]));
-    const ring = wall.polygon ?? wall.points;
-    if (wall.polygon && (insidePolygon(a,ring) || insidePolygon(b,ring))) { hit = true; continue; }
-    for (let i = 1; i < ring.length; i++) {
-      if (segmentDistance(a, b, ring[i-1], ring[i]) <= margin + 1e-9) hit = true;
-    }
-    if (wall.polygon && segmentDistance(a,b,ring.at(-1),ring[0]) <= margin + 1e-9) hit=true;
+    const record = wallRecord(wall, profile.radius, profile.height, false);
+    if (!hit && record && touchesWall(start, end, record)) hit = true;
   }
   return hit;
 }

@@ -18,6 +18,10 @@ export function sampleRoute(points: Vec3[], meters: number): Vec3;
 /** Elapsed seconds after arrival; never includes a teleport flight. */
 export function sampleJourney(route: Extract<Route, {status: 'complete'}>, seconds: number): { position: Vec3; mode: MovementMode | 'complete'; connection?: string };
 export function blockedByWalls(start: Vec3, end: Vec3, walls: Wall[], profile: { radius: number; height: number }): boolean;
+/** Snapshot all wall records and one body profile for repeated segment queries.
+ * Later mutations require a new checker. Inactive records are validated too.
+ */
+export function createWallChecker(walls: Wall[], profile: { radius: number; height: number }): (start: Vec3, end: Vec3) => boolean;
 export interface Surface { id: string; vertices: Vec3[]; portals?: number[] }
 export interface Portal { from: string; to: string; points: [Vec3, Vec3] }
 export function surfaceGraph(surfaces: Surface[], options: { speed: number; portals?: Portal[] }): Graph;

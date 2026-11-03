@@ -47,24 +47,72 @@ const point = p => Array.isArray(p)&&p.length===3&&p.every(Number.isFinite);
  * inference is performed. Triangles are double-sided thin surfaces, not solid volumes.
  * A capsule contained wholly inside a closed mesh therefore needs a separate initial
  * occupancy check. Callers must start from a verified free standing position.
+ * Optional XZ bounds retain all intersecting triangles at every height. Queries
+ * outside that scope throw rather than treating unindexed space as clear.
  */
-export function createCollisionWorld(geometry){
+export function createCollisionWorld(geometry, options){
   if(!geometry?.positions||!geometry.indices||geometry.positions.length%3||geometry.indices.length%3)
     throw new Error('Invalid collision geometry');
   for(const v of geometry.positions)if(!Number.isFinite(v))throw new Error('Non-finite collision vertex');
   for(const i of geometry.indices)if(!Number.isInteger(i)||i<0||i>=geometry.positions.length/3)
     throw new Error('Invalid collision index');
-  const positions=Float64Array.from(geometry.positions),indices=Uint32Array.from(geometry.indices);
-  const count=indices.length/3,order=Uint32Array.from({length:count},(_,i)=>i),bounds=new Float64Array(count*6);
-  const vertex=i=>Array.from(positions.subarray(i*3,i*3+3));
-  const triangle=id=>[0,1,2].map(i=>vertex(indices[id*3+i]));
-  for(let id=0;id<count;id++){
-    const points=triangle(id);
-    for(let i=0;i<3;i++){
-      bounds[id*6+i]=Math.min(...points.map(p=>p[i]));
-      bounds[id*6+i+3]=Math.max(...points.map(p=>p[i]));
+  let scope = null;
+  if (options?.bounds !== undefined) {
+    const requested = options.bounds;
+    if (!requested || !Array.isArray(requested.min) || !Array.isArray(requested.max) ||
+        requested.min.length !== 2 || requested.max.length !== 2 ||
+        ![...requested.min, ...requested.max].every(Number.isFinite) ||
+        requested.min.some((value, axis) => value > requested.max[axis])) {
+      throw new Error('Invalid collision XZ bounds');
+    }
+    scope = [...requested.min, ...requested.max];
+  }
+  // Inspect source coordinates directly before allocating retained triangle snapshots.
+  // A triangle with outside vertices can still cross the indexed rectangle.
+  const retained = scope ? [] : null;
+  if (scope) {
+    const source = geometry.positions;
+    for (let offset = 0; offset < geometry.indices.length; offset += 3) {
+      const a = geometry.indices[offset] * 3;
+      const b = geometry.indices[offset + 1] * 3;
+      const c = geometry.indices[offset + 2] * 3;
+      const minX = Math.min(source[a], source[b], source[c]);
+      const maxX = Math.max(source[a], source[b], source[c]);
+      const minZ = Math.min(source[a + 2], source[b + 2], source[c + 2]);
+      const maxZ = Math.max(source[a + 2], source[b + 2], source[c + 2]);
+      if (maxX >= scope[0] && minX <= scope[2] && maxZ >= scope[1] && minZ <= scope[3]) {
+        retained.push(offset / 3);
+      }
     }
   }
+  const originalIds = retained ? Uint32Array.from(retained) : null;
+  const count = originalIds ? originalIds.length : geometry.indices.length / 3;
+  const positions = Float64Array.from(geometry.positions);
+  const indices = new Uint32Array(count * 3);
+  for (let id = 0; id < count; id++) {
+    const sourceOffset = (originalIds ? originalIds[id] : id) * 3;
+    indices[id * 3] = geometry.indices[sourceOffset];
+    indices[id * 3 + 1] = geometry.indices[sourceOffset + 1];
+    indices[id * 3 + 2] = geometry.indices[sourceOffset + 2];
+  }
+  const order = Uint32Array.from({ length: count }, (_, index) => index);
+  const bounds = new Float64Array(count * 6);
+  const vertex = index => Array.from(positions.subarray(index * 3, index * 3 + 3));
+  const triangle = id => [0, 1, 2].map(index => vertex(indices[id * 3 + index]));
+  for (let id = 0; id < count; id++) {
+    for (let axis = 0; axis < 3; axis++) {
+      const a = positions[indices[id * 3] * 3 + axis];
+      const b = positions[indices[id * 3 + 1] * 3 + axis];
+      const c = positions[indices[id * 3 + 2] * 3 + axis];
+      bounds[id * 6 + axis] = Math.min(a, b, c);
+      bounds[id * 6 + axis + 3] = Math.max(a, b, c);
+    }
+  }
+  const requireScope = box => {
+    if (scope && (box[0] < scope[0] || box[2] < scope[1] || box[3] > scope[2] || box[5] > scope[3])) {
+      throw new Error('Collision query exceeds indexed XZ bounds');
+    }
+  };
   const build=(start,end)=>{
     const box=[Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];
     for(let j=start;j<end;j++)for(let i=0;i<3;i++){
@@ -88,6 +136,7 @@ export function createCollisionWorld(geometry){
           maxUp<0||maxDown<0||maxSlope<=0||maxSlope>=90)throw new Error('Invalid ground support query');
       const box=[position[0],position[1]-maxDown,position[2],position[0],position[1]+maxUp,position[2]];
       if(!box.every(Number.isFinite))throw new Error('Non-finite ground support bounds');
+      requireScope(box);
       const minimumUp=Math.cos(maxSlope*Math.PI/180),stack=root?[root]:[];
       let best=null,bestOffset=Infinity;
       while(stack.length){
@@ -112,7 +161,7 @@ export function createCollisionWorld(geometry){
           const offset=Math.abs(height-position[1]);
           if(offset<bestOffset||(offset===bestOffset&&height>best.position[1])){
             bestOffset=offset;
-            best={position:[position[0],height,position[2]],triangle:id,normal:normal.map(value=>value/length)};
+            best={position:[position[0],height,position[2]],triangle:originalIds ? originalIds[id] : id,normal:normal.map(value=>value/length)};
           }
         }
       }
@@ -132,6 +181,7 @@ export function createCollisionWorld(geometry){
       const box=[Math.min(start[0],end[0])-r,Math.min(start[1],end[1])-inflation,Math.min(start[2],end[2])-r,
         Math.max(start[0],end[0])+r,Math.max(start[1],end[1])+height+inflation,Math.max(start[2],end[2])+r];
       if(!box.every(Number.isFinite))throw new Error('Non-finite capsule bounds');
+      requireScope(box);
       const a=[start[0],start[1]+radius,start[2]],b=[start[0],start[1]+height-radius,start[2]];
       const c=[end[0],end[1]+radius,end[2]],d=[end[0],end[1]+height-radius,end[2]];
       const stack=root?[root]:[];
@@ -142,7 +192,7 @@ export function createCollisionWorld(geometry){
           const id=order[i];if(!overlaps(box,bounds.subarray(id*6,id*6+6)))continue;
           const face=triangle(id),distance=Math.min(triangleTriangle([a,b,d],face),triangleTriangle([a,d,c],face));
           if(!Number.isFinite(distance))throw new Error('Non-finite collision distance');
-          if(distance<=r*r)return {triangle:id,distance:Math.sqrt(distance)};
+          if(distance<=r*r)return {triangle:originalIds ? originalIds[id] : id,distance:Math.sqrt(distance)};
         }
       }
       return null;

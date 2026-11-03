@@ -1,4 +1,4 @@
-import { blockedByWalls } from './walls.mjs';
+import { createWallChecker } from './walls.mjs';
 import { surfacePortals } from './surfaces.mjs';
 
 const pointKey = point => point.map(value => Math.round(value * 10000)).join(',');
@@ -92,6 +92,7 @@ const makeIndex = triangles => {
  * Height changes are reconstructed from triangulated support, never fitted as a spline.
  */
 export function createGroundStraightener(surfaces, { walls, profile }) {
+  const blocked = createWallChecker(walls, profile);
   const portals = surfacePortals(surfaces);
   const triangles = [], edgeOwners = new Map(), boundaryOwners = new Map(), ids = new Set();
   for (const surface of surfaces) {
@@ -172,7 +173,7 @@ export function createGroundStraightener(surfaces, { walls, profile }) {
           crossings.push(point);
         }
         const points = simplifyCollinear([[...start], ...crossings.reverse(), [...end]]);
-        if (points.slice(1).some((point, index) => blockedByWalls(points[index], point, walls, profile))) return null;
+        if (points.slice(1).some((point, index) => blocked(points[index], point))) return null;
         return points;
       }
       for (const neighbour of triangle.neighbours) {

@@ -48,6 +48,11 @@ Without a footprint, bounds conservatively block. This covers vertical air walls
 not arbitrary collision meshes. Pass `{ walls, profile }` to graph queries; the high-level
 planner requires them. Even stationary paths and endpoint connectors obey exclusions.
 
+`createWallChecker(walls, profile)` snapshots and validates a fixed constraint set
+once, then serves repeated segment checks through a 3D bounds index. It shares the
+same precise polygon, polyline and body-clearance tests as `blockedByWalls`.
+Prepared routes, straightening and traversal discovery reuse this path.
+
 `surfaceGraph(surfaces, { speed })` and `projectPoint(surfaces, position, { maxVertical })`
 are available for importers. `sampleRoute(points, meters)` samples arc length without
 smoothing through corners. `unmapped` or `no-verified-route` means the inputs cannot prove
@@ -163,6 +168,12 @@ straight translation of an upright capsule. Thin walls between clear endpoints s
 block. It computes distance from the swept axis parallelogram to triangle surfaces;
 it does not approximate the sweep with isolated point samples. The result is either
 `null` or `{ triangle, distance }` for any touched face, not a first-impact time.
+
+An optional second argument `{ bounds: { min: [x, z], max: [x, z] } }` limits
+indexed triangles to an inclusive XZ rectangle while retaining all heights.
+Every source vertex and index is validated. Triangle IDs retain their original
+identity. Queries whose full horizontal body footprint exceeds the indexed
+rectangle throw, including curve inflation.
 
 For a curved trajectory, bound the deviation of each curve interval from its chord
 and pass that bound as `inflation`. This enlarges the capsule in every direction.

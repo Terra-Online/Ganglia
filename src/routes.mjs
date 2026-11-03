@@ -1,4 +1,4 @@
-import { blockedByWalls } from './walls.mjs';
+import { createWallChecker } from './walls.mjs';
 import { validateMotion, routeSegment } from './motion.mjs';
 // Edges are directed, clearance-checked corridors supplied by the navigation importer.
 // This module never connects points by proximity or projects between floors.
@@ -17,6 +17,7 @@ export function route(graph, start, goal, constraints) {
  * Entry costs and corridor costs use the same units. Unknown/locked arrivals are excluded.
  */
 export function routeFrom(graph, starts, goal, constraints) {
+  const blocked = constraints ? createWallChecker(constraints.walls, constraints.profile) : null;
   const nodes = new Map();
   for (const node of graph.nodes) {
     if (typeof node.id !== 'string' || nodes.has(node.id) || !finitePoint(node.position)) throw new Error('Invalid node');
@@ -30,8 +31,7 @@ export function routeFrom(graph, starts, goal, constraints) {
         distance(edge.points[0], nodes.get(edge.from)) > 1e-6 ||
         distance(edge.points.at(-1), nodes.get(edge.to)) > 1e-6) throw new Error('Invalid corridor');
     validateMotion(edge);
-    if (edge.state === 'open' && (!constraints || !edge.points.slice(1).some((p, i) =>
-        blockedByWalls(edge.points[i], p, constraints.walls, constraints.profile)))) {
+    if (edge.state === 'open' && (!blocked || !edge.points.slice(1).some((p, i) => blocked(edge.points[i], p)))) {
       if (!edges.has(edge.from)) edges.set(edge.from, []);
       edges.get(edge.from).push(edge);
     }
@@ -39,7 +39,7 @@ export function routeFrom(graph, starts, goal, constraints) {
   const requested = Array.isArray(goal) ? goal : [goal];
   const mapped = requested.filter(id => nodes.has(id));
   if (!mapped.length) return { status: 'unmapped' };
-  const goals = new Set(mapped.filter(id => !constraints || !blockedByWalls(nodes.get(id), nodes.get(id), constraints.walls, constraints.profile)));
+  const goals = new Set(mapped.filter(id => !blocked || !blocked(nodes.get(id), nodes.get(id))));
   if (!goals.size) return { status: 'no-verified-route' };
   // Dijkstra: arbitrary authored travel times need not admit a Euclidean heuristic.
   const costs = new Map(), previous = new Map(), origins = new Map(), heap = [];
@@ -72,7 +72,7 @@ export function routeFrom(graph, starts, goal, constraints) {
         !['available','locked','unknown'].includes(start.state)) throw new Error('Invalid arrival');
     sourceIds.add(start.id);
     if (start.state !== 'available' || !nodes.has(start.node)) continue;
-    if (constraints && blockedByWalls(nodes.get(start.node), nodes.get(start.node), constraints.walls, constraints.profile)) continue;
+    if (blocked && blocked(nodes.get(start.node), nodes.get(start.node))) continue;
     if (start.cost < (costs.get(start.node) ?? Infinity)) {
       costs.set(start.node, start.cost); origins.set(start.node, start.id);
       push({ id: start.node, cost: start.cost });
