@@ -1,8 +1,7 @@
-import { init, getNavMeshPositionsAndIndices, freeHeightfield, freeCompactHeightfield,
-  freeContourSet, freePolyMesh, freePolyMeshDetail } from '@recast-navigation/core';
-import { generateSoloNavMesh } from '@recast-navigation/generators';
+import { init } from '@recast-navigation/core';
 
 import { clipSurface, tolerance } from './clip-surface.mjs';
+import { buildSupportField } from './support-field.mjs';
 
 function validateGeometry(geometry, allowEmpty = false) {
   const { positions, indices } = geometry ?? {};
@@ -48,8 +47,7 @@ export async function buildGroundSurfaces(geometry, options) {
   const { positions, indices } = geometry;
   const { profile, maxSlope, stepUp, stepDown, cellSize, cellHeight } = options;
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-  // The generator's vertex count follows the index count. Expand to a triangle
-  // soup so its native rasterizer receives consistent counts for indexed meshes.
+  // Expand selected indexed collision to a triangle soup for the native rasterizer.
   const vertices = [];
   for (const i of indices) {
     for (let axis = 0; axis < 3; axis++) {
@@ -77,40 +75,14 @@ export async function buildGroundSurfaces(geometry, options) {
   const height = Math.ceil(profile.height / cellHeight), radius = Math.ceil(profile.radius / cellSize);
   const climb = Math.max(0, Math.floor(Math.min(stepUp, stepDown) / cellHeight) - 1);
   await init();
-  const result = generateSoloNavMesh(vertices, Array.from(indices, (_, i) => i), {
-    bounds: [min, max],
+  return buildSupportField(vertices, [min, max], {
     cs: cellSize, ch: cellHeight, walkableSlopeAngle: maxSlope,
     walkableHeight: height, walkableRadius: radius,
     // Reserve one vertical voxel for rasterization error. The larger downward
     // allowance must not accidentally authorize the same climb in reverse.
     walkableClimb: climb,
-    minRegionArea: 0, mergeRegionArea: 0, maxSimplificationError: 0.5,
-    detailSampleDist: 1, detailSampleMaxError: 1,
-  }, true);
-  try {
-    if (!result.success) {
-      // A completed empty polygon mesh has no Detour representation. Preserve
-      // that proved empty result without concealing a raster/contour failure.
-      if (result.error === 'Failed to create Detour navmesh data' && result.intermediates.polyMesh?.npolys() === 0) return [];
-      const details = result.intermediates.buildContext.logs.map(entry => entry.msg).join('; ');
-      throw new Error('Ground build failed: ' + result.error + (details ? ' (' + details + ')' : ''));
-    }
-    const [points, triangles] = getNavMeshPositionsAndIndices(result.navMesh);
-    const surfaces = [];
-    for (let i = 0; i < triangles.length; i += 3) {
-      surfaces.push({ id: String(i / 3), vertices: triangles.slice(i, i + 3).map(j => points.slice(j * 3, j * 3 + 3)) });
-    }
-    return surfaces;
-  } finally {
-    result.navMesh?.destroy();
-    const intermediates = result.intermediates;
-    if (intermediates.heightfield) freeHeightfield(intermediates.heightfield);
-    if (intermediates.compactHeightfield) freeCompactHeightfield(intermediates.compactHeightfield);
-    if (intermediates.contourSet) freeContourSet(intermediates.contourSet);
-    if (intermediates.polyMesh) freePolyMesh(intermediates.polyMesh);
-    if (intermediates.polyMeshDetail) freePolyMeshDetail(intermediates.polyMeshDetail);
-    intermediates.buildContext.destroy();
-  }
+    maxSimplificationError: 0.5,
+  });
 }
 
 function boundaryEdges(surfaces, axis, boundary) {
@@ -138,19 +110,31 @@ function joinTiles(from, to, axis, options) {
     point[other] = position;
     return point;
   };
+  const connect = (from, to, near, far) => {
+    const rise = pointAt(to, near)[1] - pointAt(from, near)[1];
+    const delta = pointAt(to, far)[1] - pointAt(from, far)[1] - rise;
+    let low = 0, high = 1;
+    if (Math.abs(delta) <= 1e-12) {
+      if (rise > options.stepUp + tolerance || -rise > options.stepDown + tolerance) return;
+    } else {
+      const first = (-options.stepDown - rise) / delta, last = (options.stepUp - rise) / delta;
+      low = Math.max(0, Math.min(first, last));
+      high = Math.min(1, Math.max(first, last));
+    }
+    const start = near + low * (far - near), end = near + high * (far - near);
+    if (end - start <= tolerance) return;
+    const entry = [pointAt(from, start), pointAt(from, end)];
+    const exit = [pointAt(to, start), pointAt(to, end)];
+    portals.push({ from: from.id, to: to.id, entry, exit,
+      points: [pointAt(from, (start + end) / 2), pointAt(to, (start + end) / 2)] });
+  };
   for (const edge of a) {
     while (first < b.length && b[first].max <= edge.min + tolerance) first++;
     for (let i = first; i < b.length && b[i].min < edge.max - tolerance; i++) {
       const near = Math.max(edge.min, b[i].min), far = Math.min(edge.max, b[i].max);
       if (far - near <= tolerance) continue;
-      const fromPoint = pointAt(edge, (near + far) / 2), toPoint = pointAt(b[i], (near + far) / 2);
-      const rise = toPoint[1] - fromPoint[1];
-      if (rise <= options.stepUp + tolerance && -rise <= options.stepDown + tolerance) {
-        portals.push({ from: edge.id, to: b[i].id, points: [fromPoint, toPoint] });
-      }
-      if (-rise <= options.stepUp + tolerance && rise <= options.stepDown + tolerance) {
-        portals.push({ from: b[i].id, to: edge.id, points: [toPoint, fromPoint] });
-      }
+      connect(edge, b[i], near, far);
+      connect(b[i], edge, near, far);
     }
   }
   return portals;

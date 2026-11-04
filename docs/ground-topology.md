@@ -6,6 +6,11 @@ commit `3a32a5d`. This supplements the state, action and offline-build contracts
 The structures and phases below are proposed work. The diagnostic observations
 describe the current implementation.
 
+The alpha.22 implementation and fixed-sample results are recorded in
+[stair routing validation](stairs-validation.md). It implements local support
+connections and directed passage intervals. Regional contraction remains a later
+milestone.
+
 ## 1. Decision and scope
 
 Represent ordinary movement as motion over layered support regions with explicit

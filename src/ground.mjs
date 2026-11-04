@@ -4,6 +4,7 @@ import { validateMotion } from './motion.mjs';
 import { createGoalProjector } from './goals.mjs';
 import { createGroundStraightener } from './straighten.mjs';
 import { retimeGroundRoute } from './locomotion.mjs';
+import { createWallChecker } from './walls.mjs';
 
 /** Ground endpoints retain their projected positions. Each connector lies within its
  * convex source polygon; only the importer may select admissible surfaces/state.
@@ -26,6 +27,8 @@ export function createGroundPlanner(surfaces, options) {
   const searchSpeed = options.locomotion?.sprintSpeed ?? speed;
   const base = surfaceGraph(surfaces, { speed: searchSpeed, portals: options.portals });
   const routeBase = createRoutePlanner(base, { walls, profile });
+  const blocked = createWallChecker(walls, profile);
+  let supportRoute;
   const baseCenters = new Map(base.nodes.map(node => [node.id, node.position]));
   const byId = new Map(surfaces.map(surface => [surface.id, surface]));
   const straighten = createGroundStraightener(surfaces, options);
@@ -120,16 +123,17 @@ export function createGroundPlanner(surfaces, options) {
     // cheap walk to a takeoff appear longer than a different jump sequence.
     const groups = [...endpoints.values()];
     for (let a = 0; a < groups.length; a++) for (let b = a + 1; b < groups.length; b++) {
-      for (const from of groups[a]) for (const to of groups[b]) {
-        if (goals.has(from.id) && goals.has(to.id)) continue;
-        const key = JSON.stringify([from.support, to.support]);
-        if (!visibility.has(key)) visibility.set(key, straighten.trace(from.support, to.support));
-        const traced = visibility.get(key);
-        if (!traced) continue;
-        const points = [from.position, ...traced.slice(1, -1), to.position];
-        const cost = points.slice(1).reduce((sum, point, index) => sum + distance(points[index], point), 0) / searchSpeed;
-        graph.edges.push({ from: from.id, to: to.id, points, cost, state: 'open' });
-        graph.edges.push({ from: to.id, to: from.id, points: [...points].reverse(), cost, state: 'open' });
+      for (const left of groups[a]) for (const right of groups[b]) {
+        for (const [from, to] of [[left, right], [right, left]]) {
+          if (goals.has(from.id) && goals.has(to.id)) continue;
+          const key = JSON.stringify([from.support, to.support]);
+          if (!visibility.has(key)) visibility.set(key, straighten.trace(from.support, to.support));
+          const traced = visibility.get(key);
+          if (!traced) continue;
+          const points = [from.position, ...traced.slice(1, -1), to.position];
+          const cost = points.slice(1).reduce((sum, point, index) => sum + distance(points[index], point), 0) / searchSpeed;
+          graph.edges.push({ from: from.id, to: to.id, points, cost, state: 'open' });
+        }
       }
     }
     // Compare actual continuous lengths and movement times for each available origin.
@@ -137,9 +141,18 @@ export function createGroundPlanner(surfaces, options) {
     let best = null;
     for (const arrival of arrivals) {
       if (best && arrival.cost >= best.cost) continue;
-      const candidate = routeBase(graph, [arrival], targetIds);
+      let candidate = routeBase(graph, [arrival], targetIds);
+      if (candidate.status !== 'complete' && walls.some(wall => wall.state !== 'inactive')) {
+        // A blocked polygon centre can disconnect the representative graph even
+        // when its support corridor admits a clear continuous path. Try that
+        // corridor, then validate every reconstructed segment against all walls.
+        supportRoute ??= createRoutePlanner(base, { walls: [], profile });
+        candidate = supportRoute(graph, [arrival], targetIds);
+      }
       if (candidate.status !== 'complete') continue;
       const continuous = straightenRoute(candidate, straighten, speed);
+      if (blocked(continuous.points[0], continuous.points[0]) ||
+          continuous.points.slice(1).some((point, index) => blocked(continuous.points[index], point))) continue;
       const timed = options.locomotion ? retimeGroundRoute(continuous, options.locomotion) : continuous;
       if (timed.status !== 'complete') continue;
       if (!best || timed.cost < best.cost) best = timed;

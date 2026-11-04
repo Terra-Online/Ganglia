@@ -2,14 +2,51 @@ const portalTolerance = 1e-4;
 const vertexKey = point => point.map(value => Math.round(value * 10000)).join(',');
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
 
-const onBoundary = (surface, point) => surface.vertices.some((a, index) => {
-  const b = surface.vertices[(index + 1) % surface.vertices.length];
+const onSegment = (point, a, b) => {
   const direction = b.map((value, axis) => value - a[axis]);
   const lengthSquared = direction.reduce((sum, value) => sum + value * value, 0);
-  if (lengthSquared === 0) return false;
+  if (lengthSquared === 0) return distance(point, a) <= portalTolerance;
   const t = point.reduce((sum, value, axis) => sum + (value - a[axis]) * direction[axis], 0) / lengthSquared;
-  return t >= 0 && t <= 1 && distance(point, a.map((value, axis) => value + t * direction[axis])) <= portalTolerance;
-});
+  return t >= -1e-8 && t <= 1 + 1e-8 && distance(point, a.map((value, axis) => value + t * direction[axis])) <= portalTolerance;
+};
+const boundaryEdge = (surface, point, interval = [point]) => surface.vertices.findIndex((a, index) =>
+  [point, ...interval].every(value => onSegment(value, a, surface.vertices[(index + 1) % surface.vertices.length])));
+
+/** Validate imported directed passages once under the same boundary contract used
+ * by graph search, ground tracing and exposed-boundary discovery. Old point-only
+ * transfers retain their exact crossing location.
+ */
+export function directedPortals(surfaces, portals = []) {
+  if (!Array.isArray(portals)) throw new Error('Invalid imported portals');
+  const byId = new Map(surfaces.map(surface => [surface.id, surface]));
+  const horizontal = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
+  return portals.map(portal => {
+    const from = byId.get(portal.from), to = byId.get(portal.to), points = portal.points;
+    const valid = (surface, point) => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite) &&
+      projectPoint([surface], point, { maxVertical: portalTolerance }) && boundaryEdge(surface, point) >= 0;
+    if (!from || !to || from === to || !Array.isArray(points) || points.length !== 2 ||
+        !valid(from, points[0]) || !valid(to, points[1]) || horizontal(points[0], points[1]) > portalTolerance) {
+      throw new Error('Invalid imported portal');
+    }
+    const entry = portal.entry ?? [points[0], points[0]], exit = portal.exit ?? [points[1], points[1]];
+    if ((portal.entry === undefined) !== (portal.exit === undefined) ||
+        !Array.isArray(entry) || entry.length !== 2 || !Array.isArray(exit) || exit.length !== 2 ||
+        entry.some(point => !valid(from, point)) || exit.some(point => !valid(to, point)) ||
+        entry.some((point, index) => horizontal(point, exit[index]) > portalTolerance) ||
+        (portal.entry && horizontal(entry[0], entry[1]) <= portalTolerance)) throw new Error('Invalid imported portal interval');
+    const fromEdge = boundaryEdge(from, points[0], entry), toEdge = boundaryEdge(to, points[1], exit);
+    if (fromEdge < 0 || toEdge < 0) throw new Error('Invalid imported portal interval boundary');
+    // Every interval and its representative must lie on one authored edge per side.
+    for (const [surface, edge, interval, point] of [[from, fromEdge, entry, points[0]], [to, toEdge, exit, points[1]]]) {
+      const a = surface.vertices[edge], b = surface.vertices[(edge + 1) % surface.vertices.length];
+      if (interval.some(value => !onSegment(value, a, b)) || !onSegment(point, ...interval)) {
+        throw new Error('Invalid imported portal interval');
+      }
+    }
+    return { from: portal.from, to: portal.to, points, fromEdge, toEdge,
+      start: entry[0], end: entry[1], exitStart: exit[0], exitEnd: exit[1] };
+  });
+}
 
 const overlapsBounds = (a, b) => a.min.every((value, axis) => value <= b.max[axis] + portalTolerance &&
   a.max[axis] >= b.min[axis] - portalTolerance);
@@ -158,16 +195,8 @@ export function surfaceGraph(surfaces, { speed, portals: importedPortals = [] })
     edges.push({ from: portal.from, to: portal.to, cost, state: 'open', points: [a, midpoint, b] });
     edges.push({ from: portal.to, to: portal.from, cost, state: 'open', points: [b, midpoint, a] });
   }
-  if (!Array.isArray(importedPortals)) throw new Error('Invalid imported portals');
-  const byId = new Map(surfaces.map(surface => [surface.id, surface]));
-  for (const portal of importedPortals) {
-    const from = byId.get(portal.from), to = byId.get(portal.to), points = portal.points;
-    if (!from || !to || from === to || !Array.isArray(points) || points.length !== 2 ||
-        points.some(point => !Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite)) ||
-        Math.hypot(points[0][0] - points[1][0], points[0][2] - points[1][2]) > portalTolerance ||
-        !projectPoint([from], points[0], { maxVertical: portalTolerance }) ||
-        !projectPoint([to], points[1], { maxVertical: portalTolerance }) ||
-        !onBoundary(from, points[0]) || !onBoundary(to, points[1])) throw new Error('Invalid imported portal');
+  for (const portal of directedPortals(surfaces, importedPortals)) {
+    const points = portal.points;
     // An imported transfer is directed. Its authoring/state and climb authorization
     // belong to the importer; the runtime never supplies the reverse step implicitly.
     const corridor = [positions.get(portal.from), ...points.map(point => [...point]), positions.get(portal.to)];

@@ -243,6 +243,15 @@ The build rounds clearance up and reserves one vertical voxel from the smaller s
 limit. It admits no implicit jumps or large drops. Larger downward allowances require
 validated **directed** transitions; they never authorize climbing the same height.
 
+Ground support connects adjacent compact spans under the local step and shared-headroom
+limits, followed by body-radius erosion at missing connections. Continuous stairs use
+these successive support connections. The builder preserves them when the total height
+range across several neighbors exceeds one step. Input triangle slopes still select
+walkable support, and gaps, excessive local rises and low ceilings remain excluded.
+Tiled builds export paired `Portal.entry` and `Portal.exit` intervals with direction and
+height correspondence. Search, ground tracing and exposed-boundary discovery consume
+the same passage authorization. Legacy point-only portals retain point crossings.
+
 Voxelization is approximate, not a continuous collision proof. Detail heights differ
 from collision floors because of rasterization and interpolation. Validate a small explicit projection tolerance;
 do not snap across gaps or floors. This initial builder handles bounded regions (at most

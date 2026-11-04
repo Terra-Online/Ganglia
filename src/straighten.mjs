@@ -1,5 +1,5 @@
 import { createWallChecker } from './walls.mjs';
-import { surfacePortals } from './surfaces.mjs';
+import { surfacePortals, directedPortals } from './surfaces.mjs';
 
 const pointKey = point => point.map(value => Math.round(value * 10000)).join(',');
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
@@ -91,7 +91,7 @@ const makeIndex = triangles => {
  * shortcuts retain that input. Returned queries preserve the run's endpoints.
  * Height changes are reconstructed from triangulated support, never fitted as a spline.
  */
-export function createGroundStraightener(surfaces, { walls, profile }) {
+export function createGroundStraightener(surfaces, { walls, profile, portals: imported = [] }) {
   const blocked = createWallChecker(walls, profile);
   const portals = surfacePortals(surfaces);
   const triangles = [], edgeOwners = new Map(), boundaryOwners = new Map(), ids = new Set();
@@ -142,6 +142,11 @@ export function createGroundStraightener(surfaces, { walls, profile }) {
     a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3, portal });
     b.triangle.neighbours.push({ triangle: a.triangle, opposite: (b.edge + 2) % 3, portal });
   }
+  for (const portal of directedPortals(surfaces, imported)) {
+    const a = boundaryOwners.get(JSON.stringify([portal.from, portal.fromEdge]));
+    const b = boundaryOwners.get(JSON.stringify([portal.to, portal.toEdge]));
+    if (a && b) a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3, portal });
+  }
   const supporting = makeIndex(triangles);
 
   const trace = (start, end, supports) => {
@@ -169,8 +174,8 @@ export function createGroundStraightener(surfaces, { walls, profile }) {
         const crossings = [];
         for (let current = entry; current.previous; current = current.previous) {
           const point = interpolate(current.fraction);
-          point[1] = heightAt(current.triangle, point);
-          crossings.push(point);
+          crossings.push([point[0], heightAt(current.triangle, point), point[2]],
+            [point[0], heightAt(current.previous.triangle, point), point[2]]);
         }
         const points = simplifyCollinear([[...start], ...crossings.reverse(), [...end]]);
         if (points.slice(1).some((point, index) => blocked(points[index], point))) return null;
@@ -193,8 +198,7 @@ export function createGroundStraightener(surfaces, { walls, profile }) {
         if (neighbour.portal) {
           const point = interpolate(fraction), { start, end } = neighbour.portal;
           const dx = end[0] - start[0], dz = end[2] - start[2], lengthSquared = dx * dx + dz * dz;
-          if (lengthSquared < 1e-16) continue;
-          const t = ((point[0] - start[0]) * dx + (point[2] - start[2]) * dz) / lengthSquared;
+          const t = lengthSquared < 1e-16 ? 0 : ((point[0] - start[0]) * dx + (point[2] - start[2]) * dz) / lengthSquared;
           if (t < -tolerance || t > 1 + tolerance ||
               Math.hypot(point[0] - start[0] - t * dx, point[2] - start[2] - t * dz) > 1e-4) continue;
         }

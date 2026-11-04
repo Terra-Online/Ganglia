@@ -1,4 +1,4 @@
-import { surfaceGraph, surfacePortals } from './surfaces.mjs';
+import { surfaceGraph, surfacePortals, directedPortals } from './surfaces.mjs';
 import { createBoundsIndex } from './bounds.mjs';
 import { createMinHeap } from './heap.mjs';
 import { createGoalProjector } from './goals.mjs';
@@ -77,21 +77,6 @@ const canReach = (topology, start, target) => {
   return false;
 };
 
-const onEdge = (point, a, b) => {
-  const delta = b.map((value, axis) => value - a[axis]);
-  const lengthSquared = delta.reduce((sum, value) => sum + value * value, 0);
-  if (!lengthSquared) return false;
-  const t = point.reduce((sum, value, axis) => sum + (value - a[axis]) * delta[axis], 0) / lengthSquared;
-  return (
-    t >= 0 &&
-    t <= 1 &&
-    distance(
-      point,
-      a.map((value, axis) => value + t * delta[axis]),
-    ) <= 1e-4
-  );
-};
-
 export const exposedBoundaries = (surfaces, portals) => {
   const covered = new Map();
   const byId = new Map(surfaces.map((surface) => [surface.id, surface]));
@@ -109,19 +94,9 @@ export const exposedBoundaries = (surfaces, portals) => {
     cover(portal.from, portal.fromEdge, portal.start, portal.end);
     cover(portal.to, portal.toEdge, portal.start, portal.end);
   }
-  for (const portal of portals)
-    for (const [id, point] of [
-      [portal.from, portal.points[0]],
-      [portal.to, portal.points[1]],
-    ]) {
-      const surface = byId.get(id);
-      for (let edge = 0; edge < surface.vertices.length; edge++) {
-        if (onEdge(point, surface.vertices[edge], surface.vertices[(edge + 1) % surface.vertices.length]))
-          // Imported point links carry no traversable interval. Retain their
-          // existing conservative whole-edge mask until an interval is supplied.
-          covered.set(boundaryKey(id, edge), [[0, 1]]);
-      }
-    }
+  for (const portal of directedPortals(surfaces, portals)) {
+    cover(portal.from, portal.fromEdge, portal.start, portal.end);
+  }
   const boundaries = [];
   for (const surface of surfaces) {
     const center = [0, 1, 2].map(

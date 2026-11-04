@@ -27,6 +27,22 @@ test('same-polygon shortcuts and stationary paths still obey wall exclusions', (
   assert.equal(route({nodes:[{id:'a',position:[1,0,1]}],edges:[]}, 'a', 'a', {walls:[wall],profile:options.profile}).status, 'no-verified-route');
 });
 
+test('continuous support corridors can bypass blocked graph centres while retaining exclusions', () => {
+  const rectangle = (id, left, right, near, far) => ({ id,
+    vertices: [[left,0,near],[right,0,near],[right,0,far],[left,0,far]] });
+  const ground = [rectangle('entry', 0, 4, 0, 2), rectangle('turn', 4, 6, 0, 2),
+    rectangle('exit', 4, 6, 2, 6)];
+  const starts = [{ id: 'player', position: [.5,0,.5], cost: 0, state: 'available' }];
+  const constraints = { ...options, profile: { radius: .1, height: 2 },
+    walls: [{ min: [1.8,-1,.9], max: [2.2,3,1.1], state: 'unknown' }] };
+  const result = planGroundRoute(ground, starts, [5.5,0,5.5], constraints);
+  assert.equal(result.status, 'complete');
+  assert.ok(result.points.some(point => point[0] >= 4 && point[2] <= 2));
+  assert.equal(planGroundRoute(ground, starts, [5.5,0,5.5], { ...constraints,
+    walls: [{ min: [1.8,-1,-1], max: [2.2,3,3], state: 'unknown' }],
+  }).status, 'no-verified-route');
+});
+
 test('prepared action queries preserve explicit support faces across overlapping navigation', () => {
   const floor = (id, left, right, height, portals) => ({ id, portals,
     vertices: [[left, height, 0], [right, height, 0], [right, height, 2], [left, height, 2]] });

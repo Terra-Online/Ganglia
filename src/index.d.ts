@@ -23,7 +23,12 @@ export function blockedByWalls(start: Vec3, end: Vec3, walls: Wall[], profile: {
  */
 export function createWallChecker(walls: Wall[], profile: { radius: number; height: number }): (start: Vec3, end: Vec3, inflation?: number) => boolean;
 export interface Surface { id: string; vertices: Vec3[]; portals?: number[] }
-export interface Portal { from: string; to: string; points: [Vec3, Vec3] }
+export interface Portal {
+  from: string; to: string; points: [Vec3, Vec3];
+  /** Paired boundary intervals in matching XZ order. Omit both for a point transfer. */
+  entry?: [Vec3, Vec3];
+  exit?: [Vec3, Vec3];
+}
 export function surfaceGraph(surfaces: Surface[], options: { speed: number; portals?: Portal[] }): Graph;
 
 export interface Arrival { id: string; node: string; cost: number; state: 'available' | 'locked' | 'unknown' }
