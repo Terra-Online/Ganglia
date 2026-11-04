@@ -1,6 +1,6 @@
 # Ganglia mathematical modeling and local offline progressive-solving roadmap
 
-Version v2, 2026-11-04. The code baseline is Terra-Online/Ganglia 0.1.0-alpha.21, commit
+Version v3, 2026-11-04. The code baseline is Terra-Online/Ganglia 0.1.0-alpha.21, commit
 [3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7](https://github.com/Terra-Online/Ganglia/commit/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7).
 This document concerns navigation that human players can execute, covering ground movement, jumping
 and falling, airborne targets, ziplines, bounce devices, periodic moving platforms, elevators with
@@ -28,6 +28,14 @@ discrete model becomes shortest-path search over augmented states. Stochastic ex
 extend it into a decision model with action durations. Global continuous robust dynamic programming,
 a global POMDP and end-to-end reinforcement learning are unnecessary starting requirements. The
 immediate need is an inspectable, composable structure that supports progressive refinement.
+
+Ground support and directed passage topology are prerequisites within this model. Level floors,
+ramps, curbs and stair flights share a supported-motion contract with explicit controller rules,
+clearance and direction. The [ground topology supplement](ground-topology.md) records a generic
+staircase false negative in alpha.21, the supplied Atlos case and the G0–G5 implementation gates.
+Preserve navigation adjacency separately from detail geometry, diagnose uncertain ground interfaces
+and refine them locally before expanding airborne feasibility search. These assets belong in the
+same offline sharing and augmented-state architecture.
 
 ## 1. Define the questions the offline build must answer
 
@@ -550,7 +558,7 @@ measurements can determine whether client-side supplemental computation is neces
 
 ```mermaid
 flowchart TD
-    M0["M0 Query scope and goal contracts"] --> M1["M1 Hybrid states and forward semantics"]
+    M0["M0 Query scope and goal contracts"] --> M1["M1 Support topology, hybrid states and forward semantics"]
     M1 --> M2["M2 Action composition and reliability"]
     M2 --> M3["M3 Finite abstractions and solution certificates"]
     M3 --> M4["M4 Offline sharing and budget models"]
@@ -576,7 +584,9 @@ favorable phase. A* weights, ant-colony parameters and Worker counts are decisio
 ### M1 Hybrid states and forward semantics
 
 Deliver specifications for state fields, controls, mode dynamics, event guards, resets, resource
-evolution and legal contacts. Define ordinary movement first, then use the same framework to
+evolution and legal contacts. Ordinary movement includes layered support identity and directed
+passages for slopes, curbs and stair risers. Define its ground-controller stepping semantics,
+headroom and sweep constraints under the ground topology supplement, then use the same framework to
 identify additional state for ziplines, bounce devices, periodic platforms and controllable
 elevators. Complex mechanisms may remain unimplemented, but their transition semantics must be
 explicit before they become isolated special edges.
@@ -630,9 +640,12 @@ together provide a sufficiently explicit basis for comparing algorithms and depl
 
 ### I0 Minimal reference implementation
 
-First implement nominal ground movement, jumping, falling, resource recovery and complete state
-continuity, retaining the existing analytic generator and collision capabilities. Replay candidates
-through an independent forward validator, passing actual exits into subsequent actions and
+First establish the directed ground-only reference with the supplement's G0–G2 gates, including
+multi-riser stairs, overlapping supports, tile seams and blocked-passage controls. Compare native
+build topology, exported topology and reconstructed motion to locate connectivity loss. Then
+implement jumping, falling, resource recovery and complete state continuity, retaining the existing
+analytic generator and collision capabilities. Replay candidates through an independent forward
+validator, passing actual exits into subsequent actions and
 preserving evidence throughout the pipeline. Use an inspectable complete baseline search for the
 resource-augmented graph. Correctness should be established before relying on complex heuristics.
 
@@ -645,9 +658,10 @@ physical model.
 
 ### I1 Local offline assets and batch builds
 
-Compile static regions, local directed action families, goal access, resource transitions and
-evidence into assets supporting regional loading and incremental updates. Reuse known entries and
-actions across goals, retaining meaningful alternatives in duration, resource demand and execution
+Compile layered support regions, validated ground passages, local directed action families, goal
+access, resource transitions and evidence into assets supporting regional loading and incremental
+updates. Reuse known entries and actions across goals, retaining meaningful alternatives in duration,
+resource demand and execution
 margin within each family. Measure representative regions and progressively larger query sets before
 deciding to begin the full 12,000-goal build.
 

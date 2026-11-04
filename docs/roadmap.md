@@ -16,11 +16,16 @@ graph and multi-label resource-state search, with action generation and validati
 movement model that supports forward replay. Local stochastic optimization and learning methods can
 provide later enhancements.
 
-The highest priority is a forward-propagation interface for `entryState + controls →
+The immediate modeling priority includes layered ground support and directed passages for stairs,
+ramps and curbs. The [ground topology supplement](ground-topology.md) records a reproducible
+staircase false negative, the supplied Atlos case and G0–G5 acceptance gates. Ground connectivity
+needs stage-specific diagnosis and local refinement before broad airborne feasibility discovery.
+
+Alongside this foundation, establish a forward-propagation interface for `entryState + controls →
 actualExitState`, together with candidate generation that retains slightly slower, more forgiving
-action families. The current analytic trajectories, ground navigation, body sweeps and spatial
-indices can be retained. Moving stamina, gait and necessary velocity into graph search before
-extending airborne events, device states and time-dependent connections can prevent repeated
+action families. The current analytic trajectories, body sweeps and spatial indices can be retained.
+Moving stamina, gait and necessary velocity into graph search before extending airborne events,
+device states and time-dependent connections can prevent repeated
 system-wide repairs whenever another movement mode is added.
 
 The near-term default should retain both a fastest route and a recommended route. The fastest route
@@ -431,7 +436,7 @@ and clearer detection of model exploitation.
 
 ```mermaid
 flowchart TD
-    P0[Forward replay and action interfaces] --> P1[Candidate action families and execution tolerance]
+    P0[Ground topology, forward replay and action interfaces] --> P1[Candidate action families and execution tolerance]
     P0 --> P2[Joint resource-state search]
     P1 --> P3[Airborne targets and static devices]
     P2 --> P3
@@ -442,7 +447,13 @@ flowchart TD
     P5 --> P6
 ```
 
-### P0 Unify action replay and evidence
+### P0 Establish ground topology, action replay and evidence
+
+Complete the ground supplement's G0–G2 reference milestone. Specify layered support and directed
+ground-controller passages, retain native topology alongside detail heights, and validate local
+refinement on staircase families and obstructed controls. Search, reconstruction, straightening and
+action-boundary discovery must consume the same passage authorization. Trace missing ground links
+to their source or build stage before expanding candidate budgets.
 
 Retain analytic generation in `jumps.mjs`, adding persistable control parameters and a validator
 that propagates a complete entry state forward to the actual exit state. Carry controls, entry/exit
