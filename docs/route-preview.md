@@ -1,47 +1,104 @@
-# 地表路线、传送与点位预览
+# Ground routes, teleports and point previews
 
-当前为 alpha.3 实现。Ganglia 负责投影、地表通路搜索、多起点成本比较、空气墙过滤和分段时间与弧长采样；noclip 负责当前安装的数据解码与视角候选；Atlos 通过实际打包的依赖调用 Ganglia。
+These notes record the alpha.3 integration snapshot and its early extensions. See the
+[README](../README.md) for current SDK behavior.
 
-## 已落地
+Ganglia handled projection, ground-route search, multi-source cost comparison, invisible-wall
+filtering, and sampling by segment time or arc length. noclip decoded the installed game data
+and generated camera candidates. Atlos called Ganglia through the packed dependency.
 
-- 二叉堆多起点 Dijkstra，对输入图求最低旅行成本。输入可以同时包含玩家、已解锁传送台与基地中心；成本是传送开销加步行时间，不按直线距离替代可达路线。
-- 按三维共享边连接凸多边形，遵守导入的 portal 白名单，不跨楼层或缝隙猜连接。保留地表投影后的实际起终点，同一凸面内允许直达。
-- 空气墙使用高度范围、XZ 折线、玩家半径/高度与额外推离距离。未知状态阻挡；静止路线与起终点连接也不能绕过检查。
-- 路线动画按三维弧长采样，不用会切墙的平滑曲线。传送不生成飞行折线。
-- ESM 包附 TypeScript 声明和现有 AGPL 许可，可 npm pack 后安装，尚未发布注册表。
+## Implemented at that stage
 
-## 真实数据调查与限制
+- Multi-source Dijkstra search with a binary heap minimized travel cost on the supplied graph.
+  Sources could include the player, unlocked teleport platforms and industrial-base centers.
+  Costs combined teleport overhead and ground travel time, with reachability evaluated along
+  the supplied corridors.
+- Convex polygons connected through shared 3D edges and an explicit imported portal allowlist.
+  Projected start and goal positions were retained, with direct travel within one convex face.
+  Connections across floors and gaps required explicit topology.
+- Invisible walls used height intervals, XZ polylines, player radius and height, and additional
+  clearance. Unknown states blocked travel. Stationary checks and endpoint connectors used
+  the same exclusions.
+- Route playback sampled the 3D polyline by arc length to preserve its checked geometry.
+  Teleport overhead was represented separately from the movement polyline.
+- The ESM package included TypeScript declarations and the existing AGPL license. It could be
+  installed from npm pack output. Registry publication was still pending.
 
-noclip 已从当前安装导出 map01 的 1,085 份导航资产、499,357 个多边形，以及两个地区的 504 道空气墙。导航障碍标记不是玩家通行的充分条件：有 11 道 map02 空气墙未启用导航障碍标记，仍应参与玩家路线排除。
+## Initial data investigation and limitations
 
-已导出 131 个可映射传送落点及六处基地中心种子。基地按用户确认的名单：武陵的心脏修缮站、盈天台建设站、天王坪援建点；四号谷地的难民暂居处、基建前站、重建指挥部。基地中心需要正确地面投影；三个谷地中心在此次普通区域、基础状态资产选择中均没有垂直投影命中，因此不能假称已经获得六处可用路线入口。
+noclip exported 1,085 navigation assets containing 499,357 polygons for map01, together with
+504 invisible walls across both regions. A navigation-obstacle flag alone was insufficient to
+establish player access. Eleven map02 invisible walls had that flag disabled and still needed
+to participate in player-route exclusions.
 
-示例点 3500030763 的早期 263 m 通路经过 area 3，当前未证明该区域的玩家通行语义，已撤回其“可靠路线”的表述。只选 area 0 时可获得附近约 13 m 的局部通路，但不能证明与远处道路或传送台连通，也不足以确定整体来路。早期 yaw 133.7° 结果只说明相机候选机制可以运行，不是实景任务验收。
+The export contained 131 mappable teleport arrivals and six industrial-base center seeds.
+The user-confirmed locations were Cardiac Remediation Station, Xiranflow Cloudseeder Station
+and Sky King Flats Construction Site in Wuling, and Refugee Camp, Infra-Station and
+Reconstruction HQ in Valley IV. Base centers required valid ground projection. All three
+Valley IV centers missed vertical projection in the selected ordinary-area, base-state
+assets, leaving their use as route arrivals unresolved.
 
-尚缺少完整的玩家区域掩码、动态导航状态选择、部分 portal 接续、细节地表高度、连续通路缩短和运行时空气墙/门/桥状态。当前最优性仅限输入图。不得将 AI NavMesh 直接宣传成完整玩家可走世界。没有完成游戏内行走或浏览器构图验收。
+An early 263 m route for point 3500030763 crossed area 3, whose player-traversal semantics
+had not been established. Its earlier reliability claim was withdrawn. Restricting selection
+to area 0 produced a nearby local corridor of about 13 m. Connectivity to distant roads or
+teleports, and therefore the overall arrival direction, remained unresolved. An early
+133.7-degree yaw result demonstrated camera-candidate generation. In-scene acceptance
+remained pending.
 
-## 视角与缓存
+Open issues at that stage included complete player-area masks, dynamic navigation-state
+selection, some portal connections, detail-surface heights, continuous route shortening,
+and runtime wall, door and bridge states. Optimality was limited to the supplied graph.
+Player-world coverage from the AI NavMesh and in-game walking and browser-composition
+validation remained unresolved.
 
-noclip 导出器从末段 24 m 来路生成目标远端左右 30°/45°候选，并利用现有几何检查目标可见性、镜头净空及末段路径可见采样。门与破坏物约束继续生效；没有合格候选时保留已有回退。相机可在悬崖外，玩家路线仍必须在地表。
+## Camera candidates and caches
 
-`walk-routes` 将明确的资产/区域/状态/玩家体积选择写入绑定数据，输出 Ganglia 路线与 Atlos 可消费的数据。`oem-views --arrival-routes ... --rebuild` 可重建现有预计算缓存，输入哈希与视角算法版本隔离检查点。尚未进行全部点位的路线约束重烘焙，也未更新线上数据。
+The noclip exporter used the final 24 m of the approach to generate far-side camera
+candidates at left and right offsets of 30 and 45 degrees. Existing geometry checks covered
+target visibility, camera clearance and sampled visibility along the final approach. Door
+and destructible-object constraints also applied. The existing fallback was retained when
+all candidates failed. Camera positions could extend beyond cliffs, while player routes
+required ground support.
 
-参考：[Unity 导航内部工作方式](https://docs.unity.cn/2022.2/Documentation/Manual/nav-InnerWorkings.html)、[Detour 查询接口](https://github.com/recastnavigation/recastnavigation/blob/main/Detour/Include/DetourNavMeshQuery.h)。公开导出中的空方法体不足以确认游戏完整寻路算法或“最近传送点”的内部排序。
+`walk-routes` bound the selected assets, areas, states and player body to its output, producing
+Ganglia routes and data consumable by Atlos. `oem-views --arrival-routes ... --rebuild` could
+rebuild the existing precomputed camera cache. Input hashes and camera-algorithm versions
+isolated checkpoints. Full route-constrained rebaking and online data updates remained
+pending at that stage.
 
-## 玩家碰撞地面构建
+Empty method bodies in public dumps were insufficient to establish the game's complete
+pathfinding algorithm or its internal nearest-teleport ordering. The investigation also
+consulted Unity's navigation internals and the Detour query interface.
+[Unity navigation internals](https://docs.unity.cn/2022.2/Documentation/Manual/nav-InnerWorkings.html),
+[Detour query interface](https://github.com/recastnavigation/recastnavigation/blob/main/Detour/Include/DetourNavMeshQuery.h).
 
-新增独立的 `@oem/ganglia/build` 离线入口，将明确选择的世界坐标碰撞三角形
-经 Recast 生成为带细节高度的 `Surface[]`。运行时入口不加载生成器或 WASM。
-工厂地面可以直接参与构建，不依赖 AI 的工厂排除区域；建筑、顶棚、实际障碍仍然参与。
-普通连接按向上、向下台阶参数中的较小值构建，并保留一个竖直体素的余量。
-较大落差与跳跃仍需有向连接和轨迹/落地检查，本次构建器不会自动放行。
+## Early player-collision ground builder
 
-16 项库测试通过，包括小台阶、坡面、断路、低顶棚、窄通道与未知空气墙。
-这是合成几何验证；真实关卡碰撞的世界摆放、完整工厂覆盖与跳跃验证仍未完成。
-noclip 导出的常见玩家体型作为默认值，显式请求可以覆盖，数据必须保持版本绑定。
+The separate offline `@oem/ganglia/build` entry point generated `Surface[]` with detail
+heights from explicitly selected world-space collision triangles through Recast. The runtime
+entry point kept the generator and WASM in the offline build dependency.
 
-## 有向运动段
+Factory floors could participate directly, independently of AI factory-exclusion areas.
+Buildings, ceilings and physical obstacles remained part of the collision input. Ordinary
+connections used the smaller upward and downward step allowance, with one vertical voxel
+of margin. Larger drops and jumps required separate directed links and trajectory and
+landing validation.
 
-地表入口可接收已验证的绳索、跳跃、下落和弹射连接。连接包含单向轨迹、各采样点时间和状态；未知状态不放行，端点不得靠高度吸附补齐，空气墙继续约束完整轨迹。路线保留空间折线供视角计算，同时输出分段时间供播放。传送开销与到达后的运动分开，不能把传送画成飞行。
+The early builder passed 16 library tests covering small steps, slopes, broken corridors,
+low ceilings, narrow passages and unknown invisible walls. These tests used synthetic
+geometry. Real-level collision placement, complete factory coverage and jump validation
+remained pending at that stage. The common player body exported by noclip supplied the
+default profile, with explicit overrides and version-bound data.
 
-加速效果不能只改一条边再无限延续。后续仍需结合触发条件、剩余持续时间和实际速度作用建立状态图。当前实现支持已验证轨迹输入，不会从装置模板参数自行推断可达性。
+## Directed movement segments
+
+The ground entry point accepted verified rope, jump, drop and launch connections. Each
+connection supplied a directed trajectory, sample times and state. Unknown states blocked
+movement. Endpoint attachment required validated support, and invisible-wall checks covered
+the complete trajectory. Routes retained their spatial polyline for camera calculations and
+segment times for playback. Teleport overhead was separate from movement after arrival.
+
+Acceleration effects required a state graph covering trigger conditions, remaining duration
+and the actual speed effect. A local edge-speed change alone could not establish how long
+a boost persisted. The initial implementation accepted verified trajectories, leaving
+device-template reachability inference for subsequent work.
