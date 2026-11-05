@@ -27,16 +27,30 @@ support corridor and checks every reconstructed continuous segment against all
 exclusions. This recovers clear paths around blocked graph centres. Corridors
 whose reconstructed path intersects an exclusion remain rejected.
 
-The noclip importer exports an owning-script terminal-stage interpretation for
-air walls under the completed-task policy. It infers a terminal stage from an
-explicit contiguous stage domain and requires consistent wall assignments across
-the analyzed event paths. Unsupported domains, conflicting writes and undecoded
-scripts retain unknown state. This is a planning snapshot interpretation.
+The noclip importer resolves air walls under the completed-task policy using
+explicit controller sources and consistent wall assignments across the analyzed
+event paths. Conflicting writes and undecoded scripts retain unknown state.
+This is a planning snapshot interpretation.
 Actual runtime state and game execution require separate validation.
 Empty mission rise/down lists represent no activation reason. They preserve the
 initial false checker state, including when the authored list uses all semantics.
-Unowned walls without a condition use their authored default switch in the
-selected planning snapshot. Other runtime overrides require separate state input.
+Level-script walls use an authored base switch after an explicit controller
+scan. Additional runtime state requires separate snapshot input.
+
+The subsequent control audit replaces the owner-only export interpretation with
+`wall-controls-v2`. The level-script check type can be controlled by group id
+even with a zero stored owner. Defaults now follow an explicit controller scan,
+and conflicting writers remain unknown. Level briefs provide declared stage
+limits and parameterized global targets. The completed snapshot selects the
+maximum stage and clears explicit wall references of completion-disabled
+encounter and fog-nest modules. Unknown branch guards cannot establish that a
+write executes. The revised two-scene snapshot has 347 inactive, 43 active and
+114 unresolved walls, down from 196 before module and brief resolution. These
+stage and base-switch selections remain planning assumptions. The three
+additional elevated examples retain complete physical walking routes under
+these exclusions. Rechecking the fixed reference-positive population with the
+revised wall states retains 31/31 walking routes, including all 13 measured
+step-profile cases.
 
 The physical command writes an atomic provisional walking result before airborne
 indexing and optional shortcut discovery. Atlos displays it while continuing to
@@ -61,7 +75,7 @@ Existing gap, stacked-floor, obstacle, narrow-passage and unknown-exclusion
 regressions also pass.
 
 - Release packaging passed all 143 SDK tests.
-- Focused noclip command, wall-state and ground-data validation passed 20 tests.
+- Focused noclip command, wall-state and ground-data validation passed 23 tests.
 - Atlos walking-adapter and provisional-cache validation passed 5 tests.
 - World type checking and changed extractor files' type-aware lint checks passed.
 
