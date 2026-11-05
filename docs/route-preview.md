@@ -102,3 +102,14 @@ Acceleration effects required a state graph covering trigger conditions, remaini
 and the actual speed effect. A local edge-speed change alone could not establish how long
 a boost persisted. The initial implementation accepted verified trajectories, leaving
 device-template reachability inference for subsequent work.
+
+The noclip importer now supplies fixed vertical-rope and bounce-device connections
+through this same interface. They retain source device identities, stationary
+startup samples, supported endpoints and collision-checked timed trajectories.
+Device-specific launch height and target replace the ordinary jump-height rule.
+The action planner composes these connections with ground and discovered airborne
+actions. The normal Atlos query for point 3500070545 selects a launch and a small
+jump, taking 22.16 model seconds against a 27.64-second physical walking baseline.
+A real rope case from 300020256 to 300020282 returns walk/rope/walk in 5.93 model
+seconds. These validate the planning pipeline. In-game device state, precise
+animation timing and operation remain separate checks.
