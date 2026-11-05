@@ -77,7 +77,7 @@ const canReach = (topology, start, target) => {
   return false;
 };
 
-export const exposedBoundaries = (surfaces, portals) => {
+export const exposedBoundaries = (surfaces, portals, sharedPortals) => {
   const covered = new Map();
   const byId = new Map(surfaces.map((surface) => [surface.id, surface]));
   const cover = (id, edge, start, end) => {
@@ -90,7 +90,7 @@ export const exposedBoundaries = (surfaces, portals) => {
     ranges.push([Math.max(0, Math.min(first, last)), Math.min(1, Math.max(first, last))]);
     covered.set(key, ranges);
   };
-  for (const portal of surfacePortals(surfaces)) {
+  for (const portal of sharedPortals ?? surfacePortals(surfaces)) {
     cover(portal.from, portal.fromEdge, portal.start, portal.end);
     cover(portal.to, portal.toEdge, portal.start, portal.end);
   }

@@ -1,10 +1,11 @@
-import { surfaceGraph, projectPoint } from './surfaces.mjs';
+import { surfaceGraph, surfacePortals, projectPoint } from './surfaces.mjs';
 import { createGoalProjector } from './goals.mjs';
 import { landingCandidates, boundaryLanding } from './landings.mjs';
 import { createBoundsIndex } from './bounds.mjs';
 import { createMinHeap } from './heap.mjs';
 import { createWallChecker } from './walls.mjs';
 import { createGroundStraightener } from './straighten.mjs';
+import { groundPreparation } from './ground.mjs';
 import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.mjs';
 import { exposedBoundaries, interleave, standingFoot, validateDiscovery } from './traversal.mjs';
 
@@ -14,9 +15,12 @@ const horizontal = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 function prepareGeometry(surfaces, options) {
   const { walls, profile, portals } = options;
   const blocked = createWallChecker(walls, profile);
-  const graph = surfaceGraph(surfaces, { speed: 1, portals });
+  const candidate = groundPreparation(options.groundPlanner);
+  const reused = candidate?.surfaces === surfaces ? candidate : undefined;
+  const sharedPortals = reused?.portals ?? surfacePortals(surfaces);
+  const graph = surfaceGraph(surfaces, { speed: 1, portals }, sharedPortals);
   graph.edges = graph.edges.filter(edge => !edge.points.slice(1).some((point, index) => blocked(edge.points[index], point)));
-  const boundaries = exposedBoundaries(surfaces, portals ?? []).map(boundary => ({ ...boundary,
+  const boundaries = exposedBoundaries(surfaces, portals ?? [], sharedPortals).map(boundary => ({ ...boundary,
     min: [0, 1, 2].map(axis => Math.min(boundary.a[axis], boundary.b[axis])),
     max: [0, 1, 2].map(axis => Math.max(boundary.a[axis], boundary.b[axis])) }));
   const landingSurfaces = surfaces.map(surface => ({ ...surface,
@@ -24,9 +28,10 @@ function prepareGeometry(surfaces, options) {
     max: [0, 1, 2].map(axis => Math.max(...surface.vertices.map(point => point[axis]))) }));
   return { graph, blocked, boundaries, landingSurfaces,
     boundaryIndex: createBoundsIndex(boundaries), landingIndex: createBoundsIndex(landingSurfaces),
-    byId: new Map(surfaces.map(surface => [surface.id, surface])),
-    centers: new Map(graph.nodes.map(node => [node.id, node.position])),
-    project: createGoalProjector(surfaces),
+    byId: reused?.byId ?? new Map(surfaces.map(surface => [surface.id, surface])),
+    centers: reused?.centers ?? new Map(graph.nodes.map(node => [node.id, node.position])),
+    project: reused?.projectGoal ?? createGoalProjector(surfaces),
+    visibility: reused?.straighten,
   };
 }
 
@@ -91,7 +96,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   if (cache) cache.geometry = prepared;
   const { blocked, byId, centers, project, boundaries } = prepared;
   const connections = [];
-  let visibility = cache?.visibility;
+  let visibility = cache?.visibility ?? prepared.visibility;
   const traces = cache?.traces ?? new Map();
   if (cache) cache.traces = traces;
   const groundTrace = (start, end) => {

@@ -91,9 +91,9 @@ const makeIndex = triangles => {
  * shortcuts retain that input. Returned queries preserve the run's endpoints.
  * Height changes are reconstructed from triangulated support, never fitted as a spline.
  */
-export function createGroundStraightener(surfaces, { walls, profile, portals: imported = [] }) {
+export function createGroundStraightener(surfaces, { walls, profile, portals: imported = [] }, sharedPortals) {
   const blocked = createWallChecker(walls, profile);
-  const portals = surfacePortals(surfaces);
+  const portals = sharedPortals ?? surfacePortals(surfaces);
   const triangles = [], edgeOwners = new Map(), boundaryOwners = new Map(), ids = new Set();
   for (const surface of surfaces) {
     if (typeof surface.id !== 'string' || ids.has(surface.id) || !Array.isArray(surface.vertices) ||

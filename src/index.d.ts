@@ -144,6 +144,9 @@ export function findJumpShortcuts(surfaces: Surface[], world: CollisionWorld,
 };
 
 export interface JumpRouteOptions extends GroundOptions {
+  /** Optional prepared planner for these same immutable surfaces and ground options.
+   * Query connections override its initial connection set. */
+  groundPlanner?: ReturnType<typeof createGroundPlanner>;
   interaction?: InteractionGoal;
   model: JumpModel;
   runAirSpeed: number;

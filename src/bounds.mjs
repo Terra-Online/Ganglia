@@ -5,20 +5,45 @@ const sphereTouches = (node, target, radius) => node.min.reduce((squared, value,
 }, 0) <= radius * radius;
 
 export const createBoundsIndex = surfaces => {
-  const build = entries => {
+  const entries = [...surfaces];
+  // Median partitioning avoids sorting every subtree. Equal centres form one
+  // partition, so coincident or elongated bounds still terminate in balanced leaves.
+  const select = (start, end, middle, axis) => {
+    const center = index => entries[index].min[axis] + entries[index].max[axis];
+    while (end - start > 1) {
+      const first = center(start), last = center(end - 1), mid = center(Math.floor((start + end) / 2));
+      const pivot = Math.max(Math.min(first, last), Math.min(Math.max(first, last), mid));
+      let lower = start, current = start, upper = end;
+      while (current < upper) {
+        const value = center(current);
+        if (value < pivot) {
+          [entries[lower], entries[current]] = [entries[current], entries[lower]];
+          lower++; current++;
+        } else if (value > pivot) {
+          upper--;
+          [entries[upper], entries[current]] = [entries[current], entries[upper]];
+        } else current++;
+      }
+      if (middle < lower) end = lower;
+      else if (middle >= upper) start = upper;
+      else return;
+    }
+  };
+  const build = (start, end) => {
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    for (const entry of entries) for (let axis = 0; axis < 3; axis++) {
+    for (let index = start; index < end; index++) for (let axis = 0; axis < 3; axis++) {
+      const entry = entries[index];
       min[axis] = Math.min(min[axis], entry.min[axis]);
       max[axis] = Math.max(max[axis], entry.max[axis]);
     }
-    if (entries.length <= 8) return { min, max, entries };
+    if (end - start <= 8) return { min, max, entries: entries.slice(start, end) };
     const spans = max.map((value, axis) => value - min[axis]);
     const axis = spans.indexOf(Math.max(...spans));
-    entries.sort((a, b) => a.min[axis] + a.max[axis] - b.min[axis] - b.max[axis]);
-    const middle = Math.floor(entries.length / 2);
-    return { min, max, left: build(entries.slice(0, middle)), right: build(entries.slice(middle)) };
+    const middle = Math.floor((start + end) / 2);
+    select(start, end, middle, axis);
+    return { min, max, left: build(start, middle), right: build(middle, end) };
   };
-  return fromRoot(surfaces.length ? build([...surfaces]) : null);
+  return fromRoot(entries.length ? build(0, entries.length) : null);
 };
 
 // Filtered views reuse the immutable hierarchy. Repeated movement frontiers

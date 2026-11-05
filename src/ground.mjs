@@ -1,10 +1,14 @@
-import { surfaceGraph, projectPoint } from './surfaces.mjs';
+import { surfaceGraph, surfacePortals, projectPoint } from './surfaces.mjs';
 import { createRoutePlanner } from './routes.mjs';
 import { validateMotion } from './motion.mjs';
 import { createGoalProjector } from './goals.mjs';
 import { createGroundStraightener } from './straighten.mjs';
 import { retimeGroundRoute } from './locomotion.mjs';
 import { createWallChecker } from './walls.mjs';
+
+const preparations = new WeakMap();
+/** Internal immutable preparation shared with action discovery for the same planner. */
+export const groundPreparation = planner => preparations.get(planner);
 
 /** Ground endpoints retain their projected positions. Each connector lies within its
  * convex source polygon; only the importer may select admissible surfaces/state.
@@ -25,17 +29,18 @@ export function createGroundPlanner(surfaces, options) {
   // Compare action times at the fastest permitted ground gait. The existing
   // resource scheduler verifies the complete selected motion sequence afterwards.
   const searchSpeed = options.locomotion?.sprintSpeed ?? speed;
-  const base = surfaceGraph(surfaces, { speed: searchSpeed, portals: options.portals });
+  const portals = surfacePortals(surfaces);
+  const base = surfaceGraph(surfaces, { speed: searchSpeed, portals: options.portals }, portals);
   const routeBase = createRoutePlanner(base, { walls, profile });
   const blocked = createWallChecker(walls, profile);
   let supportRoute;
   const baseCenters = new Map(base.nodes.map(node => [node.id, node.position]));
   const byId = new Map(surfaces.map(surface => [surface.id, surface]));
-  const straighten = createGroundStraightener(surfaces, options);
+  const straighten = createGroundStraightener(surfaces, options, portals);
   const projectGoal = createGoalProjector(surfaces);
   let targetKey;
   const visibility = new Map();
-  return { plan(starts, goal, query = {}) {
+  const planner = { plan(starts, goal, query = {}) {
     // Action discovery extends one goal query repeatedly. Retain its continuous
     // transfers while dropping them when the target changes, bounding cross-query storage.
     const key = JSON.stringify([goal, query.interaction]);
@@ -159,6 +164,8 @@ export function createGroundPlanner(surfaces, options) {
     }
     return best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
   } };
+  preparations.set(planner, { surfaces, portals, straighten, projectGoal, byId, centers: baseCenters });
+  return planner;
 }
 
 const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));

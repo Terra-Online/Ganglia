@@ -1,3 +1,5 @@
+import { createBoundsIndex } from './bounds.mjs';
+
 const portalTolerance = 1e-4;
 const vertexKey = point => point.map(value => Math.round(value * 10000)).join(',');
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
@@ -48,36 +50,10 @@ export function directedPortals(surfaces, portals = []) {
   });
 }
 
-const overlapsBounds = (a, b) => a.min.every((value, axis) => value <= b.max[axis] + portalTolerance &&
-  a.max[axis] >= b.min[axis] - portalTolerance);
-
 const portalIndex = entries => {
-  const build = items => {
-    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    for (const item of items) for (let axis = 0; axis < 3; axis++) {
-      min[axis] = Math.min(min[axis], item.min[axis]);
-      max[axis] = Math.max(max[axis], item.max[axis]);
-    }
-    if (items.length <= 8) return { min, max, items };
-    const spans = max.map((value, axis) => value - min[axis]);
-    const axis = spans.indexOf(Math.max(...spans));
-    items.sort((a, b) => a.min[axis] + a.max[axis] - b.min[axis] - b.max[axis]);
-    const middle = Math.floor(items.length / 2);
-    return { min, max, left: build(items.slice(0, middle)), right: build(items.slice(middle)) };
-  };
-  const root = entries.length ? build([...entries]) : null;
-  return function* (bounds) {
-    const stack = root ? [root] : [];
-    while (stack.length) {
-      const node = stack.pop();
-      if (!overlapsBounds(bounds, node)) continue;
-      if (node.items) {
-        for (const item of node.items) if (overlapsBounds(bounds, item)) yield item;
-      } else {
-        stack.push(node.left, node.right);
-      }
-    }
-  };
+  const query = createBoundsIndex(entries);
+  return bounds => query({ min: bounds.min.map(value => value - portalTolerance),
+    max: bounds.max.map(value => value + portalTolerance) });
 };
 
 const sharedInterval = (a, b) => {
@@ -181,9 +157,9 @@ export function surfacePortals(surfaces) {
  * state and agent. Full or split collinear 3D portals connect over their shared
  * interval. No gap, stair, off-mesh or proximity links are inferred.
  */
-export function surfaceGraph(surfaces, { speed, portals: importedPortals = [] }) {
+export function surfaceGraph(surfaces, { speed, portals: importedPortals = [] }, sharedPortals) {
   if (!Number.isFinite(speed) || speed <= 0) throw new Error('Invalid walking speed');
-  const portals = surfacePortals(surfaces);
+  const portals = sharedPortals ?? surfacePortals(surfaces);
   const nodes = surfaces.map(surface => ({ id: surface.id,
     position: [0, 1, 2].map(axis => surface.vertices.reduce((sum, point) => sum + point[axis], 0) / surface.vertices.length) }));
   const positions = new Map(nodes.map(node => [node.id, node.position]));

@@ -157,3 +157,17 @@ test('uses continuous ground approaches across overlapping patches before jumpin
   assert.ok(air);
   assert.ok(air.points[0][0] > 4.4);
 });
+
+test('reuses prepared walking topology while admitting connections added after preparation', () => {
+  const surfaces = [floor('left', 0, 4, 0), floor('right', 14, 18, 0)];
+  const starts = arrival([2, 0, 0]), goal = [16, 0, 0];
+  const groundPlanner = createGroundPlanner(surfaces, options);
+  assert.equal(groundPlanner.plan(starts, goal).status, 'no-verified-route');
+  const connection = { id: 'rope', mode: 'rope', state: 'open', points: [[2, 0, 0], [16, 0, 0]], times: [0, 2] };
+  const result = planJumpRoute(surfaces, createCollisionWorld(geometry(surfaces)), starts, goal,
+    { ...options, groundPlanner, connections: [connection], maxCandidates: 0 });
+  assert.equal(result.route.status, 'complete');
+  assert.equal(result.route.cost, 2);
+  assert.ok(result.route.segments.some(segment => segment.connection === 'rope'));
+  assert.equal(groundPlanner.plan(starts, goal).status, 'no-verified-route');
+});

@@ -113,3 +113,18 @@ jump, taking 22.16 model seconds against a 27.64-second physical walking baselin
 A real rope case from 300020256 to 300020282 returns walk/rope/walk in 5.93 model
 seconds. These validate the planning pipeline. In-game device state, precise
 animation timing and operation remain separate checks.
+
+Alpha.23 reuses a prepared ground planner across walking, device admission and
+action search through `JumpRouteOptions.groundPlanner`. The supplied planner must
+belong to the same immutable surfaces, exclusions, body and ground options.
+Per-query connections override its original connection set. Ground tracing,
+projection and normalized surface portals are also reused by action discovery.
+Spatial bounds use median partitioning instead of recursively sorting each
+subtree. Portal candidate queries retain the same tolerance and geometry tests.
+
+A profiled, identical physical input for point 3500070545 takes 23.76 seconds
+against 58.39 seconds before these changes. Action search takes 11.22 seconds
+against 33.18 seconds, with the same 512-candidate budget, 64-link limit and
+22.39-second returned route. These are single-run cached-ground command timings,
+including profiling overhead. The 145 SDK tests pass, including coincident bounds,
+prepared-planner connection updates and existing stair/collision regressions.
