@@ -1,8 +1,11 @@
-const sub = (a,b) => a.map((v,i) => v-b[i]);
-const dot = (a,b) => a.reduce((v,x,i) => v+x*b[i],0);
+const sub = (a,b) => [a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+const dot = (a,b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 const cross = (a,b) => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-const mix = (a,b,t) => a.map((v,i) => v+(b[i]-v)*t);
-const squared = (a,b) => dot(sub(a,b),sub(a,b));
+const mix = (a,b,t) => [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
+const squared = (a,b) => {
+  const x=a[0]-b[0],y=a[1]-b[1],z=a[2]-b[2];
+  return x*x+y*y+z*z;
+};
 const pointSegment = (p,a,b) => {
   const d=sub(b,a), length=dot(d,d);
   return squared(p,mix(a,b,length ? Math.max(0,Math.min(1,dot(sub(p,a),d)/length)) : 0));
@@ -16,8 +19,13 @@ const segmentSegment = (a,b,c,d) => {
   }
   return best;
 };
-const inside = (p,triangle,n) => triangle.every((a,i) =>
-  dot(cross(sub(triangle[(i+1)%3],a),sub(p,a)),n)>=0);
+const inside = (p,triangle,n) => {
+  for(let i=0;i<3;i++){
+    const a=triangle[i];
+    if(!(dot(cross(sub(triangle[(i+1)%3],a),sub(p,a)),n)>=0))return false;
+  }
+  return true;
+};
 const pointTriangle = (p,triangle,n) => {
   const area=dot(n,n);
   if(area>0){
@@ -25,7 +33,8 @@ const pointTriangle = (p,triangle,n) => {
     const projected=p.map((v,i)=>v-n[i]*distance);
     if(inside(projected,triangle,n))return squared(p,projected);
   }
-  return Math.min(...triangle.map((a,i)=>pointSegment(p,a,triangle[(i+1)%3])));
+  return Math.min(pointSegment(p,triangle[0],triangle[1]),pointSegment(p,triangle[1],triangle[2]),
+    pointSegment(p,triangle[2],triangle[0]));
 };
 const segmentTriangle = (a,b,triangle) => {
   const n=cross(sub(triangle[1],triangle[0]),sub(triangle[2],triangle[0]));
@@ -35,12 +44,13 @@ const segmentTriangle = (a,b,triangle) => {
     if(t>=0&&t<=1&&inside(mix(a,b,t),triangle,n))return 0;
   }
   return Math.min(pointTriangle(a,triangle,n),pointTriangle(b,triangle,n),
-    ...triangle.map((c,i)=>segmentSegment(a,b,c,triangle[(i+1)%3])));
+    segmentSegment(a,b,triangle[0],triangle[1]),segmentSegment(a,b,triangle[1],triangle[2]),
+    segmentSegment(a,b,triangle[2],triangle[0]));
 };
 const triangleTriangle = (a,b) => Math.min(
-  ...a.map((v,i)=>segmentTriangle(v,a[(i+1)%3],b)),
-  ...b.map((v,i)=>segmentTriangle(v,b[(i+1)%3],a)));
-const overlaps = (a,b) => [0,1,2].every(i=>a[i]<=b[i+3]&&a[i+3]>=b[i]);
+  segmentTriangle(a[0],a[1],b),segmentTriangle(a[1],a[2],b),segmentTriangle(a[2],a[0],b),
+  segmentTriangle(b[0],b[1],a),segmentTriangle(b[1],b[2],a),segmentTriangle(b[2],b[0],a));
+const overlaps = (a,b) => a[0]<=b[3]&&a[3]>=b[0]&&a[1]<=b[4]&&a[4]>=b[1]&&a[2]<=b[5]&&a[5]>=b[2];
 const point = p => Array.isArray(p)&&p.length===3&&p.every(Number.isFinite);
 
 // Highest bottom-sphere support on the triangle, including its edges and corners.

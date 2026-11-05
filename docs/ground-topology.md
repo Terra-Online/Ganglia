@@ -337,3 +337,18 @@ local connectivity break and controller replay remain open. The current
 diagnostics establish the prerequisite and a reproducible generic failure.
 Algorithmic completeness remains scoped to the explicitly modeled and covered
 domain, with real-game validation recorded separately.
+
+
+## Collision hot-path validation
+
+The capsule-distance primitives use fixed three-component arithmetic and fixed triangle edges.
+This removes temporary map/reduce arrays without changing sweep subdivision, collision inflation,
+support selection, contact thresholds or triangle ordering. A seeded differential probe compared
+3,000 sweeps and 3,000 support queries against the previous implementation with exact results,
+including degenerate geometry. Existing collision, motion and stair regressions remain the release gate.
+
+On one retained real-scene input, the full route and discovered connections were exactly equal.
+Action search fell from 44.86 to 11.50 seconds and total solver time from 57.83 to 24.78 seconds.
+This is a single-input measurement, not a scene-wide speedup claim. Input decoding, physical indexing
+and fine goal support construction are still charged separately; terrain-cache hits alone do not
+measure solver latency or establish route optimality.
