@@ -166,8 +166,9 @@ export interface JumpRouteOptions extends GroundOptions {
   maxHorizontalDistance: number;
   sampleSpacing: number;
   maxCandidates: number;
-  /** Optional improvement budget after reachability succeeds. Zero keeps the first
-   * feasible route; omitted uses the remaining discovery budget. */
+  /** Optional broad improvement budget after reachability succeeds. Zero keeps the first
+   * feasible route; omitted uses the remaining discovery budget. An incumbent-local
+   * comparison may use up to 128 additional candidates from the overall remaining budget. */
   maxShortcutCandidates?: number;
   maxLinks: number;
 }

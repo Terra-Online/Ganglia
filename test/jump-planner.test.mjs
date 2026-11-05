@@ -81,7 +81,9 @@ test('removes a long corner detour with a small improvement budget and retains b
     const world = createCollisionWorld(geometry(surfaces));
     const baseline = createGroundPlanner(surfaces, settings).plan(starts, goal);
     const result = planJumpRoute(surfaces, world, starts, goal, settings);
+    const broadOnly = planJumpRoute(surfaces, world, starts, goal, { ...settings, maxCandidates: 16 });
     assert.equal(result.route.status, 'complete');
+    assert.ok(result.route.cost <= broadOnly.route.cost + 1e-7);
     assert.ok(result.route.cost < baseline.cost / 2, `${result.route.cost} must improve ${baseline.cost}`);
     assert.ok(result.route.segments.some(segment => segment.mode === 'jump'));
     for (const segment of result.route.segments.filter(segment => segment.mode !== 'walk')) {

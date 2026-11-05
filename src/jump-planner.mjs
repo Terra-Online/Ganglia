@@ -107,32 +107,35 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage) {
       best = incumbent;
       bestConnections = connections;
     }
-    let improvementBudget = Math.min(remaining, options.maxShortcutCandidates ?? remaining);
+    const improvementBudget = Math.min(remaining, options.maxShortcutCandidates ?? remaining);
     if (improvementBudget <= 0) continue;
-    const localBudget = Math.min(128, Math.floor(improvementBudget / 4));
+    const localBaseline = incumbent, localBaseConnections = connections;
+    // Preserve the broad comparison's budget and incumbent. A new local heuristic
+    // must not displace an alternative already covered by that established pass.
+    const alternatives = search(findJumpShortcuts(surfaces, world, { ...discoveryOptions, connections,
+      maxCandidates: improvementBudget, baseline: incumbent, speed: options.locomotion?.sprintSpeed ?? options.speed }, cache));
+    if (alternatives.length) {
+      connections = [...connections, ...alternatives];
+      const candidate = planner.plan([arrival], goal, { interaction, connections });
+      if (candidate.status === 'complete' && candidate.cost < incumbent.cost - 1e-7) incumbent = candidate;
+      if (incumbent.cost < best.cost - 1e-7) { best = incumbent; bestConnections = connections; }
+    }
+    const localBudget = Math.min(128, Math.floor(improvementBudget / 4), remaining - improvementBudget);
     if (localBudget > 0) {
       const local = findRouteShortcuts(surfaces, world, { ...discoveryOptions, connections,
-        maxCandidates: localBudget, baseline: incumbent, speed: options.locomotion?.sprintSpeed ?? options.speed }, cache);
+        maxCandidates: localBudget, baseline: localBaseline, speed: options.locomotion?.sprintSpeed ?? options.speed }, cache);
       const additions = search(local);
-      // Charge the bounded local pass without reducing broad discovery when a
-      // straight incumbent offered no plausible time-saving airborne transfer.
-      if (local.diagnostics.candidatePairs) improvementBudget -= localBudget;
       if (additions.length) {
-        connections.push(...additions);
+        const localConnections = [...localBaseConnections, ...additions];
+        const localRoute = planner.plan([arrival], goal, { interaction, connections: localConnections });
+        if (localRoute.status === 'complete' && localRoute.cost < best.cost - 1e-7) {
+          best = localRoute; bestConnections = localConnections;
+        }
+        connections = [...connections, ...additions];
         const candidate = planner.plan([arrival], goal, { interaction, connections });
         if (candidate.status === 'complete' && candidate.cost < incumbent.cost - 1e-7) incumbent = candidate;
         if (incumbent.cost < best.cost - 1e-7) { best = incumbent; bestConnections = connections; }
       }
-    }
-    if (improvementBudget <= 0) continue;
-    const alternatives = search(findJumpShortcuts(surfaces, world, { ...discoveryOptions, connections,
-      maxCandidates: improvementBudget, baseline: incumbent, speed: options.locomotion?.sprintSpeed ?? options.speed }, cache));
-    if (!alternatives.length) continue;
-    connections = [...connections, ...alternatives];
-    const candidate = planner.plan([arrival], goal, { interaction, connections });
-    if (candidate.status === 'complete' && candidate.cost < best.cost - 1e-7) {
-      best = candidate;
-      bestConnections = connections;
     }
   }
   if (best.status === 'complete') diagnostics.selectedCost = best.cost;
