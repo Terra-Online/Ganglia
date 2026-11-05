@@ -128,3 +128,23 @@ against 33.18 seconds, with the same 512-candidate budget, 64-link limit and
 22.39-second returned route. These are single-run cached-ground command timings,
 including profiling overhead. The 145 SDK tests pass, including coincident bounds,
 prepared-planner connection updates and existing stair/collision regressions.
+
+Alpha.24 seeds region-chain proposals from all supports reachable by ordinary
+passages and previously validated movement devices. A distance heuristic to the
+original arrival was inconsistent with zero-cost ground transfers in this
+proposal graph, and could starve a short elevated approach. Proposal search now
+uses its accumulated nonnegative transfer costs. Proposed airborne connections
+still require supported feet and swept collision checks, and the complete route
+is selected and retimed by the ground planner.
+
+`JumpRouteOptions.maxShortcutCandidates` optionally separates improvement work
+from unresolved reachability discovery. Zero retains the first feasible route;
+absence preserves the previous shared-budget behavior. This controls computation,
+not physical action durations. Existing stairs, drops and device timing remain
+covered by the 146 SDK tests. Bounded sampling does not establish a global optimum.
+
+The region-chain stage is a coarse proposal search over an already loaded detail
+mesh. It does not yet provide a small independently loadable topology manifest or
+load detail only along candidate corridors. Large detail snapshots can therefore
+exhaust a process heap before directional search. Separating support topology,
+local height detail and collision payloads remains necessary for that next stage.

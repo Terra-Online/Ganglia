@@ -112,6 +112,9 @@ export interface DiscoveryOptions {
   from: Vec3; to: Vec3; interaction?: InteractionGoal; maxVertical: number; maxSlope: number; maxDrop: number;
   maxHorizontalDistance: number; sampleSpacing: number; maxCandidates: number; maxLinks: number;
   model: JumpModel;
+  /** Existing validated directed actions participate in proposal reachability. */
+  connections?: GroundConnection[];
+  groundPlanner?: ReturnType<typeof createGroundPlanner>;
 }
 export interface DiscoveryDiagnostics {
   reason: string; components: number; boundaryEdges: number; endpointChecks: number;
@@ -155,6 +158,9 @@ export interface JumpRouteOptions extends GroundOptions {
   maxHorizontalDistance: number;
   sampleSpacing: number;
   maxCandidates: number;
+  /** Optional improvement budget after reachability succeeds. Zero keeps the first
+   * feasible route; omitted uses the remaining discovery budget. */
+  maxShortcutCandidates?: number;
   maxLinks: number;
 }
 /** Joint ground/jump/drop action selection with a monotone complete-route incumbent.

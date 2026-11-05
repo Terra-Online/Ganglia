@@ -14,6 +14,10 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
   if (!Number.isFinite(runAirSpeed) || runAirSpeed < 0 || runAirSpeed > model.maxHorizontalSpeed) {
     throw new Error('Invalid running air-speed limit');
   }
+  if (options.maxShortcutCandidates !== undefined &&
+      (!Number.isSafeInteger(options.maxShortcutCandidates) || options.maxShortcutCandidates < 0)) {
+    throw new Error('Invalid shortcut candidate limit');
+  }
   const planner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
   const diagnostics = { strategy: 'surface-action-graph', groundStatus: 'unmapped',
     baselineCost: null, selectedCost: null, truncated: false, searches: [] };
@@ -94,9 +98,10 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
       best = incumbent;
       bestConnections = connections;
     }
-    if (remaining <= 0) continue;
+    const improvementBudget = Math.min(remaining, options.maxShortcutCandidates ?? remaining);
+    if (improvementBudget <= 0) continue;
     const alternatives = search(findJumpShortcuts(surfaces, world, { ...discoveryOptions, connections,
-      maxCandidates: remaining, baseline: incumbent, speed: options.locomotion?.sprintSpeed ?? options.speed }, cache));
+      maxCandidates: improvementBudget, baseline: incumbent, speed: options.locomotion?.sprintSpeed ?? options.speed }, cache));
     if (!alternatives.length) continue;
     connections = [...connections, ...alternatives];
     const candidate = planner.plan([arrival], goal, { interaction, connections });

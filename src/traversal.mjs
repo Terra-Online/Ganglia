@@ -1,10 +1,11 @@
-import { surfaceGraph, surfacePortals, directedPortals } from './surfaces.mjs';
+import { surfaceGraph, surfacePortals, directedPortals, projectPoint } from './surfaces.mjs';
 import { createBoundsIndex } from './bounds.mjs';
 import { createMinHeap } from './heap.mjs';
 import { createGoalProjector } from './goals.mjs';
 import { landingCandidates } from './landings.mjs';
 import { createWallChecker } from './walls.mjs';
 import { jumpConnection, jumpDuration } from './jumps.mjs';
+import { groundPreparation } from './ground.mjs';
 
 const finitePoint = (point) => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
@@ -60,21 +61,6 @@ const groundComponents = (graph) => {
     count++;
   }
   return { ids, components, count, forward };
-};
-
-const canReach = (topology, start, target) => {
-  const queue = [start],
-    seen = new Set(queue);
-  for (let head = 0; head < queue.length; head++) {
-    const node = queue[head];
-    if (node === target) return true;
-    for (const next of topology.forward[node])
-      if (!seen.has(next)) {
-        seen.add(next);
-        queue.push(next);
-      }
-  }
-  return false;
 };
 
 export const exposedBoundaries = (surfaces, portals, sharedPortals) => {
@@ -262,13 +248,16 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
     rejected: { projection: 0, support: 0, clearance: 0, range: 0, motion: 0 },
   };
   const connections = [];
-  const graph = surfaceGraph(surfaces, { speed: 1, portals });
+  const candidate = groundPreparation(options.groundPlanner);
+  const prepared = candidate?.surfaces === surfaces ? candidate : undefined;
+  const sharedPortals = prepared?.portals ?? surfacePortals(surfaces);
+  const graph = surfaceGraph(surfaces, { speed: 1, portals }, sharedPortals);
   graph.edges = graph.edges.filter(edge => !edge.points.slice(1).some((point, index) =>
     blocked(edge.points[index], point)));
   const topology = groundComponents(graph);
   diagnostics.components = topology.count;
   const componentOf = surface => topology.components[topology.ids.get(surface)];
-  const project = createGoalProjector(surfaces);
+  const project = prepared?.projectGoal ?? createGoalProjector(surfaces);
   const source = project(from, { maxVertical })[0];
   const targets = project(to, { maxVertical, interaction }).filter(target =>
     !blocked(target.position, target.position));
@@ -278,12 +267,34 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
   }
   const sourceComponent = componentOf(source.surface);
   const targetComponents = new Set(targets.map(target => componentOf(target.surface)));
+  const byId = prepared?.byId ?? new Map(surfaces.map(surface => [surface.id, surface]));
+  for (const connection of options.connections ?? []) {
+    if (connection.state !== 'open') continue;
+    const a = connection.fromSurface === undefined ? surfaces : [byId.get(connection.fromSurface)];
+    const b = connection.toSurface === undefined ? surfaces : [byId.get(connection.toSurface)];
+    if (!a[0] || !b[0]) throw new Error('Invalid movement support surface');
+    const from = projectPoint(a, connection.points[0], { maxVertical });
+    const to = projectPoint(b, connection.points.at(-1), { maxVertical });
+    if (!from || !to || connection.points.slice(1).some((point, index) =>
+      blocked(connection.points[index], point))) continue;
+    topology.forward[topology.ids.get(from.surface)].push(topology.ids.get(to.surface));
+  }
+  // Proposals start anywhere already reachable without a new airborne action.
+  // Ground transfers have zero proposal cost, so distance to the original arrival
+  // is not an admissible heuristic: directed stairs can put a reachable floor far
+  // from that arrival, starving a short box chain behind an unrelated cliff.
+  const reachable = new Set([topology.ids.get(source.surface)]), queue = [...reachable];
+  for (let head = 0; head < queue.length; head++) for (const next of topology.forward[queue[head]]) {
+    if (reachable.has(next)) continue;
+    reachable.add(next); queue.push(next);
+  }
+  const sourceComponents = new Set([...reachable].map(index => topology.components[index]));
   diagnostics.sourceComponent = sourceComponent;
   diagnostics.targetComponent = componentOf(targets[0].surface);
   diagnostics.goalFaces = targets.length;
   diagnostics.goalComponents = targetComponents.size;
-  if (targets.some(target => canReach(topology, topology.ids.get(source.surface), topology.ids.get(target.surface)))) {
-    diagnostics.reason = 'ground-connected';
+  if (targets.some(target => reachable.has(topology.ids.get(target.surface)))) {
+    diagnostics.reason = options.connections?.length ? 'known-connected' : 'ground-connected';
     diagnostics.targetReached = true;
     return { connections, diagnostics };
   }
@@ -300,7 +311,7 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
       region.max[axis] = Math.max(region.max[axis], point[axis]);
     }
   }
-  const boundaries = exposedBoundaries(surfaces, portals);
+  const boundaries = exposedBoundaries(surfaces, portals, sharedPortals);
   for (const boundary of boundaries) {
     Object.assign(boundary, boundsOf([boundary.a, boundary.b]));
     regions[componentOf(boundary.surface)].boundaries.push(boundary);
@@ -352,22 +363,17 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
     return entries;
   };
 
-  const sourceRegion = regions[sourceComponent];
-  const heuristic = region => Math.hypot(...[0, 1, 2].map(axis =>
-    Math.max(region.min[axis] - from[axis], from[axis] - region.max[axis], 0))) /
-      Math.max(1, model.maxHorizontalSpeed) +
-    Math.max(0, region.min[1] - from[1]) / Math.max(1, model.maxJumpHeight);
   const findChain = () => {
     const pending = createMinHeap(), costs = new Map(), next = new Map();
     for (const component of targetComponents) {
       const region = regions[component];
       costs.set(region.id, 0);
-      pending.push({ region, travelled: 0, cost: heuristic(region) });
+      pending.push({ region, travelled: 0, cost: 0 });
     }
     while (pending.size) {
       const { region, travelled } = pending.pop();
       if (travelled !== costs.get(region.id)) continue;
-      if (region === sourceRegion) {
+      if (sourceComponents.has(region.component)) {
         const chain = [];
         for (let entry = next.get(region.id); entry; entry = next.get(entry.b.id)) chain.push(entry);
         return chain;
@@ -378,7 +384,7 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
         if (cost >= (costs.get(entry.a.id) ?? Infinity)) continue;
         costs.set(entry.a.id, cost);
         next.set(entry.a.id, entry);
-        pending.push({ region: entry.a, travelled: cost, cost: cost + heuristic(entry.a) });
+        pending.push({ region: entry.a, travelled: cost, cost });
       }
     }
     return null;
@@ -622,14 +628,14 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
       // nearby multi-hop chain is tried. Deferred batches retain their cursor
       // and remain searchable; this is scheduling, not an extra coverage limit.
       if (diagnostics.attempted - firstAttempt >= 32 && search.cursor < search.candidates.length) {
-        entry.cost += Math.max(1, heuristic(entry.b));
+        entry.cost += 1;
         diagnostics.deferredPairs++;
         return undefined;
       }
     }
     const generation = entry.generation;
     if (generation.cursor < generation.pending.length || (!generation.done && pairingAvailable())) {
-      entry.cost += Math.max(1, heuristic(entry.b));
+      entry.cost += 1;
       diagnostics.deferredPairs++;
       return undefined;
     }

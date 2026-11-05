@@ -94,6 +94,22 @@ test('keeps shortcut bounds valid when an existing movement edge is faster than 
   assert.ok(result.route.segments.some(segment => segment.mode === 'jump' || segment.mode === 'drop'));
 });
 
+test('discovers a multi-jump approach after a known launch without spending its improvement budget', () => {
+  const surfaces = [floor('origin', 0, 4, 0), floor('landing', 100, 104, 0),
+    floor('box', 107, 111, 1.5), floor('goal', 114, 118, 3)];
+  const world = createCollisionWorld(geometry(surfaces)), starts = arrival([2, 0, 0]), goal = [116, 3, 0];
+  const launch = { id: 'launch', mode: 'launch', state: 'open', points: [[2, 0, 0], [102, 0, 0]], times: [0, 1] };
+  const settings = { ...options, connections: [launch], maxShortcutCandidates: 0 };
+  const result = planJumpRoute(surfaces, world, starts, goal, settings);
+  assert.equal(result.route.status, 'complete');
+  assert.equal(result.route.segments.filter(segment => segment.mode === 'jump').length, 2);
+  assert.ok(result.route.segments.some(segment => segment.connection === launch.id));
+  assert.equal(result.diagnostics.searches[0].targetReached, true);
+  const closed = planJumpRoute(surfaces, world, starts, goal,
+    { ...settings, connections: [{ ...launch, state: 'closed' }] });
+  assert.notEqual(closed.route.status, 'complete');
+});
+
 test('reaches floors beneath a platform using outward and returning air control', () => {
   for (const angle of [0, Math.PI / 3, Math.PI / 2]) {
     const transform = ([x, y, z]) => [-512.8 + x * Math.cos(angle) - z * Math.sin(angle), y,
