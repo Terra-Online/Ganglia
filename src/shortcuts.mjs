@@ -12,13 +12,26 @@ import { exposedBoundaries, interleave, standingFoot, validateDiscovery } from '
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const horizontal = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 
+const adjacency = edges => {
+  const forward = new Map(), reverse = new Map();
+  for (const edge of edges) for (const [map, id] of [[forward, edge.from], [reverse, edge.to]]) {
+    const entries = map.get(id) ?? [];
+    entries.push(edge);
+    map.set(id, entries);
+  }
+  return { forward, reverse };
+};
+
 function prepareGeometry(surfaces, options) {
   const { walls, profile, portals } = options;
   const blocked = createWallChecker(walls, profile);
   const candidate = groundPreparation(options.groundPlanner);
   const reused = candidate?.surfaces === surfaces ? candidate : undefined;
   const sharedPortals = reused?.portals ?? surfacePortals(surfaces);
-  const graph = surfaceGraph(surfaces, { speed: 1, portals }, sharedPortals);
+  const reuse = reused?.importedPortals === portals && reused?.graph;
+  const base = reuse || surfaceGraph(surfaces, { speed: 1, portals }, sharedPortals);
+  const graph = { nodes: base.nodes, edges: reuse
+    ? base.edges.map(edge => ({ ...edge, cost: edge.cost * reused.searchSpeed })) : base.edges };
   graph.edges = graph.edges.filter(edge => !edge.points.slice(1).some((point, index) => blocked(edge.points[index], point)));
   const boundaries = exposedBoundaries(surfaces, portals ?? [], sharedPortals).map(boundary => ({ ...boundary,
     min: [0, 1, 2].map(axis => Math.min(boundary.a[axis], boundary.b[axis])),
@@ -26,7 +39,7 @@ function prepareGeometry(surfaces, options) {
   const landingSurfaces = surfaces.map(surface => ({ ...surface,
     min: [0, 1, 2].map(axis => Math.min(...surface.vertices.map(point => point[axis]))),
     max: [0, 1, 2].map(axis => Math.max(...surface.vertices.map(point => point[axis]))) }));
-  return { graph, blocked, boundaries, landingSurfaces,
+  return { ...adjacency(graph.edges), blocked, boundaries, landingSurfaces,
     boundaryIndex: createBoundsIndex(boundaries), landingIndex: createBoundsIndex(landingSurfaces),
     byId: reused?.byId ?? new Map(surfaces.map(surface => [surface.id, surface])),
     centers: reused?.centers ?? new Map(graph.nodes.map(node => [node.id, node.position])),
@@ -35,14 +48,8 @@ function prepareGeometry(surfaces, options) {
   };
 }
 
-const distanceField = (graph, roots, reverse) => {
-  const adjacency = new Map(), costs = new Map(), pending = createMinHeap();
-  for (const edge of graph.edges) {
-    const from = reverse ? edge.to : edge.from, to = reverse ? edge.from : edge.to;
-    const edges = adjacency.get(from) ?? [];
-    edges.push({ to, cost: edge.cost });
-    adjacency.set(from, edges);
-  }
+const distanceField = (base, extra, roots, reverse) => {
+  const costs = new Map(), pending = createMinHeap();
   for (const root of roots) {
     if (root.cost >= (costs.get(root.id) ?? Infinity)) continue;
     costs.set(root.id, root.cost);
@@ -51,11 +58,12 @@ const distanceField = (graph, roots, reverse) => {
   while (pending.size) {
     const current = pending.pop();
     if (current.cost !== costs.get(current.id)) continue;
-    for (const edge of adjacency.get(current.id) ?? []) {
+    for (const entries of [base.get(current.id) ?? [], extra.get(current.id) ?? []]) for (const edge of entries) {
+      const to = reverse ? edge.from : edge.to;
       const cost = current.cost + edge.cost;
-      if (cost >= (costs.get(edge.to) ?? Infinity)) continue;
-      costs.set(edge.to, cost);
-      pending.push({ id: edge.to, cost });
+      if (cost >= (costs.get(to) ?? Infinity)) continue;
+      costs.set(to, cost);
+      pending.push({ id: to, cost });
     }
   }
   return costs;
@@ -110,7 +118,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   };
   const approaches = cache?.approaches ?? new Map();
   const motionVariants = createMotionVariants(model, world, profile, cache?.exits, approaches);
-  const graph = { nodes: prepared.graph.nodes, edges: [...prepared.graph.edges] };
+  const edges = [];
   const source = cache?.source ?? project(from, { maxVertical })[0];
   const goals = cache?.goals ?? project(to, { maxVertical, interaction });
   if (cache) { cache.source = source; cache.goals = goals; }
@@ -126,15 +134,16 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     if (!a || !b) continue;
     if (connection.points.slice(1).some((point, index) => blocked(connection.points[index], point))) continue;
     const approach = groundTrace(source.position, a.position);
-    if (approach) graph.edges.push({ from: source.surface, to: a.surface,
+    if (approach) edges.push({ from: source.surface, to: a.surface,
       cost: approach.slice(1).reduce((sum, point, index) => sum + distance(approach[index], point), 0) });
-    graph.edges.push({ from: a.surface, to: b.surface, points: connection.points,
+    edges.push({ from: a.surface, to: b.surface, points: connection.points,
       cost: distance(centers.get(a.surface), a.position) + connection.times.at(-1) * speed +
         distance(b.position, centers.get(b.surface)) });
   }
-  const approach = distanceField(graph, [{ id: source.surface,
+  const extra = adjacency(edges);
+  const approach = distanceField(prepared.forward, extra.forward, [{ id: source.surface,
     cost: distance(source.position, centers.get(source.surface)) }], false);
-  const departure = distanceField(graph, goals.map(goal => ({ id: goal.surface,
+  const departure = distanceField(prepared.reverse, extra.reverse, goals.map(goal => ({ id: goal.surface,
     cost: distance(goal.position, centers.get(goal.surface)) })), true);
   diagnostics.boundaryEdges = boundaries.length;
   const endpointTolerance = Math.min(maxVertical, profile.radius), diversity = profile.radius * 2;

@@ -27,6 +27,15 @@ export interface BuildOptions {
  */
 export function buildGroundSurfaces(geometry: CollisionGeometry, options: BuildOptions): Promise<Surface[]>;
 
+/** Importer-owned cache of padded native support meshes. Keys must bind exact
+ * ordered geometry, body, voxel/step settings, source and generator identity.
+ * Store the supplied mesh before core clipping; do not cache cross-tile portals.
+ */
+export interface TileCache {
+  load(geometry: CollisionGeometry, options: BuildOptions): Promise<Surface[] | null>;
+  save(geometry: CollisionGeometry, options: BuildOptions, surfaces: Surface[]): Promise<void>;
+}
+
 /** Padded physical builds clipped to one global tile grid. All selected input geometry
  * must cover the requested region plus padding. Failed tiles abort the complete result.
  */
@@ -36,7 +45,9 @@ export function buildGroundTiles(geometry: CollisionGeometry, options: BuildOpti
   /** Optional sparse selection on the same global grid. Unselected tiles remain
    * unmapped, never blocked or granted access. At most 512 unique tiles. */
   tiles?: { x: number; z: number }[];
-  onTile?: (progress: { x: number; z: number; completed: number; total: number; surfaces: number }) => void;
+  cache?: TileCache;
+  onTile?: (progress: { x: number; z: number; completed: number; total: number; surfaces: number;
+    cached: boolean; elapsedMs: number }) => void;
 }): Promise<{
   surfaces: Surface[];
   portals: import('./index.d.ts').Portal[];

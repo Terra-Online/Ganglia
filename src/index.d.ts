@@ -75,6 +75,9 @@ export interface LocomotionOptions {
  * across alternative corridors is not guaranteed.
  */
 export function createGroundPlanner(surfaces: Surface[], options: GroundOptions): {
+  /** Reuse this snapshot's floor/interaction projector. Projection alone does not
+   * establish body clearance, wall state or reachability. */
+  project: ReturnType<typeof createGoalProjector>;
   plan(starts: GroundArrival[], goal: Vec3, query?: { interaction?: InteractionGoal; connections?: GroundConnection[] }): Route;
 };
 
@@ -147,6 +150,11 @@ export function findJumpShortcuts(surfaces: Surface[], world: CollisionWorld,
 };
 
 export interface JumpRouteOptions extends GroundOptions {
+  /** Optimistic coarse direction samples. At most 128 finite positions. These only
+   * guide action discovery; the final route need not visit them. */
+  waypoints?: Vec3[];
+  onProgress?: (progress: { phase: 'direction-search'; completed: number; total: number;
+    status?: Route['status']; connections?: number }) => void;
   /** Optional prepared planner for these same immutable surfaces and ground options.
    * Query connections override its initial connection set. */
   groundPlanner?: ReturnType<typeof createGroundPlanner>;
@@ -166,10 +174,17 @@ export interface JumpRouteOptions extends GroundOptions {
 /** Joint ground/jump/drop action selection with a monotone complete-route incumbent.
  * Sampling limits remain explicit; returned completion does not establish global optimality.
  */
+export interface JumpDiagnostics {
+  strategy: 'surface-action-graph'; groundStatus: Route['status']; baselineCost: number | null;
+  selectedCost: number | null; truncated: boolean;
+  searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[];
+  directions?: { budgetPerGoal: number; remaining: number; searches: {
+    point: Vec3; support?: Vec3; status: Route['status']; added: number; diagnostics?: JumpDiagnostics;
+  }[] };
+}
 export function planJumpRoute(surfaces: Surface[], world: CollisionWorld, starts: GroundArrival[],
   goal: Vec3, options: JumpRouteOptions): {
     route: Route;
     connections: GroundConnection[];
-    diagnostics: { strategy: 'surface-action-graph'; groundStatus: Route['status']; baselineCost: number | null;
-      selectedCost: number | null; truncated: boolean; searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[] };
+    diagnostics: JumpDiagnostics;
   };

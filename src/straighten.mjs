@@ -1,5 +1,6 @@
 import { createWallChecker } from './walls.mjs';
 import { surfacePortals, directedPortals } from './surfaces.mjs';
+import { createBoundsTree } from './bounds.mjs';
 
 const pointKey = point => point.map(value => Math.round(value * 10000)).join(',');
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
@@ -52,20 +53,7 @@ const simplifyCollinear = points => {
 };
 
 const makeIndex = triangles => {
-  const build = entries => {
-    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    for (const entry of entries) for (let axis = 0; axis < 3; axis++) {
-      min[axis] = Math.min(min[axis], entry.min[axis]);
-      max[axis] = Math.max(max[axis], entry.max[axis]);
-    }
-    if (entries.length <= 8) return { min, max, entries };
-    const spans = max.map((value, axis) => value - min[axis]);
-    const axis = spans.indexOf(Math.max(...spans));
-    entries.sort((a, b) => a.min[axis] + a.max[axis] - b.min[axis] - b.max[axis]);
-    const middle = Math.floor(entries.length / 2);
-    return { min, max, left: build(entries.slice(0, middle)), right: build(entries.slice(middle)) };
-  };
-  const root = triangles.length ? build([...triangles]) : null;
+  const root = createBoundsTree(triangles);
   return point => {
     const result = [], stack = root ? [root] : [];
     while (stack.length) {

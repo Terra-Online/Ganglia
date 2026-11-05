@@ -144,3 +144,24 @@ test('builds sparse corridor tiles without granting access through unselected gr
   await assert.rejects(buildGroundTiles(source, { ...settings, tiles: [{ x: 0, z: 0 }, { x: 0, z: 0 }] }), /selection/);
   await assert.rejects(buildGroundTiles(source, { ...settings, tiles: [{ x: -1, z: 0 }] }), /selection/);
 });
+
+test('reuses padded meshes across differently clipped regions while rebuilding seams', async () => {
+  const source = geometry(quad(-2, 18, -2, 10, 0)), records = new Map(), progress = [];
+  const key = (geometry, options) => JSON.stringify([geometry, options]);
+  const cache = {
+    async load(geometry, options) { return structuredClone(records.get(key(geometry, options)) ?? null); },
+    async save(geometry, options, surfaces) { records.set(key(geometry, options), structuredClone(surfaces)); },
+  };
+  const initial = await buildGroundTiles(source, { ...options, cache });
+  const bounds = { min: [2, 0], max: [14, 8] };
+  const expected = await buildGroundTiles(source, { ...options, bounds });
+  const reused = await buildGroundTiles(source, { ...options, bounds, cache, onTile: value => progress.push(value) });
+  assert.ok(progress.every(value => value.cached));
+  assert.deepEqual(reused, expected);
+  assert.equal(plan(reused, [3, 0, 4], [13, 0, 4]).status, 'complete');
+  assert.ok(initial.surfaces.some(surface => surface.vertices.some(point => point[0] < 2)));
+  const changed = [];
+  await buildGroundTiles(geometry([...quad(-2, 18, -2, 10, 0), ...quad(7, 9, -2, 10, 1.4)]),
+    { ...options, cache, onTile: value => changed.push(value) });
+  assert.ok(changed.every(value => !value.cached));
+});

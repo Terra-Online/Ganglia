@@ -34,8 +34,9 @@ height before planning. The target and starts retain their projected coordinates
 
 `route(graph, start, goal, constraints)` and `routeFrom(graph, arrivals, goal, constraints)`
 are lower-level entry points for prebuilt directed corridor graphs. The latter takes
-node-based arrivals `{ id, node, cost, state }`. Binary-heap multi-source Dijkstra finds
-the minimum cost on the supplied graph. Unknown/closed edges are excluded. Polygon-centre
+node-based arrivals `{ id, node, cost, state }`. A binary-heap multi-source search finds
+the minimum cost on the supplied graph. Its admissible distance heuristic uses the
+maximum speed of all usable edges; displaced zero-cost edges use Dijkstra. Unknown/closed edges are excluded. Polygon-centre
 routes select conservative corridors. Ground visibility tracing removes unnecessary
 turns and reconstructs support heights. This does not guarantee a globally shortest
 continuous path over every possible corridor.

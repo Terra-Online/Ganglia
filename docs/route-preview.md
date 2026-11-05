@@ -161,3 +161,41 @@ proposal selects a corridor, physical tiles validate it, and unsuccessful bounde
 proposals can be replaced or widened. A coarse proposal is not a route certificate;
 its scores are not player travel times. Collision selection must still cover the
 entire declared world rectangle, including airborne motion outside ground tiles.
+
+
+Alpha.27 overlays query endpoints on immutable topology rather than copying its
+complete node and adjacency maps. Search derives an admissible speed bound from
+all usable graph edges, including fast devices; a displaced zero-cost edge falls
+back to Dijkstra. Action discovery reuses prepared ground edges and projections.
+`createGroundPlanner().project` also exposes that same snapshot projector to
+importers performing local support refinement.
+
+Optional `waypoints` guide action discovery toward coarse spatial/elevation
+regions. At most half the candidate budget is reserved for these queries, and
+already ground-connected goals spend no discovery budget. Each direction selects
+an actual nearby support before searching. Valid partial actions are retained
+even when a direction fails. The final route is solved jointly from the original
+arrivals to the actual interaction goal with the accumulated validated actions;
+it is never assembled by drawing lines through the coarse samples. Direction
+progress and diagnostics report incomplete searches explicitly.
+
+A bounded incumbent-local pass compares jumps and drops between supported walking
+samples along an existing route. Candidate ordering uses the time that would be
+saved along the detour, with sampling spread across the route. Every accepted
+motion still requires stationary clearance, support and a swept-body trajectory.
+The complete route and sprint policy decide whether an alternative is faster.
+Unknown/closed barriers and slower alternatives preserve the existing route.
+
+
+The padded tile builder accepts an importer-owned `TileCache`. The cache receives
+exact ordered geometry and physical build parameters. Cached native support is
+clipped to each request's core bounds, and directed inter-tile seams are rebuilt;
+coarse proposals and missing tiles never acquire new connectivity from cache reuse.
+The importer must also bind source and generator identity. Per-tile progress reports
+cache use and elapsed time.
+
+A CPU profile of a 411,675-surface walking query identified the ground visibility
+hierarchy's recursive subtree sorts as a preparation hotspot. It now shares the
+median-partition builder while retaining the same support/portal checks. The paired
+command takes 11.30 rather than 12.70 seconds, with the same unavailable result;
+this is a preparation improvement, not a newly solved route.

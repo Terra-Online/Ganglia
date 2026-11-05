@@ -40,7 +40,7 @@ export function createGroundPlanner(surfaces, options) {
   const projectGoal = createGoalProjector(surfaces);
   let targetKey;
   const visibility = new Map();
-  const planner = { plan(starts, goal, query = {}) {
+  const planner = { project: projectGoal, plan(starts, goal, query = {}) {
     // Action discovery extends one goal query repeatedly. Retain its continuous
     // transfers while dropping them when the target changes, bounding cross-query storage.
     const key = JSON.stringify([goal, query.interaction]);
@@ -164,7 +164,8 @@ export function createGroundPlanner(surfaces, options) {
     }
     return best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
   } };
-  preparations.set(planner, { surfaces, portals, straighten, projectGoal, byId, centers: baseCenters });
+  preparations.set(planner, { surfaces, portals, straighten, projectGoal, byId, centers: baseCenters,
+    graph: base, searchSpeed, importedPortals: options.portals });
   return planner;
 }
 

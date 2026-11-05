@@ -27,3 +27,18 @@ test('animation handles duplicate points and clamps endpoints without cutting co
   assert.deepEqual(sampleRoute(points, 5), [0, 0, 5]);
   assert.deepEqual(sampleRoute(points, 99), points.at(-1));
 });
+
+test('keeps least-cost remote actions with fast and zero-cost authored transfers', () => {
+  const positions = { start: [0, 0, 0], goal: [10, 0, 0], remote: [1000, 0, 0] };
+  for (const cost of [0, 0.001]) {
+    const graph = {
+      nodes: Object.entries(positions).map(([id, position]) => ({ id, position })),
+      edges: [['start', 'goal', 10], ['start', 'remote', cost], ['remote', 'goal', 1]]
+        .map(([from, to, cost]) => ({ from, to, cost, state: 'open', points: [positions[from], positions[to]] })),
+    };
+    const result = route(graph, 'start', 'goal');
+    assert.equal(result.status, 'complete');
+    assert.equal(result.cost, cost + 1);
+    assert.deepEqual(result.points, [positions.start, positions.remote, positions.goal]);
+  }
+});

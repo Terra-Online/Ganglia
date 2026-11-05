@@ -68,6 +68,37 @@ test('does not replace a direct walk with a slower jump and handles unavailable 
   assert.deepEqual(locked.diagnostics.searches, []);
 });
 
+test('removes a long corner detour with a small improvement budget and retains blocked alternatives', () => {
+  for (const angle of [0, Math.PI / 3]) {
+    const transform = ([x, y, z]) => [300 + x * Math.cos(angle) - z * Math.sin(angle), y,
+      -500 + x * Math.sin(angle) + z * Math.cos(angle)];
+    const surfaces = [floor('left', 0, 4, 0, 0, 60), floor('back', 4, 12, 0, 56, 60),
+      floor('right', 12, 16, 0, 0, 60), ...Array.from({ length: 80 }, (_, index) =>
+        floor(`decoration/${index}`, -3 - index * 2, -2 - index * 2, 0, 0, 1))]
+      .map(surface => ({ ...surface, vertices: surface.vertices.map(transform) }));
+    const starts = arrival(transform([3.5, 0, 20])), goal = transform([12.5, 0, 20]);
+    const settings = { ...options, maxShortcutCandidates: 16 };
+    const world = createCollisionWorld(geometry(surfaces));
+    const baseline = createGroundPlanner(surfaces, settings).plan(starts, goal);
+    const result = planJumpRoute(surfaces, world, starts, goal, settings);
+    assert.equal(result.route.status, 'complete');
+    assert.ok(result.route.cost < baseline.cost / 2, `${result.route.cost} must improve ${baseline.cost}`);
+    assert.ok(result.route.segments.some(segment => segment.mode === 'jump'));
+    for (const segment of result.route.segments.filter(segment => segment.mode !== 'walk')) {
+      for (let index = 1; index < segment.points.length; index++) {
+        assert.equal(world.sweepCapsule(segment.points[index - 1], segment.points[index], settings.profile), null);
+      }
+    }
+    // A filled barrier covering the shortcut must preserve the supported detour.
+    const ring = [[6, -1], [10, -1], [10, 55], [6, 55]].map(([x, z]) => transform([x, 0, z]));
+    const walls = [{ state: 'active', min: [Math.min(...ring.map(p => p[0])), -1, Math.min(...ring.map(p => p[2]))],
+      max: [Math.max(...ring.map(p => p[0])), 5, Math.max(...ring.map(p => p[2]))], polygon: ring.map(p => [p[0], p[2]]) }];
+    const blocked = planJumpRoute(surfaces, world, starts, goal, { ...settings, walls });
+    assert.equal(blocked.route.status, 'complete');
+    assert.ok(blocked.route.cost <= baseline.cost + 1e-7);
+  }
+});
+
 test('combines previously discovered partial connections without colliding with their identifiers', () => {
   const surfaces = [floor('start', 0, 4, 0), floor('middle', 7, 11, 0), floor('goal', 14, 18, 0)];
   const world = createCollisionWorld(geometry(surfaces)), starts = arrival([2, 0, 0]), goal = [16, 0, 0];
@@ -77,6 +108,36 @@ test('combines previously discovered partial connections without colliding with 
   assert.equal(result.route.status, 'complete');
   assert.equal(result.route.segments.filter(segment => segment.mode === 'jump').length, 2);
   assert.equal(new Set(result.connections.map(connection => connection.id)).size, result.connections.length);
+});
+
+test('retains valid partial actions without claiming that an unresolved goal is reachable', () => {
+  const surfaces = [floor('start', 0, 4, 0), floor('middle', 7, 11, 0), floor('goal', 30, 34, 0)];
+  const starts = arrival([2, 0, 0]), world = createCollisionWorld(geometry(surfaces));
+  const result = planJumpRoute(surfaces, world, starts, [32, 0, 0],
+    { ...options, maxCandidates: 200, waypoints: [[9, 0, 0]] });
+  assert.notEqual(result.route.status, 'complete');
+  assert.ok(result.connections.length > 0);
+  const planner = createGroundPlanner(surfaces, options);
+  assert.equal(planner.plan(starts, [9, 0, 0], { connections: result.connections }).status, 'complete');
+  assert.notEqual(planner.plan(starts, [32, 0, 0], { connections: result.connections }).status, 'complete');
+});
+
+test('uses coarse directions to discover physical action chains while jointly solving the actual endpoint', () => {
+  const surfaces = [floor('start', 0, 4, 0, 0, 4), floor('middle', 7, 11, 0, 0, 4),
+    floor('turn', 7, 11, 1.5, 7, 11), floor('goal', 14, 18, 3, 7, 11)];
+  const starts = arrival([2, 0, 2]), goal = [16, 3, 9], world = createCollisionWorld(geometry(surfaces));
+  const events = [];
+  const result = planJumpRoute(surfaces, world, starts, goal,
+    { ...options, waypoints: [[9, 0, 2], [9, 1.5, 9]], onProgress: progress => events.push(progress) });
+  assert.equal(result.route.status, 'complete');
+  assert.deepEqual(result.route.points.at(-1), goal);
+  assert.ok(result.route.segments.filter(segment => segment.mode === 'jump').length >= 2);
+  assert.ok(events.length > 0);
+  for (const segment of result.route.segments.filter(segment => segment.mode !== 'walk')) {
+    for (let index = 1; index < segment.points.length; index++) {
+      assert.equal(world.sweepCapsule(segment.points[index - 1], segment.points[index], options.profile), null);
+    }
+  }
 });
 
 test('keeps shortcut bounds valid when an existing movement edge is faster than running', () => {

@@ -200,6 +200,8 @@ export async function buildGroundTiles(geometry, options) {
   }
   const tiles = [], surfaces = [], portals = [], byPosition = new Map();
   for (const { x, z } of coordinates) {
+    const started = performance.now();
+    let cached = false;
     const core = {
       min: [Math.max(bounds.min[0], x * size), Math.max(bounds.min[1], z * size)],
       max: [Math.min(bounds.max[0], (x + 1) * size), Math.min(bounds.max[1], (z + 1) * size)],
@@ -216,8 +218,16 @@ export async function buildGroundTiles(geometry, options) {
     if (vertices.length) {
       let built;
       try {
-        built = await buildGroundSurfaces({ positions: vertices, indices: Array.from({ length: vertices.length / 3 }, (_, index) => index) },
-          { ...options, bounds: padded });
+        const geometry = { positions: vertices, indices: Array.from({ length: vertices.length / 3 }, (_, index) => index) };
+        const settings = { profile: options.profile, maxSlope: options.maxSlope,
+          stepUp: options.stepUp, stepDown: options.stepDown, cellSize: options.cellSize,
+          cellHeight: options.cellHeight, bounds: padded };
+        built = await options.cache?.load(geometry, settings);
+        cached = built !== null && built !== undefined;
+        if (!cached) {
+          built = await buildGroundSurfaces(geometry, settings);
+          await options.cache?.save(geometry, settings, built);
+        }
       } catch (cause) {
         throw new Error(`Ground tile (${x}, ${z}) build failed: ${cause.message}`, { cause });
       }
@@ -227,7 +237,8 @@ export async function buildGroundTiles(geometry, options) {
       }
     }
     tiles.push({ x, z, bounds: core, surfaces: tile.surfaces.length });
-    options.onTile?.({ x, z, completed: tiles.length, total: coordinates.length, surfaces: tile.surfaces.length });
+    options.onTile?.({ x, z, completed: tiles.length, total: coordinates.length,
+      surfaces: tile.surfaces.length, cached, elapsedMs: performance.now() - started });
     surfaces.push(...tile.surfaces);
     byPosition.set(`${x},${z}`, tile);
     for (const [neighborX, neighborZ, axis] of [[x - 1, z, 0], [x, z - 1, 2]]) {

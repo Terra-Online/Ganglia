@@ -251,7 +251,9 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
   const candidate = groundPreparation(options.groundPlanner);
   const prepared = candidate?.surfaces === surfaces ? candidate : undefined;
   const sharedPortals = prepared?.portals ?? surfacePortals(surfaces);
-  const graph = surfaceGraph(surfaces, { speed: 1, portals }, sharedPortals);
+  const base = prepared?.importedPortals === options.portals && prepared?.graph ||
+    surfaceGraph(surfaces, { speed: 1, portals }, sharedPortals);
+  const graph = { nodes: base.nodes, edges: base.edges };
   graph.edges = graph.edges.filter(edge => !edge.points.slice(1).some((point, index) =>
     blocked(edge.points[index], point)));
   const topology = groundComponents(graph);

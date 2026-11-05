@@ -4,7 +4,7 @@ const sphereTouches = (node, target, radius) => node.min.reduce((squared, value,
   return squared + distance * distance;
 }, 0) <= radius * radius;
 
-export const createBoundsIndex = surfaces => {
+export const createBoundsTree = surfaces => {
   const entries = [...surfaces];
   // Median partitioning avoids sorting every subtree. Equal centres form one
   // partition, so coincident or elongated bounds still terminate in balanced leaves.
@@ -43,8 +43,10 @@ export const createBoundsIndex = surfaces => {
     select(start, end, middle, axis);
     return { min, max, left: build(start, middle), right: build(middle, end) };
   };
-  return fromRoot(entries.length ? build(0, entries.length) : null);
+  return entries.length ? build(0, entries.length) : null;
 };
+
+export const createBoundsIndex = surfaces => fromRoot(createBoundsTree(surfaces));
 
 // Filtered views reuse the immutable hierarchy. Repeated movement frontiers
 // change eligibility, without requiring another spatial sort of the same faces.

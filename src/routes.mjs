@@ -28,14 +28,24 @@ export function createRoutePlanner(graph, constraints) {
   return (extra, starts, goal) => search(prepareGraph(extra, null, base), starts, goal);
 }
 
+const overlay = base => {
+  const own = new Map();
+  return { has: key => own.has(key) || (base?.has(key) ?? false),
+    get: key => own.has(key) ? own.get(key) : base?.get(key),
+    set: (key, value) => own.set(key, value) };
+};
+
 function prepareGraph(graph, constraints, base) {
   const blocked = base?.blocked ?? (constraints ? createWallChecker(constraints.walls, constraints.profile) : null);
-  const nodes = new Map(base?.nodes);
+  // Query endpoints and actions overlay the immutable scene. Copying million-node
+  // maps on every refinement pass costs memory without changing their contents.
+  const nodes = overlay(base?.nodes);
   for (const node of graph.nodes) {
     if (typeof node.id !== 'string' || nodes.has(node.id) || !finitePoint(node.position)) throw new Error('Invalid node');
     nodes.set(node.id, node.position);
   }
-  const edges = new Map(base?.edges);
+  const edges = overlay(base?.edges);
+  let maxSpeed = base?.maxSpeed ?? 0;
   const copied = new Set();
   for (const edge of graph.edges) {
     if (!nodes.has(edge.from) || !nodes.has(edge.to) || !Number.isFinite(edge.cost) || edge.cost < 0 ||
@@ -45,6 +55,8 @@ function prepareGraph(graph, constraints, base) {
         distance(edge.points.at(-1), nodes.get(edge.to)) > 1e-6) throw new Error('Invalid corridor');
     validateMotion(edge);
     if (edge.state === 'open' && (!blocked || !edge.points.slice(1).some((p, i) => blocked(edge.points[i], p)))) {
+      const span = distance(nodes.get(edge.from), nodes.get(edge.to));
+      if (span > 0) maxSpeed = Math.max(maxSpeed, edge.cost === 0 ? Infinity : span / edge.cost);
       if (!copied.has(edge.from)) {
         edges.set(edge.from, [...(edges.get(edge.from) ?? [])]);
         copied.add(edge.from);
@@ -52,16 +64,22 @@ function prepareGraph(graph, constraints, base) {
       edges.get(edge.from).push(edge);
     }
   }
-  return { nodes, edges, blocked };
+  return { nodes, edges, blocked, maxSpeed };
 }
 
-function search({ nodes, edges, blocked }, starts, goal) {
+function search({ nodes, edges, blocked, maxSpeed }, starts, goal) {
   const requested = Array.isArray(goal) ? goal : [goal];
   const mapped = requested.filter(id => nodes.has(id));
   if (!mapped.length) return { status: 'unmapped' };
   const goals = new Set(mapped.filter(id => !blocked || !blocked(nodes.get(id), nodes.get(id))));
   if (!goals.size) return { status: 'no-verified-route' };
-  // Dijkstra: arbitrary authored travel times need not admit a Euclidean heuristic.
+  // Derive the speed bound from all usable edges, including fast authored actions.
+  // Triangle inequality makes distance / this bound admissible and consistent.
+  // A displaced zero-cost edge correctly falls back to Dijkstra.
+  const targets = [...goals].map(id => nodes.get(id));
+  const estimate = Number.isFinite(maxSpeed) && maxSpeed > 0
+    ? id => targets.reduce((best, point) => Math.min(best, distance(nodes.get(id), point)), Infinity) / (maxSpeed * (1 + 1e-12))
+    : () => 0;
   const costs = new Map(), previous = new Map(), origins = new Map(), heap = createMinHeap();
   const { push, pop } = heap;
   const sourceIds = new Set();
@@ -73,13 +91,13 @@ function search({ nodes, edges, blocked }, starts, goal) {
     if (blocked && blocked(nodes.get(start.node), nodes.get(start.node))) continue;
     if (start.cost < (costs.get(start.node) ?? Infinity)) {
       costs.set(start.node, start.cost); origins.set(start.node, start.id);
-      push({ id: start.node, cost: start.cost });
+      push({ id: start.node, travelled: start.cost, cost: start.cost + estimate(start.node) });
     }
   }
   if (!heap.size) return { status: 'unmapped' };
   while (heap.size) {
     const entry = pop(), current = entry.id;
-    if (entry.cost !== costs.get(current)) continue;
+    if (entry.travelled !== costs.get(current)) continue;
     if (goals.has(current)) {
       const goal = current;
       const path = [];
@@ -100,7 +118,8 @@ function search({ nodes, edges, blocked }, starts, goal) {
     for (const edge of edges.get(current) ?? []) {
       const cost = costs.get(current) + edge.cost;
       if (cost < (costs.get(edge.to) ?? Infinity)) {
-        costs.set(edge.to, cost); previous.set(edge.to, edge); origins.set(edge.to, origins.get(current)); push({ id: edge.to, cost });
+        costs.set(edge.to, cost); previous.set(edge.to, edge); origins.set(edge.to, origins.get(current));
+        push({ id: edge.to, travelled: cost, cost: cost + estimate(edge.to) });
       }
     }
   }
