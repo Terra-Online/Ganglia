@@ -128,3 +128,19 @@ test('completed empty polygon meshes are reported empty without concealing a fai
     assert.ok(data.tiles.every(tile => tile.surfaces === 0));
   }
 });
+
+test('builds sparse corridor tiles without granting access through unselected ground', async () => {
+  const source = geometry(quad(-2, 34, -2, 10, 0));
+  const selected = [{ x: 3, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 0 }], before = structuredClone(selected), progress = [];
+  const settings = { ...options, bounds: { min: [0, 0], max: [32, 8] }, tiles: selected,
+    onTile: value => progress.push(value) };
+  const data = await buildGroundTiles(source, settings);
+  assert.deepEqual(selected, before);
+  assert.deepEqual(data.tiles.map(tile => tile.x), [0, 1, 3]);
+  assert.equal(progress.at(-1).completed, 3);
+  assert.equal(plan(data, [2, 0, 4], [14, 0, 4]).status, 'complete');
+  assert.notEqual(plan(data, [2, 0, 4], [26, 0, 4]).status, 'complete');
+  assert.equal(projectPoint(data.surfaces, [20, 0, 4], { maxVertical: .15 }), null);
+  await assert.rejects(buildGroundTiles(source, { ...settings, tiles: [{ x: 0, z: 0 }, { x: 0, z: 0 }] }), /selection/);
+  await assert.rejects(buildGroundTiles(source, { ...settings, tiles: [{ x: -1, z: 0 }] }), /selection/);
+});

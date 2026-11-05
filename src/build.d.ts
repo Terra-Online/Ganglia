@@ -33,6 +33,10 @@ export function buildGroundSurfaces(geometry: CollisionGeometry, options: BuildO
 export function buildGroundTiles(geometry: CollisionGeometry, options: BuildOptions & {
   bounds: { min: [number, number]; max: [number, number] };
   tileCells: number;
+  /** Optional sparse selection on the same global grid. Unselected tiles remain
+   * unmapped, never blocked or granted access. At most 512 unique tiles. */
+  tiles?: { x: number; z: number }[];
+  onTile?: (progress: { x: number; z: number; completed: number; total: number; surfaces: number }) => void;
 }): Promise<{
   surfaces: Surface[];
   portals: import('./index.d.ts').Portal[];

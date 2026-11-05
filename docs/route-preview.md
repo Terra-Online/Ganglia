@@ -148,3 +148,16 @@ mesh. It does not yet provide a small independently loadable topology manifest o
 load detail only along candidate corridors. Large detail snapshots can therefore
 exhaust a process heap before directional search. Separating support topology,
 local height detail and collision payloads remains necessary for that next stage.
+
+Alpha.25 adds sparse physical tile construction to `buildGroundTiles`. An explicit
+`tiles` selection retains the global grid, padded collision and directed seam
+rules while leaving all other tiles unmapped. Source triangles outside every
+selected tile's padding are rejected before object allocation. `onTile` reports
+completed builds without changing geometry or route eligibility. The 147 SDK
+tests include adjacent selected seams and a deliberately unselected gap.
+
+This is the fine-construction part of a hierarchical pipeline: a cheap region
+proposal selects a corridor, physical tiles validate it, and unsuccessful bounded
+proposals can be replaced or widened. A coarse proposal is not a route certificate;
+its scores are not player travel times. Collision selection must still cover the
+entire declared world rectangle, including airborne motion outside ground tiles.

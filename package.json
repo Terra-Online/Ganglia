@@ -1,6 +1,6 @@
 {
   "name": "@oem/ganglia",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.25",
   "description": "Conservative ground-route planning for Open Endfield Map",
   "type": "module",
   "exports": {

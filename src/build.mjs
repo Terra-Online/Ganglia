@@ -160,10 +160,28 @@ export async function buildGroundTiles(geometry, options) {
   const minX = gridIndex(bounds.min[0], Math.floor), maxX = gridIndex(bounds.max[0], Math.ceil);
   const minZ = gridIndex(bounds.min[1], Math.floor), maxZ = gridIndex(bounds.max[1], Math.ceil);
   const count = (maxX - minX) * (maxZ - minZ);
-  if (![minX, maxX, minZ, maxZ].every(Number.isSafeInteger) || count > 512 || count < 1) {
+  const selected = options.tiles;
+  if (![minX, maxX, minZ, maxZ].every(Number.isSafeInteger) || count < 1 ||
+      (selected === undefined ? count > 512 : !Array.isArray(selected) || !selected.length || selected.length > 512)) {
     throw new Error('Ground build exceeds the 512 tile limit');
   }
+  const coordinates = [], seen = new Set();
+  if (selected !== undefined) {
+    for (const tile of selected) {
+      if (!tile || !Number.isSafeInteger(tile.x) || !Number.isSafeInteger(tile.z) ||
+          tile.x < minX || tile.x >= maxX || tile.z < minZ || tile.z >= maxZ || seen.has(`${tile.x},${tile.z}`)) {
+        throw new Error('Invalid ground tile selection');
+      }
+      seen.add(`${tile.x},${tile.z}`);
+      coordinates.push({ x: tile.x, z: tile.z });
+    }
+    coordinates.sort((a, b) => a.z - b.z || a.x - b.x);
+  } else {
+    for (let z = minZ; z < maxZ; z++) for (let x = minX; x < maxX; x++) coordinates.push({ x, z });
+  }
   const padding = (Math.ceil(options.profile.radius / cellSize) + 3) * cellSize;
+  const patches = selected === undefined ? null : coordinates.map(({ x, z }) =>
+    [x * size - padding, z * size - padding, (x + 1) * size + padding, (z + 1) * size + padding]);
   const { positions, indices } = geometry, triangles = [];
   const extent = { min: [minX * size - padding, minZ * size - padding],
     max: [maxX * size + padding, maxZ * size + padding] };
@@ -176,45 +194,45 @@ export async function buildGroundTiles(geometry, options) {
     // Streamed collision batches can contain millions of distant triangles.
     // Reject their packed bounds before allocating any per-triangle objects.
     if (left > extent.max[0] || right < extent.min[0] || near > extent.max[1] || far < extent.min[1]) continue;
+    if (patches && !patches.some(patch => left <= patch[2] && right >= patch[0] && near <= patch[3] && far >= patch[1])) continue;
     const vertices = Array.from(indices.slice(i, i + 3), index => Array.from(positions.slice(index * 3, index * 3 + 3)));
     triangles.push({ vertices, min: [left, near], max: [right, far] });
   }
   const tiles = [], surfaces = [], portals = [], byPosition = new Map();
-  for (let z = minZ; z < maxZ; z++) {
-    for (let x = minX; x < maxX; x++) {
-      const core = {
-        min: [Math.max(bounds.min[0], x * size), Math.max(bounds.min[1], z * size)],
-        max: [Math.min(bounds.max[0], (x + 1) * size), Math.min(bounds.max[1], (z + 1) * size)],
-      };
-      const padded = { min: [x * size - padding, z * size - padding],
-        max: [(x + 1) * size + padding, (z + 1) * size + padding] };
-      const vertices = [];
-      for (const triangle of triangles) {
-        if (triangle.min.some((value, axis) => value > padded.max[axis]) ||
-            triangle.max.some((value, axis) => value < padded.min[axis])) continue;
-        vertices.push(...triangle.vertices.flat());
+  for (const { x, z } of coordinates) {
+    const core = {
+      min: [Math.max(bounds.min[0], x * size), Math.max(bounds.min[1], z * size)],
+      max: [Math.min(bounds.max[0], (x + 1) * size), Math.min(bounds.max[1], (z + 1) * size)],
+    };
+    const padded = { min: [x * size - padding, z * size - padding],
+      max: [(x + 1) * size + padding, (z + 1) * size + padding] };
+    const vertices = [];
+    for (const triangle of triangles) {
+      if (triangle.min.some((value, axis) => value > padded.max[axis]) ||
+          triangle.max.some((value, axis) => value < padded.min[axis])) continue;
+      vertices.push(...triangle.vertices.flat());
+    }
+    const tile = { x, z, bounds: core, surfaces: [] };
+    if (vertices.length) {
+      let built;
+      try {
+        built = await buildGroundSurfaces({ positions: vertices, indices: Array.from({ length: vertices.length / 3 }, (_, index) => index) },
+          { ...options, bounds: padded });
+      } catch (cause) {
+        throw new Error(`Ground tile (${x}, ${z}) build failed: ${cause.message}`, { cause });
       }
-      const tile = { x, z, bounds: core, surfaces: [] };
-      if (vertices.length) {
-        let built;
-        try {
-          built = await buildGroundSurfaces({ positions: vertices, indices: Array.from({ length: vertices.length / 3 }, (_, index) => index) },
-            { ...options, bounds: padded });
-        } catch (cause) {
-          throw new Error(`Ground tile (${x}, ${z}) build failed: ${cause.message}`, { cause });
-        }
-        for (const surface of built) {
-          const clipped = clipSurface(surface.vertices, core);
-          if (clipped) tile.surfaces.push({ id: `${x},${z}/${surface.id}`, vertices: clipped });
-        }
+      for (const surface of built) {
+        const clipped = clipSurface(surface.vertices, core);
+        if (clipped) tile.surfaces.push({ id: `${x},${z}/${surface.id}`, vertices: clipped });
       }
-      tiles.push({ x, z, bounds: core, surfaces: tile.surfaces.length });
-      surfaces.push(...tile.surfaces);
-      byPosition.set(`${x},${z}`, tile);
-      for (const [neighborX, neighborZ, axis] of [[x - 1, z, 0], [x, z - 1, 2]]) {
-        const neighbor = byPosition.get(`${neighborX},${neighborZ}`);
-        if (neighbor) portals.push(...joinTiles(neighbor, tile, axis, options));
-      }
+    }
+    tiles.push({ x, z, bounds: core, surfaces: tile.surfaces.length });
+    options.onTile?.({ x, z, completed: tiles.length, total: coordinates.length, surfaces: tile.surfaces.length });
+    surfaces.push(...tile.surfaces);
+    byPosition.set(`${x},${z}`, tile);
+    for (const [neighborX, neighborZ, axis] of [[x - 1, z, 0], [x, z - 1, 2]]) {
+      const neighbor = byPosition.get(`${neighborX},${neighborZ}`);
+      if (neighbor) portals.push(...joinTiles(neighbor, tile, axis, options));
     }
   }
   return { surfaces, portals, tiles };
