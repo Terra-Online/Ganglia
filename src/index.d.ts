@@ -179,7 +179,7 @@ export interface JumpDiagnostics {
   strategy: 'surface-action-graph'; groundStatus: Route['status']; baselineCost: number | null;
   selectedCost: number | null; truncated: boolean;
   searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[];
-  directions?: { budgetPerGoal: number; remaining: number; searches: {
+  directions?: { requestedGoals: number; regions: number; budgetPerGoal: number; remaining: number; searches: {
     point: Vec3; support?: Vec3; status: Route['status']; added: number; diagnostics?: JumpDiagnostics;
   }[] };
 }

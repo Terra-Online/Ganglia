@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createGroundPlanner } from '../src/ground.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
 import { findJumpConnections } from '../src/traversal.mjs';
-import { findJumpShortcuts } from '../src/shortcuts.mjs';
+import { findJumpShortcuts, findJumpFrontier } from '../src/shortcuts.mjs';
 
 const floor = (id, x0, x1, y, z0, z1) => ({ id, vertices: [[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1]] });
 const geometry = surfaces => {
@@ -42,4 +42,27 @@ test('keeps straight ground travel when its maximum speed already beats air move
   assert.deepEqual(result.connections, []);
   assert.throws(() => findJumpShortcuts(surfaces, createCollisionWorld(geometry(surfaces)),
     { ...options, from, to, baseline: { status: 'unmapped' } }), /baseline/);
+});
+
+
+test('resumes bounded frontier batches past blocked launches to reach an opening', () => {
+  const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
+  const world = createCollisionWorld(geometry(surfaces));
+  for (const opening of [true, false]) {
+    const settings = { ...options, maxCandidates: 4, from: [2, 0, 0], to: [9, 0, 0],
+      walls: [{ min: [4.5, -1, -20], max: [6, 20, opening ? 1 : 20], state: 'active' }] };
+    const cache = { standing: new Map(), motions: new Map(), exits: new Map(), approaches: new Map() };
+    const first = findJumpFrontier(surfaces, world, settings, cache);
+    assert.equal(first.connections.length, 0);
+    let found = [];
+    for (let batch = 0; batch < 16 && !found.length; batch++)
+      found = findJumpFrontier(surfaces, world, settings, cache).connections;
+    if (opening) {
+      assert.ok(found.length > 0, 'later batches must reach the opening rather than retry the blocked prefix');
+      const route = createGroundPlanner(surfaces, settings).plan(
+        [{ id: 'player', position: settings.from, cost: 0, state: 'available' }], settings.to,
+        { connections: found });
+      assert.equal(route.status, 'complete');
+    } else assert.deepEqual(found, []);
+  }
 });

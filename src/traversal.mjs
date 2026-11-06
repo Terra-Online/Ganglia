@@ -12,7 +12,7 @@ const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis])
 const horizontal = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 const boundaryKey = (surface, edge) => JSON.stringify([surface, edge]);
 
-const groundComponents = (graph) => {
+export const groundComponents = (graph) => {
   const ids = new Map(graph.nodes.map((node, index) => [node.id, index]));
   const forward = graph.nodes.map(() => []),
     reverse = graph.nodes.map(() => []);

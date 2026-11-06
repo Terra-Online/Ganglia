@@ -1,6 +1,7 @@
 import { createGroundPlanner, groundPreparation } from './ground.mjs';
 import { findJumpFrontier, findJumpShortcuts } from './shortcuts.mjs';
-import { findJumpConnections } from './traversal.mjs';
+import { findJumpConnections, groundComponents } from './traversal.mjs';
+import { createWallChecker } from './walls.mjs';
 import { findRouteShortcuts } from './route-shortcuts.mjs';
 import { createGoalProjector } from './goals.mjs';
 
@@ -157,21 +158,37 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
   if (!waypoints?.length) return solveJumpRoute(surfaces, world, starts, goal, base, shared, 'final');
   const planner = base.groundPlanner ?? createGroundPlanner(surfaces, base);
   const initial = planner.plan(starts, goal, { interaction: base.interaction, connections: base.connections ?? [] });
-  const budget = Math.floor(base.maxCandidates / (2 * waypoints.length));
-  if (initial.status === 'complete' || budget < 1) {
+  if (initial.status === 'complete') {
     return solveJumpRoute(surfaces, world, starts, goal, { ...base, groundPlanner: planner }, shared, 'final');
   }
-  const project = groundPreparation(planner)?.projectGoal ?? createGoalProjector(surfaces), searches = [];
-  let connections = base.connections ?? [], remaining = base.maxCandidates;
-  for (const [index, point] of waypoints.entries()) {
-    const witnesses = project(point, { maxVertical: base.maxVertical,
-      interaction: { radius: base.maxHorizontalDistance, maxVertical: base.profile.height * 2 } });
-    const witness = witnesses[0];
+  const prepared = groundPreparation(planner);
+  const project = prepared?.projectGoal ?? createGoalProjector(surfaces), searches = [];
+  const blocked = createWallChecker(base.walls, base.profile);
+  const topology = prepared && groundComponents({ nodes: prepared.graph.nodes,
+    edges: prepared.graph.edges.filter(edge => !edge.points.slice(1).some((point, index) =>
+      blocked(edge.points[index], point))) });
+  const regions = new Set(), directions = [];
+  for (const point of waypoints) {
+    const witness = project(point, { maxVertical: base.maxVertical,
+      interaction: { radius: base.maxHorizontalDistance, maxVertical: base.profile.height * 2 } })[0];
     if (!witness) {
       searches.push({ point: [...point], status: 'unmapped', added: 0 });
       continue;
     }
-    onProgress?.({ phase: 'direction-search', completed: index, total: waypoints.length });
+    // Several coarse cells can describe the same mutually ground-reachable region.
+    // Spend discovery on its interface once, not once per arbitrary cell centre.
+    // Only directed, wall-filtered ground connectivity authorizes this grouping;
+    // spatial proximity and one-way drops must not merge floors.
+    const region = topology ? topology.components[topology.ids.get(witness.surface)] : witness.surface;
+    if (regions.has(region)) continue;
+    regions.add(region);
+    directions.push({ point, witness });
+  }
+  const budget = Math.floor(base.maxCandidates / (2 * Math.max(1, directions.length)));
+  let connections = base.connections ?? [], remaining = base.maxCandidates;
+  for (const [index, { point, witness }] of directions.entries()) {
+    if (budget < 1) break;
+    onProgress?.({ phase: 'direction-search', completed: index, total: directions.length });
     const previous = connections.length;
     const result = solveJumpRoute(surfaces, world, starts, witness.position, { ...base,
       groundPlanner: planner, interaction: undefined, connections, maxCandidates: budget, maxShortcutCandidates: 0 }, shared, 'direction');
@@ -179,7 +196,7 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
     connections = result.connections;
     searches.push({ point: [...point], support: witness.position, status: result.route.status,
       added: connections.length - previous, diagnostics: result.diagnostics });
-    onProgress?.({ phase: 'direction-search', completed: index + 1, total: waypoints.length,
+    onProgress?.({ phase: 'direction-search', completed: index + 1, total: directions.length,
       status: result.route.status, connections: connections.length });
     if (connections.length - (base.connections?.length ?? 0) >= base.maxLinks) break;
     if (connections.length > previous && planner.plan(starts, goal,
@@ -187,6 +204,7 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
   }
   const result = solveJumpRoute(surfaces, world, starts, goal, { ...base,
     groundPlanner: planner, connections, maxCandidates: remaining }, shared, 'final');
-  result.diagnostics.directions = { budgetPerGoal: budget, remaining, searches };
+  result.diagnostics.directions = { requestedGoals: waypoints.length, regions: directions.length,
+    budgetPerGoal: budget, remaining, searches };
   return result;
 }

@@ -254,6 +254,16 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       query: prepared.landingIndex.filter(surface => eligible(surface.id) &&
         departure.has(surface.id) === connected) })),
   ];
+  // Resume past rejected pairs instead of repeatedly filling a bounded batch with
+  // cached failures. Reachability rejections are only valid for this action graph:
+  // a new connection may make a previously inaccessible takeoff usable.
+  const revision = JSON.stringify([from, to, interaction, reverse, existing.map(edge => edge.id)]);
+  const frontierKey = reverse ? 'reverseRejected' : 'forwardRejected';
+  if (frontier && cache && cache[frontierKey]?.revision !== revision) {
+    cache[frontierKey] = { revision, pairs: new Set() };
+  }
+  const rejectedPairs = frontier ? cache?.[frontierKey]?.pairs ?? new Set() : new Set();
+  const pairKey = (start, end) => JSON.stringify([start.surface, start.position, start.exit, end.surface, end.position]);
   const pairs = new Map();
   let active = takeoffs.flatMap(start => {
     const bounds = {
@@ -280,6 +290,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
         : landingCandidates(surface, start.position, to, model, profile.radius);
       for (const end of ends) {
         if (!end || end.surface === start.surface) continue;
+        if (rejectedPairs.size && rejectedPairs.has(pairKey(start, end))) continue;
         const span = horizontal(start.position, end.position), drop = start.position[1] - end.position[1];
         if (span > maxHorizontalDistance || drop > maxDrop + 2 * endpointTolerance) continue;
         const duration = jumpDuration(start.position[1] + endpointTolerance, end.position[1] - endpointTolerance,
@@ -354,14 +365,29 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       if (accepted.has(cell)) continue;
       if (!entry.variants) {
         const start = standing(candidate.start);
-        if (!start) continue;
+        if (!start) {
+          if (cached.has(JSON.stringify([candidate.start.position, candidate.start.surface])))
+            rejectedPairs.add(pairKey(candidate.start, candidate.end));
+          continue;
+        }
         if (frontier && !reverse && !approach.has(start.surface) &&
-            !groundTrace(source.position, candidate.start.position)) continue;
+            !groundTrace(source.position, candidate.start.position)) {
+          rejectedPairs.add(pairKey(candidate.start, candidate.end)); continue;
+        }
         const end = standing(candidate.end);
-        if (!end || start.position[1] - end.position[1] > maxDrop) continue;
+        if (!end) {
+          if (cached.has(JSON.stringify([candidate.end.position, candidate.end.surface])))
+            rejectedPairs.add(pairKey(candidate.start, candidate.end));
+          continue;
+        }
+        if (start.position[1] - end.position[1] > maxDrop) {
+          rejectedPairs.add(pairKey(candidate.start, candidate.end)); continue;
+        }
         if (frontier && (reverse
           ? departure.has(start.surface) || !departure.has(end.surface)
-          : approach.has(end.surface))) continue;
+          : approach.has(end.surface))) {
+          rejectedPairs.add(pairKey(candidate.start, candidate.end)); continue;
+        }
         const key = JSON.stringify([start.position, end.position, candidate.start.exit]);
         if (tried.has(key)) continue;
         tried.add(key);
@@ -371,7 +397,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
           variants: motionVariants(start.position, end.position, candidate.start.exit) });
       }
       const next = entry.variants.next();
-      if (next.done) continue;
+      if (next.done) { rejectedPairs.add(pairKey(candidate.start, candidate.end)); continue; }
       pending.push(entry);
       const { start, end, groundTime } = entry, variant = next.value, { mode } = variant;
       if (mode === 'jump' && model.maxJumpHeight === 0) continue;

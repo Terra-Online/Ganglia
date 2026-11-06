@@ -250,3 +250,22 @@ test('reuses prepared walking topology while admitting connections added after p
   assert.ok(result.route.segments.some(segment => segment.connection === 'rope'));
   assert.equal(groundPlanner.plan(starts, goal).status, 'no-verified-route');
 });
+
+
+test('coalesces coarse goals by directed ground connectivity without merging floors', () => {
+  const surfaces = [floor('left', 0, 4, 0), floor('right', 4, 8, 0),
+    floor('upper', 0, 4, 5), floor('unreachable', 30, 34, 20)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const settings = { ...options, maxCandidates: 80, maxShortcutCandidates: 0,
+    portals: [{ from: 'upper', to: 'left', points: [[0, 5, 0], [0, 0, 0]] }] };
+  const starts = arrival([2, 0, 0]), goal = [32, 20, 0];
+  const unique = planJumpRoute(surfaces, world, starts, goal,
+    { ...settings, waypoints: [[2, 0, 0], [2, 5, 0]] });
+  const duplicated = planJumpRoute(surfaces, world, starts, goal,
+    { ...settings, waypoints: [[2, 0, 0], [6, 0, 0], [2, 5, 0], [1, 5, 0]] });
+  assert.notEqual(duplicated.route.status, 'complete');
+  assert.equal(duplicated.diagnostics.directions.regions, 2);
+  assert.equal(duplicated.diagnostics.directions.requestedGoals, 4);
+  assert.deepEqual(duplicated.connections, unique.connections);
+  assert.equal(duplicated.diagnostics.directions.budgetPerGoal, unique.diagnostics.directions.budgetPerGoal);
+});

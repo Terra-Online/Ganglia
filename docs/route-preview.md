@@ -199,3 +199,30 @@ hierarchy's recursive subtree sorts as a preparation hotspot. It now shares the
 median-partition builder while retaining the same support/portal checks. The paired
 command takes 11.30 rather than 12.70 seconds, with the same unavailable result;
 this is a preparation improvement, not a newly solved route.
+
+
+### Bounded discovery corrections (2026-11-06)
+
+Frontier batches retain rejected candidate pairs within one directed action-graph
+revision. Cached collision failures no longer repeatedly occupy the entire bounded
+candidate prefix. Adding connections invalidates reachability-dependent rejections;
+endpoint-budget exhaustion is not recorded as physical rejection. Forward and reverse
+frontiers retain separate progress. These caches are query-local, not persisted assets.
+
+Coarse direction samples are grouped by strongly connected, wall-filtered ground
+regions. Duplicate samples share one discovery budget; one-way passages and stacked
+supports remain distinct. This is proposal deduplication, not contraction of timed
+routes: final support, collision, gait and cost checks remain unchanged.
+
+The real `0bzZEM3` first-corridor replay still reports no verified route. Its 26
+coarse samples collapse to 23 ground regions; deduplication alone does not repair
+missing connections. Broadening reachable-candidate priority was tried and rejected:
+it generated more actions but did not solve the query and increased runtime. A small
+opening fixture verifies that repeated bounded batches can progress past a blocked
+prefix, while a fully blocked fixture remains unavailable. Full regional topology
+and resumable cross-request action discovery remain future work.
+
+A second experiment searched consecutive coarse supports locally, retaining only
+validated edges for the final query from the real arrival. It passed a disconnected
+origin test but still failed the rear-approach replay; it is not enabled. The coarse
+sample's nearest support is not yet an adequate regional interface representation.
