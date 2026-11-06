@@ -10,6 +10,12 @@ average across all queries, and subsecond performance has not been established.
 
 ## Decisions in this revision
 
+Implementation status as of 2026-11-06 is tracked separately in
+[solver reuse and performance](solver-performance.md). The alpha.21 references below
+describe the modeling baseline, not completion of the proposed phases. Ground
+passages and device macros have advanced, but G3 regional entry/exit transfers,
+cross-query action assets and the full resource-state reference solver remain open.
+
 Local offline computation is the preferred operating mode. The roadmap first defines the
 mathematical meaning of tasks, states, actions, reliability and computational budgets, then
 establishes reusable offline assets and solving models, and finally selects algorithms and

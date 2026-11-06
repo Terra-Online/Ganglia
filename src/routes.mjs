@@ -3,7 +3,7 @@ import { createWallChecker } from './walls.mjs';
 import { validateMotion, routeSegment } from './motion.mjs';
 // Edges are directed, clearance-checked corridors supplied by the navigation importer.
 // This module never connects points by proximity or projects between floors.
-const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
+const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const finitePoint = p => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite);
 
 /** Find the least-cost route on a verified graph. Unknown/closed edges are excluded.
@@ -25,7 +25,8 @@ export function routeFrom(graph, starts, goal, constraints) {
 // newly validated actions need corridor checks on each successive planning pass.
 export function createRoutePlanner(graph, constraints) {
   const base = prepareGraph(graph, constraints);
-  return (extra, starts, goal) => search(prepareGraph(extra, null, base), starts, goal);
+  const estimates = {};
+  return (extra, starts, goal) => search(prepareGraph(extra, null, base), starts, goal, estimates);
 }
 
 const overlay = base => {
@@ -67,7 +68,7 @@ function prepareGraph(graph, constraints, base) {
   return { nodes, edges, blocked, maxSpeed };
 }
 
-function search({ nodes, edges, blocked, maxSpeed }, starts, goal) {
+function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {}) {
   const requested = Array.isArray(goal) ? goal : [goal];
   const mapped = requested.filter(id => nodes.has(id));
   if (!mapped.length) return { status: 'unmapped' };
@@ -77,8 +78,26 @@ function search({ nodes, edges, blocked, maxSpeed }, starts, goal) {
   // Triangle inequality makes distance / this bound admissible and consistent.
   // A displaced zero-cost edge correctly falls back to Dijkstra.
   const targets = [...goals].map(id => nodes.get(id));
+  // Action discovery repeatedly searches the same goal with additional edges.
+  // Only geometric distance is reusable: new actions can change the speed bound.
+  // Key by target positions, not transient endpoint IDs, and retain just one goal.
+  const targetKey = JSON.stringify(targets);
+  if (estimates.targetKey !== targetKey) {
+    estimates.targetKey = targetKey;
+    estimates.distances = new WeakMap();
+  }
+  const distances = estimates.distances;
   const estimate = Number.isFinite(maxSpeed) && maxSpeed > 0
-    ? id => targets.reduce((best, point) => Math.min(best, distance(nodes.get(id), point)), Infinity) / (maxSpeed * (1 + 1e-12))
+    ? id => {
+      const position = nodes.get(id);
+      let best = distances.get(position);
+      if (best === undefined) {
+        best = Infinity;
+        for (const target of targets) best = Math.min(best, distance(position, target));
+        distances.set(position, best);
+      }
+      return best / (maxSpeed * (1 + 1e-12));
+    }
     : () => 0;
   const costs = new Map(), previous = new Map(), origins = new Map(), heap = createMinHeap();
   const { push, pop } = heap;

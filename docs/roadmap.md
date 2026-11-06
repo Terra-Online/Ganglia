@@ -8,6 +8,11 @@ moving platforms, elevators with selectable floors, and joint allocation of spri
 
 ## Core decisions
 
+For the current implementation milestone and measured computational costs, see
+[solver reuse and performance](solver-performance.md). The phases below remain
+acceptance requirements; isolated device or performance improvements do not imply
+that their prerequisite phases have been completed.
+
 Ganglia's next stage should optimize for completing a task as quickly as possible under explicit
 execution-tolerance requirements. The width of a path family is useful, but the quantity to evaluate
 is the domain of successful execution parameters. Counts of spatial curves or landing-position
