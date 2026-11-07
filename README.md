@@ -190,6 +190,14 @@ query work budget. The initial region proposal has separate bounded generation
 and arc limits, with no fixed hop-depth limit. Both cases then search jump alternatives and compare
 complete routes.
 
+When the primary search fails, known actions also provide causal entry goals.
+Supported directed transfers identify entries from which the actual goal can already
+be reached. Upstream entries cover their downstream entries, with one representative
+for mutual reachability. Each retained entry receives another `maxCandidates`
+query. `device-entry-search` progress and `deviceApproaches` diagnostics report the
+extra phases and budgets. The final query combines all validated transfers to the
+original interaction goal. Completed primary routes return directly.
+
 A successful walk no longer ends movement discovery. Takeoff streams cover each
 exposed ledge before fine pullback refinement. Spatial landing queries include
 surface interiors, so a large floor below a ledge needs no nearby boundary node.

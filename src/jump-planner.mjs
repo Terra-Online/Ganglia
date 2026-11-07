@@ -147,7 +147,7 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
  * constrain the final route to visit those points. Only the accumulated physically
  * validated actions enter the final, jointly timed start-to-goal query.
  */
-export function planJumpRoute(surfaces, world, starts, goal, options) {
+function planDirectedRoute(surfaces, world, starts, goal, options) {
   const { waypoints, onProgress, ...base } = options;
   if (waypoints !== undefined && (!Array.isArray(waypoints) || waypoints.length > 128 ||
       waypoints.some(point => !Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite)))) {
@@ -212,5 +212,40 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
     groundPlanner: planner, connections, maxCandidates: remaining }, shared, 'final', unchanged ? goalRoute : undefined);
   result.diagnostics.directions = { requestedGoals: waypoints.length, regions: directions.length,
     budgetPerGoal: budget, remaining, searches };
+  return result;
+}
+
+/** Preserve completed searches, then resolve causal entry approaches when known
+ * actions can reach the goal from a still-inaccessible region. Each retained entry
+ * gets an explicit bounded query. Only a complete joint final-goal solve is returned.
+ */
+export function planJumpRoute(surfaces, world, starts, goal, options) {
+  const result = planDirectedRoute(surfaces, world, starts, goal, options);
+  if (result.route.status === 'complete' || !options.connections?.length) return result;
+  const planner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
+  const known = options.connections;
+  const probe = (position, target, interaction) => planner.plan([
+    { id: '@device-entry', position, state: 'available', cost: 0 },
+  ], target, { interaction, connections: known }).status === 'complete';
+  const entries = known.filter(edge => edge.state === 'open' &&
+    probe(edge.points[0], goal, options.interaction));
+  // A reachable upstream entry already covers its downstream device entries.
+  // Keep one representative for mutual reachability, preserving directed chains.
+  const sources = entries.filter((edge, index) => !entries.some((other, j) => j !== index &&
+    probe(other.points[0], edge.points[0]) && (!probe(edge.points[0], other.points[0]) || j < index)));
+  if (!sources.length) return result;
+  const attempts = { budgetPerGoal: options.maxCandidates, goals: sources.length, searches: [] };
+  for (const [index, edge] of sources.entries()) {
+    options.onProgress?.({ phase: 'device-entry-search', completed: index, total: sources.length });
+    const trial = planDirectedRoute(surfaces, world, starts, edge.points[0], {
+      ...options, groundPlanner: planner, interaction: undefined, waypoints: undefined, maxShortcutCandidates: 0,
+    });
+    const route = planner.plan(starts, goal, { interaction: options.interaction, connections: trial.connections });
+    attempts.searches.push({ device: edge.id, status: route.status, discovery: trial.diagnostics });
+    options.onProgress?.({ phase: 'device-entry-search', completed: index + 1, total: sources.length, status: route.status });
+    if (route.status === 'complete') return { ...result, route, connections: trial.connections,
+      diagnostics: { ...result.diagnostics, selectedCost: route.cost, deviceApproaches: attempts } };
+  }
+  result.diagnostics.deviceApproaches = attempts;
   return result;
 }

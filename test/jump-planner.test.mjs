@@ -298,3 +298,26 @@ test('reuses static discovery geometry without carrying goal or collision proofs
   assert.notEqual(planJumpRoute(surfaces, obstructed, starts, [16, 0, 0], settings).route.status, 'complete');
   assert.equal(planJumpRoute(surfaces, world, starts, [16, 0, 0], settings).route.status, 'complete');
 });
+
+
+test('resolves a jump approach to a causal launch entry after the primary goal search fails', () => {
+  const surfaces = [floor('origin', 0, 4, 0), floor('step', 7, 11, 1.5), floor('entry', 14, 18, 3),
+    floor('goal', 100, 104, 20), ...Array.from({ length: 8 }, (_, index) =>
+      floor(`decoy/${index}`, 100 + index % 2 * 8, 104 + index % 2 * 8, 23 + Math.floor(index / 2) * 3))];
+  const launch = { id: 'launch', mode: 'launch', state: 'open', points: [[16, 3, 0], [102, 20, 0]], times: [0, 1] };
+  const settings = { ...options, speed: 4, profile: { radius: 0.2, height: 1.6 },
+    maxDrop: 40, maxCandidates: 64, maxShortcutCandidates: 0, connections: [launch] };
+  const world = createCollisionWorld(geometry(surfaces)), starts = arrival([2, 0, 0]), goal = [102, 20, 0];
+  const progress = [];
+  const result = planJumpRoute(surfaces, world, starts, goal, { ...settings, onProgress: value => progress.push(value) });
+  assert.equal(result.route.status, 'complete');
+  assert.equal(result.route.segments.filter(segment => segment.mode === 'jump').length, 2);
+  assert.ok(result.route.segments.some(segment => segment.connection === launch.id));
+  assert.equal(result.diagnostics.deviceApproaches.goals, 1);
+  assert.equal(result.diagnostics.deviceApproaches.budgetPerGoal, settings.maxCandidates);
+  assert.equal(result.diagnostics.deviceApproaches.searches[0].device, launch.id);
+  assert.ok(progress.some(value => value.phase === 'device-entry-search' && value.completed === value.total));
+  const closed = planJumpRoute(surfaces, world, starts, goal, { ...settings, connections: [{ ...launch, state: 'closed' }] });
+  assert.notEqual(closed.route.status, 'complete');
+  assert.equal(closed.diagnostics.deviceApproaches, undefined);
+});

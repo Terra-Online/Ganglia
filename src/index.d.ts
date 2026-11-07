@@ -164,7 +164,7 @@ export interface JumpRouteOptions extends GroundOptions {
   /** Optimistic coarse direction samples. At most 128 finite positions. These only
    * guide action discovery; the final route need not visit them. */
   waypoints?: Vec3[];
-  onProgress?: (progress: { phase: 'direction-search'; completed: number; total: number;
+  onProgress?: (progress: { phase: 'direction-search' | 'device-entry-search'; completed: number; total: number;
     status?: Route['status']; connections?: number }) => void;
   /** Optional prepared planner for these same immutable surfaces and ground options.
    * Query connections override its initial connection set. */
@@ -184,12 +184,18 @@ export interface JumpRouteOptions extends GroundOptions {
   maxLinks: number;
 }
 /** Joint ground/jump/drop action selection with a monotone complete-route incumbent.
+ * After primary failure, each topologically distinct known-action entry can receive
+ * an additional maxCandidates query. Progress and diagnostics expose those phases.
  * Sampling limits remain explicit; returned completion does not establish global optimality.
  */
 export interface JumpDiagnostics {
   strategy: 'surface-action-graph'; groundStatus: Route['status']; baselineCost: number | null;
   selectedCost: number | null; truncated: boolean;
   searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[];
+  /** Additional bounded entry queries after primary feasibility fails. */
+  deviceApproaches?: { budgetPerGoal: number; goals: number; searches: {
+    device: string; status: Route['status']; discovery: JumpDiagnostics;
+  }[] };
   directions?: { requestedGoals: number; regions: number; budgetPerGoal: number; remaining: number; searches: {
     point: Vec3; support?: Vec3; status: Route['status']; added: number; diagnostics?: JumpDiagnostics;
   }[] };
