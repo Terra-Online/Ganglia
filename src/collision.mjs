@@ -94,6 +94,22 @@ export function createCollisionWorld(geometry, options){
   for(const v of geometry.positions)if(!Number.isFinite(v))throw new Error('Non-finite collision vertex');
   for(const i of geometry.indices)if(!Number.isInteger(i)||i<0||i>=geometry.positions.length/3)
     throw new Error('Invalid collision index');
+  const queryCacheSize=options?.queryCacheSize===undefined?0:options.queryCacheSize;
+  if(!Number.isSafeInteger(queryCacheSize)||queryCacheSize<0)
+    throw new Error('Invalid collision query cache size');
+  // One bounded FIFO serves both methods for this immutable geometry/scope.
+  // Default-off avoids key allocation for cold worlds or mostly unique sweeps.
+  const queryCache=queryCacheSize?new Map():null;
+  let cacheHits=0,cacheMisses=0;
+  const queryKey=(kind,values)=>kind+values.map(value=>Object.is(value,-0)?'-0':String(value)).join(',');
+  const copyResult=result=>result===null?null:result.position
+    ? {position:[...result.position],triangle:result.triangle,normal:[...result.normal]}
+    : {...result};
+  const remember=(key,result)=>{
+    if(queryCache.size>=queryCacheSize)queryCache.delete(queryCache.keys().next().value);
+    queryCache.set(key,copyResult(result));
+    return result;
+  };
   let scope = null;
   if (options?.bounds !== undefined) {
     const requested = options.bounds;
@@ -151,20 +167,77 @@ export function createCollisionWorld(geometry, options){
       throw new Error('Collision query exceeds indexed XZ bounds');
     }
   };
-  const build=(start,end)=>{
+  const select=(start,end,middle,compare)=>{
+    // Bound partition work on adversarial layouts. The fallback sorts only the
+    // remaining selection interval, whose outside members are already decided.
+    let budget=2*(end-start);
+    while(end-start>16){
+      if((budget-=end-start)<0){order.subarray(start,end).sort(compare);return;}
+      let a=order[start],b=order[(start+end)>>>1],c=order[end-1];
+      if(compare(a,b)>0){const value=a;a=b;b=value;}
+      if(compare(b,c)>0){const value=b;b=c;c=value;}
+      const pivot=compare(a,b)>0?a:b;
+      let lower=start,upper=end-1;
+      while(lower<=upper){
+        while(compare(order[lower],pivot)<0)lower++;
+        while(compare(order[upper],pivot)>0)upper--;
+        if(lower<=upper){
+          const value=order[lower];order[lower++]=order[upper];order[upper--]=value;
+        }
+      }
+      if(middle<=upper)end=upper+1;
+      else if(middle>=lower)start=lower;
+      else return;
+    }
+    order.subarray(start,end).sort(compare);
+  };
+  const build=(start,end,parentOrder)=>{
     const box=[Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];
     for(let j=start;j<end;j++)for(let i=0;i<3;i++){
       box[i]=Math.min(box[i],bounds[order[j]*6+i]);box[i+3]=Math.max(box[i+3],bounds[order[j]*6+i+3]);
     }
-    if(end-start<=8)return {box,start,end};
+    if(end-start<=8){
+      // Internal nodes need only exact median membership. Leaves restore their
+      // parent's sorted order so tied supports and first collision IDs stay exact.
+      if(parentOrder)order.subarray(start,end).sort(parentOrder);
+      return {box,start,end};
+    }
     let axis=0;for(let i=1;i<3;i++)if(box[i+3]-box[i]>box[axis+3]-box[axis])axis=i;
-    order.subarray(start,end).sort((a,b)=>(bounds[a*6+axis]+bounds[a*6+axis+3])-(bounds[b*6+axis]+bounds[b*6+axis+3])||a-b);
+    const compare=(a,b)=>(bounds[a*6+axis]+bounds[a*6+axis+3])-(bounds[b*6+axis]+bounds[b*6+axis+3])||a-b;
     const middle=(start+end)>>>1;
-    return {box,left:build(start,middle),right:build(middle,end)};
+    select(start,end,middle,compare);
+    return {box,left:build(start,middle,compare),right:build(middle,end,compare)};
   };
   const root=count?build(0,count):null;
   return {
     bounds: scope ? { min: scope.slice(0,2), max: scope.slice(2,4) } : null,
+    get queryCacheStats(){
+      return {capacity:queryCacheSize,entries:queryCache?.size??0,hits:cacheHits,misses:cacheMisses};
+    },
+    /** Original input triangle IDs overlapping an inclusive XZ rectangle, in
+     * input order. This reuses the obstacle index for local geometry preparation.
+     */
+    trianglesInBounds(rectangle) {
+      if (!rectangle || !Array.isArray(rectangle.min) || !Array.isArray(rectangle.max) ||
+          rectangle.min.length !== 2 || rectangle.max.length !== 2 ||
+          ![...rectangle.min, ...rectangle.max].every(Number.isFinite) ||
+          rectangle.min.some((value, axis) => value > rectangle.max[axis])) {
+        throw new Error('Invalid collision triangle rectangle');
+      }
+      const box = [rectangle.min[0], -Infinity, rectangle.min[1], rectangle.max[0], Infinity, rectangle.max[1]];
+      requireScope(box);
+      const result = [], stack = root ? [root] : [];
+      while (stack.length) {
+        const node = stack.pop();
+        if (!overlaps(box, node.box)) continue;
+        if (node.left) { stack.push(node.left, node.right); continue; }
+        for (let index = node.start; index < node.end; index++) {
+          const id = order[index];
+          if (overlaps(box, bounds.subarray(id * 6, id * 6 + 6))) result.push(originalIds ? originalIds[id] : id);
+        }
+      }
+      return result.sort((a, b) => a - b);
+    },
     /** Find upward support at exactly the supplied XZ position. Slope is in degrees.
      * Height limits are explicit and independent. This establishes triangle support
      * only; callers still verify standing capsule clearance and active world coverage.
@@ -177,6 +250,13 @@ export function createCollisionWorld(geometry, options){
         position[0]+radius,position[1]+maxUp+radius,position[2]+radius];
       if(!box.every(Number.isFinite))throw new Error('Non-finite ground support bounds');
       requireScope(box);
+      let key=null;
+      if(queryCache){
+        key=queryKey('ground/',[...position,maxUp,maxDown,maxSlope,radius]);
+        const found=queryCache.get(key);
+        if(found!==undefined){cacheHits++;return copyResult(found);}
+        cacheMisses++;
+      }
       const minimumUp=Math.cos(maxSlope*Math.PI/180),stack=root?[root]:[];
       let best=null,bestOffset=Infinity;
       while(stack.length){
@@ -208,7 +288,7 @@ export function createCollisionWorld(geometry, options){
           }
         }
       }
-      return best;
+      return key===null?best:remember(key,best);
     },
     /** Continuous straight translation of an upright capsule, given feet positions.
      * Its axis sweeps a parallelogram; distance to that entire surface, not discrete
@@ -225,6 +305,13 @@ export function createCollisionWorld(geometry, options){
         Math.max(start[0],end[0])+r,Math.max(start[1],end[1])+height+inflation,Math.max(start[2],end[2])+r];
       if(!box.every(Number.isFinite))throw new Error('Non-finite capsule bounds');
       requireScope(box);
+      let key=null;
+      if(queryCache){
+        key=queryKey('sweep/',[...start,...end,radius,height,inflation]);
+        const found=queryCache.get(key);
+        if(found!==undefined){cacheHits++;return copyResult(found);}
+        cacheMisses++;
+      }
       const a=[start[0],start[1]+radius,start[2]],b=[start[0],start[1]+height-radius,start[2]];
       const c=[end[0],end[1]+radius,end[2]],d=[end[0],end[1]+height-radius,end[2]];
       const stack=root?[root]:[];
@@ -235,10 +322,13 @@ export function createCollisionWorld(geometry, options){
           const id=order[i];if(!overlaps(box,bounds.subarray(id*6,id*6+6)))continue;
           const face=triangle(id),distance=Math.min(triangleTriangle([a,b,d],face),triangleTriangle([a,d,c],face));
           if(!Number.isFinite(distance))throw new Error('Non-finite collision distance');
-          if(distance<=r*r)return {triangle:originalIds ? originalIds[id] : id,distance:Math.sqrt(distance)};
+          if(distance<=r*r){
+            const result={triangle:originalIds ? originalIds[id] : id,distance:Math.sqrt(distance)};
+            return key===null?result:remember(key,result);
+          }
         }
       }
-      return null;
+      return key===null?null:remember(key,null);
     },
   };
 }

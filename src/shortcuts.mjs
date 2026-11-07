@@ -1,16 +1,16 @@
-import { surfaceGraph, surfacePortals, projectPoint } from './surfaces.mjs';
-import { createGoalProjector } from './goals.mjs';
+import { movementGeometry } from './movement-geometry.mjs';
+import { boundaryTree, boundaryOrder } from './boundary-order.mjs';
 import { landingCandidates, boundaryLanding } from './landings.mjs';
 import { createBoundsIndex } from './bounds.mjs';
 import { createMinHeap } from './heap.mjs';
-import { createWallChecker } from './walls.mjs';
 import { createGroundStraightener } from './straighten.mjs';
-import { groundPreparation } from './ground.mjs';
 import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.mjs';
-import { exposedBoundaries, interleave, standingFoot, validateDiscovery } from './traversal.mjs';
+import { interleave, standingFoot, validateDiscovery } from './traversal.mjs';
 
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const horizontal = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
+
+const geometries = new WeakMap();
 
 const adjacency = edges => {
   const forward = new Map(), reverse = new Map();
@@ -23,29 +23,31 @@ const adjacency = edges => {
 };
 
 function prepareGeometry(surfaces, options) {
-  const { walls, profile, portals } = options;
-  const blocked = createWallChecker(walls, profile);
-  const candidate = groundPreparation(options.groundPlanner);
-  const reused = candidate?.surfaces === surfaces ? candidate : undefined;
-  const sharedPortals = reused?.portals ?? surfacePortals(surfaces);
-  const reuse = reused?.importedPortals === portals && reused?.graph;
-  const base = reuse || surfaceGraph(surfaces, { speed: 1, portals }, sharedPortals);
-  const graph = { nodes: base.nodes, edges: reuse
-    ? base.edges.map(edge => ({ ...edge, cost: edge.cost * reused.searchSpeed })) : base.edges };
-  graph.edges = graph.edges.filter(edge => !edge.points.slice(1).some((point, index) => blocked(edge.points[index], point)));
-  const boundaries = exposedBoundaries(surfaces, portals ?? [], sharedPortals).map(boundary => ({ ...boundary,
+  const shared = movementGeometry(surfaces, options);
+  const cached = geometries.get(shared);
+  if (cached) return cached;
+  const { blocked, byId, centers, project, projectSupport, visibility, topology } = shared;
+  const graph = { nodes: shared.graph.nodes, edges: shared.graph.edges };
+  const representatives = [];
+  const componentOf = id => topology.components[topology.ids.get(id)];
+  for (const node of graph.nodes) representatives[componentOf(node.id)] ??= node.id;
+  const boundaries = shared.boundaries.map((boundary, ordinal) => ({ ...boundary, ordinal,
     min: [0, 1, 2].map(axis => Math.min(boundary.a[axis], boundary.b[axis])),
     max: [0, 1, 2].map(axis => Math.max(boundary.a[axis], boundary.b[axis])) }));
   const landingSurfaces = surfaces.map(surface => ({ ...surface,
     min: [0, 1, 2].map(axis => Math.min(...surface.vertices.map(point => point[axis]))),
     max: [0, 1, 2].map(axis => Math.max(...surface.vertices.map(point => point[axis]))) }));
-  return { ...adjacency(graph.edges), blocked, boundaries, landingSurfaces,
-    boundaryIndex: createBoundsIndex(boundaries), landingIndex: createBoundsIndex(landingSurfaces),
-    byId: reused?.byId ?? new Map(surfaces.map(surface => [surface.id, surface])),
-    centers: reused?.centers ?? new Map(graph.nodes.map(node => [node.id, node.position])),
-    project: reused?.projectGoal ?? createGoalProjector(surfaces),
-    visibility: reused?.straighten,
+
+  const geometry = { ...adjacency(graph.edges.map(edge => ({ ...edge, cost: edge.cost * shared.lengthScale }))), blocked, boundaries, landingSurfaces,
+    boundaryIndex: createBoundsIndex(boundaries, edge => componentOf(edge.surface)),
+    landingIndex: createBoundsIndex(landingSurfaces, surface => componentOf(surface.id)), representatives,
+    byId, projectSupport,
+    centers,
+    project,
+    visibility,
   };
+  geometries.set(shared, geometry);
+  return geometry;
 }
 
 const distanceField = (base, extra, roots, reverse) => {
@@ -102,7 +104,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       endpointChecks: maxCandidates * 4, arcAttempts: maxCandidates * 2, maxLinks } };
   const prepared = cache?.geometry ?? prepareGeometry(surfaces, options);
   if (cache) cache.geometry = prepared;
-  const { blocked, byId, centers, project, boundaries } = prepared;
+  const { blocked, byId, centers, project, projectSupport, boundaries } = prepared;
   const connections = [];
   let visibility = cache?.visibility ?? prepared.visibility;
   const traces = cache?.traces ?? new Map();
@@ -129,8 +131,8 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     const fromFaces = connection.fromSurface === undefined ? surfaces : [byId.get(connection.fromSurface)];
     const toFaces = connection.toSurface === undefined ? surfaces : [byId.get(connection.toSurface)];
     if (!fromFaces[0] || !toFaces[0]) throw new Error('Invalid movement support surface');
-    const a = projectPoint(fromFaces, connection.points[0], { maxVertical });
-    const b = projectPoint(toFaces, connection.points.at(-1), { maxVertical });
+    const a = projectSupport(connection.points[0], maxVertical, connection.fromSurface);
+    const b = projectSupport(connection.points.at(-1), maxVertical, connection.toSurface);
     if (!a || !b) continue;
     if (connection.points.slice(1).some((point, index) => blocked(connection.points[index], point))) continue;
     const approach = groundTrace(source.position, a.position);
@@ -163,15 +165,19 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   // Ordering is a heuristic only. It must not exclude a jump because a polygon
   // centre corridor overestimates the continuous approach or departure distance.
   const ordering = cache?.ordering ?? (() => {
-    const scores = new Map(boundaries.map(edge => {
-      const source = distance(from, edge.midpoint), target = distance(edge.midpoint, to);
-      return [edge, { source, target, line: source + target }];
-    }));
-    return { scores, source: [...boundaries].sort((a, b) => scores.get(a).source - scores.get(b).source), target: [...boundaries].sort((a, b) => scores.get(a).target - scores.get(b).target),
-      line: [...boundaries].sort((a, b) => scores.get(a).line - scores.get(b).line) };
+    const source = new Float64Array(boundaries.length), target = new Float64Array(boundaries.length),
+      line = new Float64Array(boundaries.length);
+    for (const edge of boundaries) {
+      const index = edge.ordinal;
+      source[index] = distance(from, edge.midpoint);
+      target[index] = distance(edge.midpoint, to);
+      line[index] = source[index] + target[index];
+    }
+    return { source, target, line };
   })();
   if (cache) cache.ordering = ordering;
-  const nearLine = (a, b) => ordering.scores.get(a).line - ordering.scores.get(b).line;
+  const nearLine = (a, b) => ordering.line[a.ordinal] - ordering.line[b.ordinal];
+  const stable = compare => (a, b) => compare(a, b) || a.ordinal - b.ordinal;
   const goalBounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
   for (const surface of prepared.landingSurfaces) if (departure.has(surface.id)) {
     for (let axis = 0; axis < 3; axis++) {
@@ -184,28 +190,32 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   const regionOf = (position, size = regionSize) => [Math.floor(position[0] / size),
     Math.floor(position[1] / Math.max(profile.height, model.maxJumpHeight)),
     Math.floor(position[2] / size)].join('/');
-  const spread = (entries, position, size = regionSize) => {
-    if (entries.length < 2 || size <= diversity) return entries;
+  const spread = (entries, position, size = regionSize, limit = entries.length) => {
+    if (entries.length < 2 || size <= diversity) return entries.slice(0, limit);
     const regions = new Map();
     for (const entry of entries) {
       const key = regionOf(position(entry), size), group = regions.get(key) ?? [];
       group.push(entry); regions.set(key, group);
     }
-    return interleave([...regions.values()].map(group => spread(group, position, size / 2)), entries.length);
+    return interleave([...regions.values()].slice(0, limit)
+      .map(group => spread(group, position, size / 2, limit)), limit);
   };
   // Visit coarse spatial regions before refining body-scale offsets. A distant
   // opening must compete with nearby ledges even on a densely triangulated floor.
-  const sourceEdges = spread(reverse ? ordering.target.filter(boundary => !departure.has(boundary.surface))
-    : boundaries.filter(boundary => approach.has(boundary.surface))
-      .sort((a, b) => approach.get(a.surface) - approach.get(b.surface) || nearLine(a, b)), edge => edge.midpoint);
-  const goalEdges = frontier ? [] : spread(boundaries.filter(boundary => departure.has(boundary.surface))
-    .sort((a, b) => departure.get(a.surface) - departure.get(b.surface) || nearLine(a, b)), edge => edge.midpoint);
-  const otherEdges = frontier ? [] : spread(ordering.line.filter(boundary => !approach.has(boundary.surface) ||
-    !departure.has(boundary.surface)), edge => edge.midpoint);
-  // Overlapping ground patches can be continuously connected without a shared
-  // polygon edge. Give their ledges bounded work and prove the approach lazily.
+  const seedLimit = diagnostics.limits.seedChecks;
+  const treeKey = JSON.stringify([regionSize, Math.max(profile.height, model.maxJumpHeight), diversity]);
+  if (prepared.boundaryOrder?.key !== treeKey) prepared.boundaryOrder = { key: treeKey,
+    tree: boundaryTree(boundaries, regionSize, Math.max(profile.height, model.maxJumpHeight), diversity) };
+  const order = (eligible, compare) => boundaryOrder(prepared.boundaryOrder.tree, eligible, stable(compare), seedLimit);
+  const sourceEdges = reverse
+    ? order(boundary => !departure.has(boundary.surface), (a, b) => ordering.target[a.ordinal] - ordering.target[b.ordinal])
+    : order(boundary => approach.has(boundary.surface),
+      (a, b) => approach.get(a.surface) - approach.get(b.surface) || nearLine(a, b));
+  const goalEdges = frontier ? [] : order(boundary => departure.has(boundary.surface),
+    (a, b) => departure.get(a.surface) - departure.get(b.surface) || nearLine(a, b));
+  const otherEdges = frontier ? [] : order(boundary => !approach.has(boundary.surface) || !departure.has(boundary.surface), nearLine);
   const visibleEdges = frontier && !reverse
-    ? spread(ordering.source.filter(boundary => !approach.has(boundary.surface)), edge => edge.midpoint) : [];
+    ? order(boundary => !approach.has(boundary.surface), (a, b) => ordering.source[a.ordinal] - ordering.source[b.ordinal]) : [];
   const orderedEdges = frontier ? interleave([sourceEdges, visibleEdges].filter(edges => edges.length), boundaries.length) :
     interleave([sourceEdges, goalEdges, otherEdges].filter(edges => edges.length), boundaries.length * 3);
   const seedStream = function* (boundary) {
@@ -226,7 +236,9 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   };
   // Cover every ledge before spending the budget on finer pullbacks at one
   // densely triangulated obstacle. Each stream retains its remaining offsets.
-  let streams = [...new Set(orderedEdges)].map(seedStream);
+  // A stream yields at least one seed. Once that many distinct streams have
+  // been visited, the seed budget is exhausted before later streams can run.
+  let streams = [...new Set(orderedEdges)].slice(0, seedLimit).map(seedStream);
   sampling: while (streams.length) {
     const pending = [];
     for (const stream of streams) {
@@ -248,11 +260,11 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   const eligible = id => !frontier || (reverse ? departure.has(id) : !approach.has(id));
   const landingQueries = [
     ...(frontier ? [true, false].map(connected => ({ boundary: true,
-      query: prepared.boundaryIndex.filter(edge => eligible(edge.surface) &&
-        departure.has(edge.surface) === connected) })) : []),
+      query: prepared.boundaryIndex.filterGroups(group => eligible(prepared.representatives[group]) &&
+        departure.has(prepared.representatives[group]) === connected) })) : []),
     ...[true, false].map(connected => ({ boundary: false,
-      query: prepared.landingIndex.filter(surface => eligible(surface.id) &&
-        departure.has(surface.id) === connected) })),
+      query: prepared.landingIndex.filterGroups(group => eligible(prepared.representatives[group]) &&
+        departure.has(prepared.representatives[group]) === connected) })),
   ];
   // Resume past rejected pairs instead of repeatedly filling a bounded batch with
   // cached failures. Reachability rejections are only valid for this action graph:

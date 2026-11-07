@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findJumpConnections, exposedBoundaries, standingFoot } from '../src/traversal.mjs';
 import { jumpConnection } from '../src/jumps.mjs';
-import { planGroundRoute } from '../src/ground.mjs';
+import { planGroundRoute, createGroundPlanner } from '../src/ground.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
 import { createGoalProjector } from '../src/goals.mjs';
 
@@ -385,4 +385,21 @@ test('corrected standing feet use the closest eligible navigation support', () =
     { ...options, blocked: () => false, project: createGoalProjector(surfaces) });
   assert.equal(result.surface, 'support');
   assert.ok(Math.abs(result.position[1] - 0.005) < 1e-12);
+});
+
+
+test('shared traversal preparation does not retain an earlier query action overlay', () => {
+  const surfaces = [floor('a',0,4,0),floor('b',20,24,0)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const query = {...options,speed:7,from:[2,0,0],to:[22,0,0]};
+  const groundPlanner = createGroundPlanner(surfaces,query);
+  const transfer={id:'rope',mode:'rope',state:'open',fromSurface:'a',toSurface:'b',
+    points:[[2,0,0],[22,0,0]],times:[0,4]};
+  const connected=findJumpConnections(surfaces,world,{...query,groundPlanner,connections:[transfer]});
+  assert.equal(connected.diagnostics.reason,'known-connected');
+  const reused=findJumpConnections(surfaces,world,{...query,groundPlanner,connections:[]});
+  const fresh=findJumpConnections(surfaces,world,{...query,connections:[]});
+  assert.notEqual(reused.diagnostics.reason,'known-connected');
+  assert.deepEqual(reused,fresh);
+  assert.deepEqual(findJumpConnections(surfaces,world,{...query,groundPlanner,connections:[transfer]}),connected);
 });

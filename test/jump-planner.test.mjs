@@ -269,3 +269,20 @@ test('coalesces coarse goals by directed ground connectivity without merging flo
   assert.deepEqual(duplicated.connections, unique.connections);
   assert.equal(duplicated.diagnostics.directions.budgetPerGoal, unique.diagnostics.directions.budgetPerGoal);
 });
+
+test('reuses static discovery geometry without carrying goal or collision proofs between queries', () => {
+  const surfaces = [floor('start', 0, 4, 0), floor('step', 7, 11, 0), floor('goal', 14, 18, 0)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const starts = arrival([2, 0, 0]);
+  const planner = createGroundPlanner(surfaces, options);
+  const settings = { ...options, groundPlanner: planner };
+  for (const goal of [[16, 0, 0], [9, 0, 0], [16, 0, 0]]) {
+    const reused = planJumpRoute(surfaces, world, starts, goal, settings);
+    const fresh = planJumpRoute(surfaces, world, starts, goal, options);
+    assert.deepEqual(reused, fresh);
+  }
+  const obstructed = { groundAt: (...args) => world.groundAt(...args),
+    sweepCapsule: () => ({ triangle: 0, distance: 0 }) };
+  assert.notEqual(planJumpRoute(surfaces, obstructed, starts, [16, 0, 0], settings).route.status, 'complete');
+  assert.equal(planJumpRoute(surfaces, world, starts, [16, 0, 0], settings).route.status, 'complete');
+});

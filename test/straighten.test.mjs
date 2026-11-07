@@ -105,3 +105,58 @@ test('straightens through split portals and stays inside their overlap', () => {
   const input = [[.2, 0, .3], [.5, 0, 1], [1, 0, .5], [1.8, 0, .3]];
   assert.deepEqual(createGroundStraightener([a,b,c], options)(input), [input[0], input.at(-1)]);
 });
+
+test('shared support primitives rebuild independent portal neighbours and global traversal order', () => {
+  const base = [];
+  for (let group = 0; group < 8; group++) {
+    const x = group * 20;
+    base.push(rectangle(`a${group}`, x, 0, 4, 4), rectangle(`b${group}`, x + 4, 0, 4, 2),
+      rectangle(`c${group}`, x + 4, 2, 4, 2));
+  }
+  const before = createGroundStraightener(base, options);
+  const path = [[1,0,1],[3,0,1],[4,0,1],[7,0,1]];
+  const expected = before(path);
+  assert.deepEqual(expected, [path[0],path.at(-1)]);
+  const scenarios = [[...base, rectangle('remote', 1000, 1000, 2, 2)],
+    [...base, rectangle('third-owner', 4, 0, 2, 2)], [base[1],base[0],...base.slice(2)]];
+  for (const surfaces of scenarios) {
+    const shared = createGroundStraightener(surfaces, options);
+    const fresh = createGroundStraightener(structuredClone(surfaces), options);
+    for (const run of [path, [...path].reverse(), [[1,0,3],[4,0,3],[7,0,3]]]) {
+      assert.deepEqual(shared(run), fresh(run));
+      assert.deepEqual(shared.trace(run[0], run.at(-1)), fresh.trace(run[0], run.at(-1)));
+    }
+    assert.deepEqual(before(path), expected);
+  }
+});
+
+test('shared primitives retain one-way imported steps without sharing planner neighbour state', () => {
+  const lower = rectangle('lower', 0, 0), upper = rectangle('upper', 1, 0, 1, 1, () => .3);
+  const portal = { from:'lower',to:'upper',points:[[1,0,.5],[1,.3,.5]],
+    entry:[[1,0,0],[1,0,1]],exit:[[1,.3,0],[1,.3,1]] };
+  const surfaces = [lower,upper], start = [.2,0,.5], end = [1.8,.3,.5];
+  const forward = createGroundStraightener(surfaces, {...options,portals:[portal]});
+  const reverse = createGroundStraightener([...surfaces,rectangle('far',100,100)],
+    {...options,portals:[{from:portal.to,to:portal.from,points:[...portal.points].reverse(),entry:portal.exit,exit:portal.entry}]});
+  assert.ok(forward.trace(start,end));
+  assert.equal(forward.trace(end,start), null);
+  assert.ok(reverse.trace(end,start));
+  assert.equal(reverse.trace(start,end), null);
+  assert.ok(forward.trace(start,end));
+});
+
+test('rebuilding mutated supports revalidates geometry and masks while previous traces stay owned', () => {
+  const surface = rectangle('floor', 0, 0, 2, 2), path = [[.2,0,.2],[1,0,1],[1.8,0,1.8]];
+  const original = createGroundStraightener([surface], options);
+  for (const point of surface.vertices) point[1] = 5;
+  const updated = createGroundStraightener([surface], options);
+  assert.deepEqual(original(path), [path[0],path.at(-1)]);
+  assert.equal(updated.trace(path[0], path.at(-1)), null);
+  assert.ok(updated.trace([.2,5,.2],[1.8,5,1.8]));
+  surface.vertices[1][0] = NaN;
+  assert.throws(() => createGroundStraightener([surface], options, []), /Invalid surface/);
+  surface.vertices[1][0] = 2;
+  surface.portals = [4];
+  assert.throws(() => createGroundStraightener([surface], options, []), /Invalid surface portals/);
+  assert.ok(updated.trace([.2,5,.2],[1.8,5,1.8]));
+});

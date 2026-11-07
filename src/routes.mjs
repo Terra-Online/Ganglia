@@ -1,3 +1,4 @@
+import { directedComponents, canReach } from './connectivity.mjs';
 import { createMinHeap } from './heap.mjs';
 import { createWallChecker } from './walls.mjs';
 import { validateMotion, routeSegment } from './motion.mjs';
@@ -25,8 +26,16 @@ export function routeFrom(graph, starts, goal, constraints) {
 // newly validated actions need corridor checks on each successive planning pass.
 export function createRoutePlanner(graph, constraints) {
   const base = prepareGraph(graph, constraints);
-  const estimates = {};
-  return (extra, starts, goal) => search(prepareGraph(extra, null, base), starts, goal, estimates);
+  const estimates = {}, ids = graph.nodes.map(node => node.id);
+  let disconnected = false, components;
+  return (extra, starts, goal) => {
+    const prepared = prepareGraph(extra, null, base);
+    // Ordinary successful queries pay no component-build cost. Only after a
+    // complete failed search do later refinements prepare this necessary check.
+    components ??= disconnected ? directedComponents(ids, base.edges) : undefined;
+    return search(prepared, starts, goal, estimates, { components, links: prepared.links,
+      exhausted: () => { disconnected = true; } });
+  };
 }
 
 const overlay = base => {
@@ -40,14 +49,14 @@ function prepareGraph(graph, constraints, base) {
   const blocked = base?.blocked ?? (constraints ? createWallChecker(constraints.walls, constraints.profile) : null);
   // Query endpoints and actions overlay the immutable scene. Copying million-node
   // maps on every refinement pass costs memory without changing their contents.
-  const nodes = overlay(base?.nodes);
+  const nodes = base ? overlay(base.nodes) : new Map();
   for (const node of graph.nodes) {
     if (typeof node.id !== 'string' || nodes.has(node.id) || !finitePoint(node.position)) throw new Error('Invalid node');
     nodes.set(node.id, node.position);
   }
-  const edges = overlay(base?.edges);
+  const edges = base ? overlay(base.edges) : new Map();
   let maxSpeed = base?.maxSpeed ?? 0;
-  const copied = new Set();
+  const copied = base ? new Set() : null, links = base ? [] : undefined;
   for (const edge of graph.edges) {
     if (!nodes.has(edge.from) || !nodes.has(edge.to) || !Number.isFinite(edge.cost) || edge.cost < 0 ||
         !['open', 'closed', 'unknown'].includes(edge.state) || !Array.isArray(edge.points) ||
@@ -58,17 +67,23 @@ function prepareGraph(graph, constraints, base) {
     if (edge.state === 'open' && (!blocked || !edge.points.slice(1).some((p, i) => blocked(edge.points[i], p)))) {
       const span = distance(nodes.get(edge.from), nodes.get(edge.to));
       if (span > 0) maxSpeed = Math.max(maxSpeed, edge.cost === 0 ? Infinity : span / edge.cost);
-      if (!copied.has(edge.from)) {
-        edges.set(edge.from, [...(edges.get(edge.from) ?? [])]);
+      let outgoing = edges.get(edge.from);
+      if (base && !copied.has(edge.from)) {
+        outgoing = outgoing ? [...outgoing] : [];
+        edges.set(edge.from, outgoing);
         copied.add(edge.from);
+      } else if (!outgoing) {
+        outgoing = [];
+        edges.set(edge.from, outgoing);
       }
-      edges.get(edge.from).push(edge);
+      outgoing.push(edge);
+      links?.push(edge);
     }
   }
-  return { nodes, edges, blocked, maxSpeed };
+  return { nodes, edges, blocked, maxSpeed, links };
 }
 
-function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {}) {
+function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {}, connectivity) {
   const requested = Array.isArray(goal) ? goal : [goal];
   const mapped = requested.filter(id => nodes.has(id));
   if (!mapped.length) return { status: 'unmapped' };
@@ -101,7 +116,7 @@ function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {
     : () => 0;
   const costs = new Map(), previous = new Map(), origins = new Map(), heap = createMinHeap();
   const { push, pop } = heap;
-  const sourceIds = new Set();
+  const sourceIds = new Set(), sourceNodes = [];
   for (const start of starts) {
     if (typeof start.id !== 'string' || sourceIds.has(start.id) || !Number.isFinite(start.cost) || start.cost < 0 ||
         !['available','locked','unknown'].includes(start.state)) throw new Error('Invalid arrival');
@@ -109,11 +124,18 @@ function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {
     if (start.state !== 'available' || !nodes.has(start.node)) continue;
     if (blocked && blocked(nodes.get(start.node), nodes.get(start.node))) continue;
     if (start.cost < (costs.get(start.node) ?? Infinity)) {
+      sourceNodes.push(start.node);
       costs.set(start.node, start.cost); origins.set(start.node, start.id);
       push({ id: start.node, travelled: start.cost, cost: start.cost + estimate(start.node) });
     }
   }
   if (!heap.size) return { status: 'unmapped' };
+  // Starts, goals and every extra edge have already passed the original guards.
+  // A failed optimistic check saves the exhaustive fine-graph search only; a
+  // passing check continues through the exact same A* and tie-breaking below.
+  if (connectivity?.components && !canReach(connectivity.components, connectivity.links, sourceNodes, goals)) {
+    return { status: 'no-verified-route' };
+  }
   while (heap.size) {
     const entry = pop(), current = entry.id;
     if (entry.travelled !== costs.get(current)) continue;
@@ -142,6 +164,7 @@ function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {
       }
     }
   }
+  connectivity?.exhausted();
   return { status: 'no-verified-route' };
 }
 

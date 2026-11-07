@@ -1,33 +1,50 @@
 import { createBoundsIndex } from './bounds.mjs';
 import { projectPoint } from './surfaces.mjs';
+import { supportSnapshot } from './support-snapshot.mjs';
 
 const finitePoint = point => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
-const distanceSquared = (a, b) => a.reduce((sum, value, axis) => sum + (value - b[axis]) ** 2, 0);
-const dot = (a, b) => a.reduce((sum, value, axis) => sum + value * b[axis], 0);
+const distanceSquared = (a, b) => {
+  let squared = 0;
+  for (let axis = 0; axis < a.length; axis++) squared += (a[axis] - b[axis]) ** 2;
+  return squared;
+};
 
+// Keep dot-product accumulation in the original coordinate order. Scalar
+// intermediates avoid transient vectors during repeated landing projections.
+const dot3 = (ax, ay, az, bx, by, bz) => {
+  let sum = 0;
+  sum += ax * bx; sum += ay * by; sum += az * bz;
+  return sum;
+};
 const closestOnEdge = (target, a, b) => {
-  const direction = b.map((value, axis) => value - a[axis]);
-  const lengthSquared = dot(direction, direction);
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+  const lengthSquared = dot3(dx, dy, dz, dx, dy, dz);
   const fraction = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
-    dot(target.map((value, axis) => value - a[axis]), direction) / lengthSquared));
-  return a.map((value, axis) => value + fraction * direction[axis]);
+    dot3(target[0] - a[0], target[1] - a[1], target[2] - a[2], dx, dy, dz) / lengthSquared));
+  return [a[0] + fraction * dx, a[1] + fraction * dy, a[2] + fraction * dz];
 };
 
 const closestOnTriangle = (target, a, b, c) => {
-  const ab = b.map((value, axis) => value - a[axis]);
-  const ac = c.map((value, axis) => value - a[axis]);
-  const at = target.map((value, axis) => value - a[axis]);
-  const aa = dot(ab, ab), bb = dot(ac, ac), cross = dot(ab, ac);
+  const abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
+  const acx = c[0] - a[0], acy = c[1] - a[1], acz = c[2] - a[2];
+  const atx = target[0] - a[0], aty = target[1] - a[1], atz = target[2] - a[2];
+  const aa = dot3(abx, aby, abz, abx, aby, abz), bb = dot3(acx, acy, acz, acx, acy, acz);
+  const cross = dot3(abx, aby, abz, acx, acy, acz);
   const determinant = aa * bb - cross * cross;
   if (determinant > 1e-20) {
-    const u = (bb * dot(at, ab) - cross * dot(at, ac)) / determinant;
-    const v = (aa * dot(at, ac) - cross * dot(at, ab)) / determinant;
+    const atab = dot3(atx, aty, atz, abx, aby, abz), atac = dot3(atx, aty, atz, acx, acy, acz);
+    const u = (bb * atab - cross * atac) / determinant;
+    const v = (aa * atac - cross * atab) / determinant;
     if (u >= 0 && v >= 0 && u + v <= 1) {
-      return a.map((value, axis) => value + u * ab[axis] + v * ac[axis]);
+      return [a[0] + u * abx + v * acx, a[1] + u * aby + v * acy, a[2] + u * abz + v * acz];
     }
   }
-  const candidates = [closestOnEdge(target, a, b), closestOnEdge(target, b, c), closestOnEdge(target, c, a)];
-  return candidates.reduce((best, point) => distanceSquared(target, point) < distanceSquared(target, best) ? point : best);
+  let best = closestOnEdge(target, a, b), squared = distanceSquared(target, best);
+  const second = closestOnEdge(target, b, c), secondSquared = distanceSquared(target, second);
+  if (secondSquared < squared) { best = second; squared = secondSquared; }
+  const third = closestOnEdge(target, c, a);
+  if (distanceSquared(target, third) < squared) best = third;
+  return best;
 };
 
 const clipPolygon = (vertices, signedDistance) => {
@@ -52,6 +69,12 @@ export const closestOnSurface = (surface, target, planes = []) => {
     const b = surface.vertices[fan], c = surface.vertices[fan + 1];
     const areaXZ = (b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0]);
     if (Math.abs(areaXZ) < 1e-10) continue;
+    if (!planes.length) {
+      const point = closestOnTriangle(target, a, b, c);
+      const squared = distanceSquared(target, point);
+      if (squared < shortest) { best = point; shortest = squared; }
+      continue;
+    }
     let polygon = [a, b, c];
     for (const plane of planes) polygon = clipPolygon(polygon, plane);
     if (!polygon.length) continue;
@@ -88,13 +111,10 @@ export function createGoalProjector(surfaces) {
   if (!Array.isArray(surfaces)) throw new Error('Invalid goal surfaces');
   const ids = new Set();
   const snapshot = surfaces.map((surface, index) => {
-    if (typeof surface.id !== 'string' || ids.has(surface.id) || !Array.isArray(surface.vertices) ||
-        surface.vertices.length < 3 || !surface.vertices.every(finitePoint)) throw new Error('Invalid goal surface');
-    ids.add(surface.id);
-    const vertices = surface.vertices.map(point => [...point]);
-    return { id: surface.id, vertices, index,
-      min: [0, 1, 2].map(axis => Math.min(...vertices.map(point => point[axis]))),
-      max: [0, 1, 2].map(axis => Math.max(...vertices.map(point => point[axis]))) };
+    const owned = supportSnapshot(surface);
+    if (!owned || ids.has(owned.id)) throw new Error('Invalid goal surface');
+    ids.add(owned.id);
+    return { id: owned.id, vertices: owned.vertices, index, min: owned.min, max: owned.max };
   });
   const query = createBoundsIndex(snapshot);
   return (target, options) => {

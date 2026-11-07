@@ -1,6 +1,7 @@
 import { createWallChecker } from './walls.mjs';
 import { surfacePortals, directedPortals } from './surfaces.mjs';
 import { createBoundsTree } from './bounds.mjs';
+import { supportSnapshot, supportTriangles } from './support-snapshot.mjs';
 
 const pointKey = point => point.map(value => Math.round(value * 10000)).join(',');
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
@@ -84,22 +85,16 @@ export function createGroundStraightener(surfaces, { walls, profile, portals: im
   const portals = sharedPortals ?? surfacePortals(surfaces);
   const triangles = [], edgeOwners = new Map(), boundaryOwners = new Map(), ids = new Set();
   for (const surface of surfaces) {
-    if (typeof surface.id !== 'string' || ids.has(surface.id) || !Array.isArray(surface.vertices) ||
-        surface.vertices.length < 3 || !surface.vertices.every(finitePoint)) throw new Error('Invalid surface');
+    const owned = supportSnapshot(surface);
+    if (!owned || ids.has(owned.id)) throw new Error('Invalid surface');
     if (surface.portals !== undefined && (!Array.isArray(surface.portals) || surface.portals.some(index =>
-      !Number.isInteger(index) || index < 0 || index >= surface.vertices.length))) throw new Error('Invalid surface portals');
-    ids.add(surface.id);
-    const vertices = surface.vertices.map(point => [...point]);
-    for (let fan = 1; fan + 1 < vertices.length; fan++) {
-      const triangle = { id: triangles.length, vertices: [vertices[0], vertices[fan], vertices[fan + 1]], neighbours: [] };
-      const [a, b, c] = triangle.vertices;
-      triangle.determinant = (b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0]);
-      // Vertical or degenerate triangles cannot support an ordinary ground shortcut.
-      if (Math.abs(triangle.determinant) < 1e-12) continue;
-      triangle.min = [0, 1, 2].map(axis => Math.min(...triangle.vertices.map(point => point[axis])));
-      triangle.max = [0, 1, 2].map(axis => Math.max(...triangle.vertices.map(point => point[axis])));
+      !Number.isInteger(index) || index < 0 || index >= owned.vertices.length))) throw new Error('Invalid surface portals');
+    ids.add(owned.id);
+    for (const primitive of supportTriangles(owned)) {
+      const triangle = { id: triangles.length, vertices: primitive.vertices, neighbours: [],
+        determinant: primitive.determinant, min: primitive.min, max: primitive.max };
       triangles.push(triangle);
-      const polygonEdges = [fan === 1 ? 0 : null, fan, fan + 1 === vertices.length - 1 ? vertices.length - 1 : null];
+      const polygonEdges = primitive.polygonEdges;
       for (let edge = 0; edge < 3; edge++) {
         const polygonEdge = polygonEdges[edge];
         if (polygonEdge !== null) {

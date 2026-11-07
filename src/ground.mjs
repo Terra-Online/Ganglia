@@ -1,4 +1,5 @@
-import { surfaceGraph, surfacePortals, projectPoint } from './surfaces.mjs';
+import { createSupportProjector } from './support-projector.mjs';
+import { surfaceGraph, surfacePortals } from './surfaces.mjs';
 import { createRoutePlanner } from './routes.mjs';
 import { validateMotion } from './motion.mjs';
 import { createGoalProjector } from './goals.mjs';
@@ -36,6 +37,7 @@ export function createGroundPlanner(surfaces, options) {
   let supportRoute;
   const baseCenters = new Map(base.nodes.map(node => [node.id, node.position]));
   const byId = new Map(surfaces.map(surface => [surface.id, surface]));
+  const projectSupport = createSupportProjector(surfaces, byId);
   const straighten = createGroundStraightener(surfaces, options, portals);
   const projectGoal = createGoalProjector(surfaces);
   let targetKey;
@@ -110,10 +112,8 @@ export function createGroundPlanner(surfaces, options) {
       for (const surface of [connection.fromSurface, connection.toSurface]) {
         if (surface !== undefined && !byId.has(surface)) throw new Error('Invalid movement support surface');
       }
-      const fromProjection = projectPoint(connection.fromSurface === undefined ? surfaces : [byId.get(connection.fromSurface)],
-        points[0], { maxVertical: tolerance });
-      const toProjection = projectPoint(connection.toSurface === undefined ? surfaces : [byId.get(connection.toSurface)],
-        points.at(-1), { maxVertical: tolerance });
+      const fromProjection = projectSupport(points[0], tolerance, connection.fromSurface);
+      const toProjection = projectSupport(points.at(-1), tolerance, connection.toSurface);
       // Explicit collision-validated standing feet may sit above the navigation
       // support plane (rounded capsule support on slopes, or voxel-height error).
       const from = fromProjection && { ...fromProjection, position: points[0], support: fromProjection.position };
@@ -164,7 +164,7 @@ export function createGroundPlanner(surfaces, options) {
     }
     return best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
   } };
-  preparations.set(planner, { surfaces, portals, straighten, projectGoal, byId, centers: baseCenters,
+  preparations.set(planner, { surfaces, portals, straighten, projectGoal, projectSupport, byId, centers: baseCenters,
     graph: base, searchSpeed, importedPortals: options.portals });
   return planner;
 }

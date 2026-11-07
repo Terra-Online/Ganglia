@@ -97,3 +97,35 @@ test('uses an explicit horizontal cone angle and rejects incomplete facing rules
     assert.throws(() => projectGoal([], [0,0,0], {interaction}), /Invalid interaction facing cone/);
   }
 });
+
+test('reused support geometry preserves projection order across local extensions and reordered inputs', () => {
+  const base = [ground('left', -3, -1), ground('right', 1, 3)];
+  const original = createGoalProjector(base);
+  const additions = [ground('refined/0', -.5, .5, 0, 2, 2), ground('remote', 100, 102)];
+  for (const surfaces of [[...base, ...additions], [base[1], base[0], ...additions]]) {
+    const shared = createGoalProjector(surfaces), fresh = createGoalProjector(structuredClone(surfaces));
+    for (const [target, query] of [[[0,0,1], {interaction:{radius:3}}],
+      [[0,1,1], {interaction:{radius:3,maxVertical:1,facing:[0,0,1],halfAngle:90}}],
+      [[2,.1,1], {maxVertical:.5}]]) {
+      assert.deepEqual(shared(target, query), fresh(target, query));
+    }
+  }
+  assert.deepEqual(original([0,0,1], {interaction:{radius:1.1}}).map(value => value.surface), ['left','right']);
+});
+
+test('constructing after support mutation revalidates and keeps earlier projections isolated', () => {
+  const surface = ground('before', 0, 2);
+  const old = createGoalProjector([surface]);
+  surface.id = 'after';
+  for (const point of surface.vertices) point[1] = 3;
+  const updated = createGoalProjector([surface]);
+  assert.equal(old([1,.1,1], {maxVertical:.5})[0].surface, 'before');
+  assert.deepEqual(updated([1,.1,1], {maxVertical:.5}), []);
+  assert.equal(updated([1,3.1,1], {maxVertical:.5})[0].surface, 'after');
+  surface.vertices[1][0] = NaN;
+  assert.throws(() => createGoalProjector([surface]), /Invalid goal surface/);
+  assert.equal(updated([1,3.1,1], {maxVertical:.5})[0].position[1], 3);
+  const unrelated = ground('unrelated', 0, 2);
+  unrelated.portals = 'not-used-by-goal-projection';
+  assert.equal(createGoalProjector([unrelated])([1,0,1], {maxVertical:.5}).length, 1);
+});

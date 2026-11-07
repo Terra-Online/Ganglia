@@ -1,7 +1,7 @@
+import { movementGeometry } from './movement-geometry.mjs';
 import { createGroundPlanner, groundPreparation } from './ground.mjs';
 import { findJumpFrontier, findJumpShortcuts } from './shortcuts.mjs';
-import { findJumpConnections, groundComponents } from './traversal.mjs';
-import { createWallChecker } from './walls.mjs';
+import { findJumpConnections } from './traversal.mjs';
 import { findRouteShortcuts } from './route-shortcuts.mjs';
 import { createGoalProjector } from './goals.mjs';
 
@@ -163,10 +163,7 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
   }
   const prepared = groundPreparation(planner);
   const project = prepared?.projectGoal ?? createGoalProjector(surfaces), searches = [];
-  const blocked = createWallChecker(base.walls, base.profile);
-  const topology = prepared && groundComponents({ nodes: prepared.graph.nodes,
-    edges: prepared.graph.edges.filter(edge => !edge.points.slice(1).some((point, index) =>
-      blocked(edge.points[index], point))) });
+  const topology = prepared && movementGeometry(surfaces, { ...base, groundPlanner: planner }).topology;
   const regions = new Set(), directions = [];
   for (const point of waypoints) {
     const witness = project(point, { maxVertical: base.maxVertical,

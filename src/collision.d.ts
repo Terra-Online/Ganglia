@@ -7,11 +7,28 @@ export interface CollisionOptions {
    * this rectangle throw; capsule sweeps include radius and inflation in that guard.
    */
   bounds?: { min: [number, number]; max: [number, number] };
+  /** Optional exact-query memoization for repeated use of the immutable world.
+   * Nonnegative integer; defaults to zero (disabled). The capacity is shared by
+   * support and capsule queries, including null results, with FIFO replacement.
+   * Parameter validation and scope guards run before lookup. Cached returned
+   * objects are copied so callers cannot mutate a later result.
+   */
+  queryCacheSize?: number;
 }
 export interface Capsule { radius: number; height: number; inflation?: number }
 export interface CollisionWorld {
   /** Informational snapshot of the indexed XZ rectangle, or null for an unbounded index. */
   readonly bounds?: { min: [number, number]; max: [number, number] } | null;
+  /** Optional diagnostic snapshot of the factory's exact-query cache. Disabled
+   * caches report zero entries/hits/misses. Query-validation failures do not count.
+   */
+  readonly queryCacheStats?: { capacity: number; entries: number; hits: number; misses: number };
+  /** Input triangle indices whose inclusive XZ bounds overlap the rectangle,
+   * sorted in original input order. All heights are included. Throws if the
+   * rectangle is malformed or exceeds this world's indexed scope. A candidate
+   * triangle may not geometrically intersect the rectangle; this is broad phase.
+   */
+  trianglesInBounds?(bounds: { min: [number, number]; max: [number, number] }): number[];
   /** Exact vertical triangle support, with unchanged XZ coordinates. Height limits
    * are metres and maxSlope is degrees (greater than 0 and less than 90). Only
    * upward-facing triangles within the slope limit qualify. The closest height is

@@ -93,3 +93,17 @@ test('interaction queries end on reachable standing ground within an explicit vo
   assert.equal(result.points.at(-1)[1], 0);
   assert.ok(Math.hypot(...result.points.at(-1).map((v,i) => v - [1.5,1,1.5][i])) <= 1.5);
 });
+
+test('an initially unmapped query still permits later tracing on overlapping supports', () => {
+  const rectangle = (id, left, right, near, far) => ({ id,
+    vertices: [[left,0,near],[right,0,near],[right,0,far],[left,0,far]] });
+  const planner = createGroundPlanner([
+    rectangle('small', 0, 2, -.5, .5), rectangle('large', -1, 10, -2, 2),
+  ], { ...options, speed: 5 });
+  const starts = [{ id: 'player', position: [1,0,0], cost: 0, state: 'available' }];
+  assert.equal(planner.plan(starts, [9,10,0]).status, 'unmapped');
+  const result = planner.plan(starts, [9,0,0]);
+  assert.equal(result.status, 'complete');
+  assert.equal(result.cost, 1.6);
+  assert.deepEqual(result.points, [[1,0,0],[9,0,0]]);
+});

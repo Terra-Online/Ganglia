@@ -1,67 +1,17 @@
-import { surfaceGraph, surfacePortals, directedPortals, projectPoint } from './surfaces.mjs';
+import { movementGeometry } from './movement-geometry.mjs';
+export { groundComponents } from './connectivity.mjs';
+import { surfacePortals, directedPortals } from './surfaces.mjs';
 import { createBoundsIndex } from './bounds.mjs';
 import { createMinHeap } from './heap.mjs';
-import { createGoalProjector } from './goals.mjs';
 import { landingCandidates } from './landings.mjs';
 import { createWallChecker } from './walls.mjs';
 import { jumpConnection, jumpDuration } from './jumps.mjs';
-import { groundPreparation } from './ground.mjs';
 
 const finitePoint = (point) => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
 const horizontal = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 const boundaryKey = (surface, edge) => JSON.stringify([surface, edge]);
 
-export const groundComponents = (graph) => {
-  const ids = new Map(graph.nodes.map((node, index) => [node.id, index]));
-  const forward = graph.nodes.map(() => []),
-    reverse = graph.nodes.map(() => []);
-  for (const edge of graph.edges) {
-    if (edge.state !== 'open') continue;
-    const from = ids.get(edge.from),
-      to = ids.get(edge.to);
-    forward[from].push(to);
-    reverse[to].push(from);
-  }
-  const visited = new Uint8Array(graph.nodes.length),
-    order = [];
-  for (let start = 0; start < graph.nodes.length; start++) {
-    if (visited[start]) continue;
-    visited[start] = 1;
-    const stack = [{ node: start, next: 0 }];
-    while (stack.length) {
-      const current = stack.at(-1),
-        neighbours = forward[current.node];
-      if (current.next === neighbours.length) {
-        order.push(current.node);
-        stack.pop();
-        continue;
-      }
-      const next = neighbours[current.next++];
-      if (!visited[next]) {
-        visited[next] = 1;
-        stack.push({ node: next, next: 0 });
-      }
-    }
-  }
-  const components = new Int32Array(graph.nodes.length).fill(-1);
-  let count = 0;
-  for (const start of order.reverse()) {
-    if (components[start] !== -1) continue;
-    const stack = [start];
-    components[start] = count;
-    while (stack.length) {
-      const node = stack.pop();
-      for (const next of reverse[node])
-        if (components[next] === -1) {
-          components[next] = count;
-          stack.push(next);
-        }
-    }
-    count++;
-  }
-  return { ids, components, count, forward };
-};
 
 export const exposedBoundaries = (surfaces, portals, sharedPortals) => {
   const covered = new Map();
@@ -248,18 +198,10 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
     rejected: { projection: 0, support: 0, clearance: 0, range: 0, motion: 0 },
   };
   const connections = [];
-  const candidate = groundPreparation(options.groundPlanner);
-  const prepared = candidate?.surfaces === surfaces ? candidate : undefined;
-  const sharedPortals = prepared?.portals ?? surfacePortals(surfaces);
-  const base = prepared?.importedPortals === options.portals && prepared?.graph ||
-    surfaceGraph(surfaces, { speed: 1, portals }, sharedPortals);
-  const graph = { nodes: base.nodes, edges: base.edges };
-  graph.edges = graph.edges.filter(edge => !edge.points.slice(1).some((point, index) =>
-    blocked(edge.points[index], point)));
-  const topology = groundComponents(graph);
+  const geometry = movementGeometry(surfaces, options);
+  const { graph, topology, project } = geometry;
   diagnostics.components = topology.count;
   const componentOf = surface => topology.components[topology.ids.get(surface)];
-  const project = prepared?.projectGoal ?? createGoalProjector(surfaces);
   const source = project(from, { maxVertical })[0];
   const targets = project(to, { maxVertical, interaction }).filter(target =>
     !blocked(target.position, target.position));
@@ -269,27 +211,30 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
   }
   const sourceComponent = componentOf(source.surface);
   const targetComponents = new Set(targets.map(target => componentOf(target.surface)));
-  const byId = prepared?.byId ?? new Map(surfaces.map(surface => [surface.id, surface]));
+  const { byId, projectSupport } = geometry;
+  const extraForward = new Map();
   for (const connection of options.connections ?? []) {
     if (connection.state !== 'open') continue;
     const a = connection.fromSurface === undefined ? surfaces : [byId.get(connection.fromSurface)];
     const b = connection.toSurface === undefined ? surfaces : [byId.get(connection.toSurface)];
     if (!a[0] || !b[0]) throw new Error('Invalid movement support surface');
-    const from = projectPoint(a, connection.points[0], { maxVertical });
-    const to = projectPoint(b, connection.points.at(-1), { maxVertical });
+    const from = projectSupport(connection.points[0], maxVertical, connection.fromSurface);
+    const to = projectSupport(connection.points.at(-1), maxVertical, connection.toSurface);
     if (!from || !to || connection.points.slice(1).some((point, index) =>
       blocked(connection.points[index], point))) continue;
-    topology.forward[topology.ids.get(from.surface)].push(topology.ids.get(to.surface));
+    const id = topology.ids.get(from.surface), entries = extraForward.get(id) ?? [];
+    entries.push(topology.ids.get(to.surface)); extraForward.set(id, entries);
   }
   // Proposals start anywhere already reachable without a new airborne action.
   // Ground transfers have zero proposal cost, so distance to the original arrival
   // is not an admissible heuristic: directed stairs can put a reachable floor far
   // from that arrival, starving a short box chain behind an unrelated cliff.
   const reachable = new Set([topology.ids.get(source.surface)]), queue = [...reachable];
-  for (let head = 0; head < queue.length; head++) for (const next of topology.forward[queue[head]]) {
-    if (reachable.has(next)) continue;
-    reachable.add(next); queue.push(next);
-  }
+  for (let head = 0; head < queue.length; head++) for (const entries of
+    [topology.forward[queue[head]], extraForward.get(queue[head]) ?? []]) for (const next of entries) {
+      if (reachable.has(next)) continue;
+      reachable.add(next); queue.push(next);
+    }
   const sourceComponents = new Set([...reachable].map(index => topology.components[index]));
   diagnostics.sourceComponent = sourceComponent;
   diagnostics.targetComponent = componentOf(targets[0].surface);
@@ -301,25 +246,28 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
     return { connections, diagnostics };
   }
 
-  const regions = Array.from({ length: topology.count }, (_, component) => ({
-    id: String(component), component, min: [Infinity, Infinity, Infinity],
-    max: [-Infinity, -Infinity, -Infinity], boundaries: [], surfaces: [],
-  }));
-  for (const surface of surfaces) {
-    const region = regions[componentOf(surface.id)];
-    region.surfaces.push(surface);
-    for (const point of surface.vertices) for (let axis = 0; axis < 3; axis++) {
-      region.min[axis] = Math.min(region.min[axis], point[axis]);
-      region.max[axis] = Math.max(region.max[axis], point[axis]);
+  geometry.regions ??= (() => {
+    const regions = Array.from({ length: topology.count }, (_, component) => ({
+      id: String(component), component, min: [Infinity, Infinity, Infinity],
+      max: [-Infinity, -Infinity, -Infinity], boundaries: [], surfaces: [],
+    }));
+    for (const surface of surfaces) {
+      const region = regions[componentOf(surface.id)];
+      region.surfaces.push(surface);
+      for (const point of surface.vertices) for (let axis = 0; axis < 3; axis++) {
+        region.min[axis] = Math.min(region.min[axis], point[axis]);
+        region.max[axis] = Math.max(region.max[axis], point[axis]);
+      }
     }
-  }
-  const boundaries = exposedBoundaries(surfaces, portals, sharedPortals);
-  for (const boundary of boundaries) {
-    Object.assign(boundary, boundsOf([boundary.a, boundary.b]));
-    regions[componentOf(boundary.surface)].boundaries.push(boundary);
-  }
+    const boundaries = geometry.boundaries;
+    for (const boundary of boundaries) {
+      Object.assign(boundary, boundsOf([boundary.a, boundary.b]));
+      regions[componentOf(boundary.surface)].boundaries.push(boundary);
+    }
+    return { regions, boundaries, queryRegions: createBoundsIndex(regions) };
+  })();
+  const { regions, boundaries, queryRegions } = geometry.regions;
   diagnostics.boundaryEdges = boundaries.length;
-  const queryRegions = createBoundsIndex(regions);
   const endpointTolerance = Math.min(maxVertical, profile.radius);
   const transfers = new Map(), groundIncoming = new Map();
   const transfer = (a, b, ground, reach) => {
