@@ -1,6 +1,6 @@
 # Solver reuse and performance
 
-2026-11-07, alpha.47. This records implementation progress against
+2026-11-07, alpha.53. This records implementation progress against
 [architecture](architecture.md) and [ground topology](ground-topology.md), separately
 from their alpha.21 modeling baseline.
 
@@ -274,3 +274,63 @@ Further improvement must avoid constructing and traversing unnecessary global
 fine support structures, while preserving directed passages, overlapping supports,
 physical checks and the complete-route incumbent. More retained query results
 cannot substitute for that algorithmic work.
+
+## Jump candidate lookup and serial work
+
+Alpha.53 reduces temporary work while preserving candidate prefixes and budgets:
+
+- The bounds-tree builder scans packed lower/upper columns instead of nested
+  entry bounds at every partition level. Its ordering, hierarchy and leaf entry
+  identities stay unchanged. These columns are build-only scratch, released
+  after construction; no additional cross-query cache is retained.
+- Nearest traversal uses parallel heap columns instead of allocating a wrapper
+  per visited node or entry. Comparisons, ties and the order of child insertion
+  stay identical. The three-dimensional bounds and distance path avoids repeated
+  axis loops. Empty filtered sets do not create landing-search streams.
+- Analytic jump duration no longer builds phase objects for each candidate pair.
+  Actual trajectory construction and capsule sweeps still use the same phase
+  model, arithmetic order and physical checks. New and old duration/trajectory
+  outputs matched exactly on 48 jump/drop model combinations, including apex
+  holds and terminal-speed descent.
+- Coarse-direction planning hands its latest unchanged goal probe to the final
+  phase rather than solving that identical state again. This handoff lasts only
+  within one query. The extractor also retains its walking result when device
+  validation admits no new edges, and reads independent required inputs together.
+
+A separate serial-pipeline experiment combined walking, known devices and full
+search in one progressive worker call. The rear query took 31.94 / 32.59 seconds
+for staged / combined execution, then 30.95 / 32.79 seconds in reverse test order.
+The box query took 18.18 / 17.89 seconds. Each trial began with a fresh worker;
+the staged trial retained preparation between its own phases. All final route,
+connection and limit objects matched. This did not establish a useful latency
+gain, so the existing foreground/optimization scheduling remains in place.
+No larger retention ceiling or additional concurrent full search is enabled.
+
+### Alpha.53 fixed-input validation
+
+All 38 fresh-process requests passed exact route, connection and limit-object
+comparisons with the frozen alpha.31 successes. Installed package source matches
+the benchmark source. The SDK's 190 tests passed, including the unchanged-query
+handoff and legacy nearest-prefix references.
+
+| Stage | Alpha.31 (s) | Alpha.47 (s) | Alpha.53 (s) |
+| --- | ---: | ---: | ---: |
+| Input | 18.448 | 17.555 | 17.774 |
+| Ground | 118.491 | 93.067 | 89.183 |
+| Collision | 38.407 | 23.155 | 23.432 |
+| Devices | 7.103 | 6.199 | 5.091 |
+| Refinement | 168.900 | 136.351 | 132.990 |
+| Search | 202.690 | 140.154 | 129.342 |
+| Command total | 554.891 | 417.453 | 398.647 |
+
+This is 4.5 percent less command time and 7.7 percent less search time than
+alpha.47. Relative to alpha.31, command time is 28.2 percent lower. The rear query
+was 29.731 / 28.275 seconds, the box query 18.089 / 17.226 seconds and the third
+focused query 10.552 / 9.741 seconds for alpha.47 / alpha.53.
+
+These are single fixed-population replays, not latency percentiles or uniform
+per-point speedups. Eight requests took 12–475 ms longer than alpha.47 in this
+replay. The largest process peak was 3.09 / 3.21 GiB, so lower allocation work has
+not established a lower RSS peak. The ten historical quality gaps noted above
+remain unchanged. Neither G3 contraction nor the requested ten-percent
+remaining-time target is complete.

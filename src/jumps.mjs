@@ -77,7 +77,9 @@ export function createMotionVariants(model, world, profile, exits = new Map(), a
   };
 }
 
-const jumpPhases = (startHeight, endHeight, options) => {
+// Candidate retrieval needs only elapsed time. Build phase records only when a
+// physical trajectory will actually be swept, using the same summation order.
+const verticalDuration = (startHeight, endHeight, options, phases) => {
   const { gravity, fallingGravity, maxJumpHeight, maxFallingSpeed, apexTime, mode } = options ?? {};
   if (
     ![startHeight, endHeight, gravity, fallingGravity, maxJumpHeight, maxFallingSpeed, apexTime].every(
@@ -95,37 +97,51 @@ const jumpPhases = (startHeight, endHeight, options) => {
   const peak = startHeight + (mode === 'jump' ? maxJumpHeight : 0);
   if (!Number.isFinite(peak)) throw new Error('Non-finite jump model');
   if (endHeight > peak) return null;
-  const phases = [];
+  let duration = 0;
   if (mode === 'jump') {
     const velocity = Math.sqrt(2 * gravity * maxJumpHeight);
-    phases.push({ y: startHeight, velocity, acceleration: -gravity, duration: velocity / gravity });
-    if (apexTime > 0) phases.push({ y: peak, velocity: 0, acceleration: 0, duration: apexTime });
+    const ascent = velocity / gravity;
+    phases?.push({ y: startHeight, velocity, acceleration: -gravity, duration: ascent });
+    duration += ascent;
+    if (apexTime > 0) {
+      phases?.push({ y: peak, velocity: 0, acceleration: 0, duration: apexTime });
+      duration += apexTime;
+    }
   }
   const fallDistance = peak - endHeight;
   const terminalTime = maxFallingSpeed / fallingGravity;
   const terminalDistance = (maxFallingSpeed * terminalTime) / 2;
   if (fallDistance > 0) {
     if (fallDistance <= terminalDistance) {
-      phases.push({
+      const descent = Math.sqrt((2 * fallDistance) / fallingGravity);
+      phases?.push({
         y: peak,
         velocity: 0,
         acceleration: -fallingGravity,
-        duration: Math.sqrt((2 * fallDistance) / fallingGravity),
+        duration: descent,
       });
+      duration += descent;
     } else {
-      phases.push({ y: peak, velocity: 0, acceleration: -fallingGravity, duration: terminalTime });
-      phases.push({
+      phases?.push({ y: peak, velocity: 0, acceleration: -fallingGravity, duration: terminalTime });
+      duration += terminalTime;
+      const coast = (fallDistance - terminalDistance) / maxFallingSpeed;
+      phases?.push({
         y: peak - terminalDistance,
         velocity: -maxFallingSpeed,
         acceleration: 0,
-        duration: (fallDistance - terminalDistance) / maxFallingSpeed,
+        duration: coast,
       });
+      duration += coast;
     }
   }
-  const duration = phases.reduce((sum, phase) => sum + phase.duration, 0);
   if (!Number.isFinite(duration)) throw new Error('Non-finite jump model');
   if (duration <= 0) return null;
-  return { phases, duration };
+  return duration;
+};
+
+const jumpPhases = (startHeight, endHeight, options) => {
+  const phases = [], duration = verticalDuration(startHeight, endHeight, options, phases);
+  return duration === null ? null : { phases, duration };
 };
 
 /** Analytic duration under the same explicit vertical model as jumpConnection.
@@ -133,7 +149,7 @@ const jumpPhases = (startHeight, endHeight, options) => {
  * This does not check horizontal reach, collision, state or landing support.
  */
 export function jumpDuration(startHeight, endHeight, options) {
-  return jumpPhases(startHeight, endHeight, options)?.duration ?? null;
+  return verticalDuration(startHeight, endHeight, options);
 }
 
 /** Construct one directed, model-based jump or drop between caller-supported feet.

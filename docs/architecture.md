@@ -10,7 +10,7 @@ average across all queries, and subsecond performance has not been established.
 
 ## Decisions in this revision
 
-Implementation status as of 2026-11-06 is tracked separately in
+Implementation status as of 2026-11-07 is tracked separately in
 [solver reuse and performance](solver-performance.md). The alpha.21 references below
 describe the modeling baseline, not completion of the proposed phases. Ground
 passages and device macros have advanced, but G3 regional entry/exit transfers,

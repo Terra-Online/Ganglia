@@ -449,8 +449,8 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
         min: [start[0] - reach, start[1] - maxDrop - 2 * endpointTolerance, start[2] - reach],
         max: [start[0] + reach, start[1] + model.maxJumpHeight + 2 * endpointTolerance, start[2] + reach],
       };
-      active.push({ start, boundary: true, landings: queryLandings.nearest(bounds, to) },
-        { start, boundary: false, landings: queryFaces.nearest(bounds, to) });
+      if (!queryLandings.empty) active.push({ start, boundary: true, landings: queryLandings.nearest(bounds, to) });
+      if (!queryFaces.empty) active.push({ start, boundary: false, landings: queryFaces.nearest(bounds, to) });
     }
     while (active.length) {
       const pending = [];

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createBoundsIndex, createBoundsTree } from '../src/bounds.mjs';
+import { createMinHeap } from '../src/heap.mjs';
 
 test('nearest bounds traversal orders in 3D and retains rectangle exclusions', () => {
   const entries = Array.from({ length: 40 }, (_, index) => ({
@@ -18,6 +19,41 @@ test('nearest bounds traversal orders in 3D and retains rectangle exclusions', (
   assert.equal(nearest[0].id, 16);
 });
 
+const referenceNearest = (root, bounds, target) => {
+  const pending = createMinHeap(), result = [];
+  const enqueue = (node, entry = false) => {
+    if (!node.min.every((value, axis) => value <= bounds.max[axis] && node.max[axis] >= bounds.min[axis])) return;
+    let cost = 0;
+    for (let axis = 0; axis < node.min.length; axis++) {
+      cost += Math.max(node.min[axis] - target[axis], 0, target[axis] - node.max[axis]) ** 2;
+    }
+    pending.push({ node, entry, cost });
+  };
+  if (root) enqueue(root);
+  while (pending.size) {
+    const { node, entry } = pending.pop();
+    if (entry) result.push(node);
+    else if (node.entries) for (const value of node.entries) enqueue(value, true);
+    else { enqueue(node.left); enqueue(node.right); }
+  }
+  return result;
+};
+
+test('nearest heap columns preserve the original complete sequence and tied budget prefixes', () => {
+  for (const length of [0, 1, 8, 9, 65, 257]) for (const shape of [0, 1, 2]) {
+    const entries = Array.from({ length }, (_, id) => ({ id,
+      min: [shape ? id % 7 - 3 : -0, shape === 2 ? id % 13 : 0, shape ? -id % 5 : 0],
+      max: [shape ? id % 7 - 2.5 : 0, shape === 2 ? id % 13 + 1 : 0, shape ? -id % 5 + 1 : 0] }));
+    if (length > 2) entries[1] = entries[0];
+    const root = referenceTree(entries), index = createBoundsIndex(entries);
+    for (const bounds of [{ min: [-100, -100, -100], max: [100, 100, 100] },
+      { min: [-2, 0, -3], max: [2, 3, 0] }]) for (const target of [[0, 0, 0], [-0, 0, 0], [2.5, 3, -1]]) {
+      const expected = referenceNearest(root, bounds, target), actual = [...index.nearest(bounds, target)];
+      assert.deepEqual(actual, expected);
+      for (const limit of [0, 1, 7, 8, 9, 31]) assert.deepEqual(actual.slice(0, limit), expected.slice(0, limit));
+    }
+  }
+});
 
 test('filtered spatial views preserve range and nearest coverage without changing the base', () => {
   const entries = Array.from({ length: 80 }, (_, id) => ({ id,
@@ -119,7 +155,7 @@ const referenceTree = surfaces => {
   return entries.length ? build(0, entries.length) : null;
 };
 
-test('prepared centres preserve the complete original tree and leaf references', () => {
+test('packed build columns preserve the complete original tree and leaf references', () => {
   let seed = 17;
   const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32;
   const check = (actual, expected) => {

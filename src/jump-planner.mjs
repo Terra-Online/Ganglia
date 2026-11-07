@@ -12,7 +12,7 @@ import { createGoalProjector } from './goals.mjs';
  * A feasible incumbent is retained unless a complete, timed alternative is faster.
  * Search limits constrain candidate coverage, not the number of actions in a route.
  */
-function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage) {
+function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, initial) {
   const { interaction, runAirSpeed, model } = options;
   if (!Number.isFinite(runAirSpeed) || runAirSpeed < 0 || runAirSpeed > model.maxHorizontalSpeed) {
     throw new Error('Invalid running air-speed limit');
@@ -24,7 +24,7 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage) {
   const planner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
   const diagnostics = { strategy: 'surface-action-graph', groundStatus: 'unmapped',
     baselineCost: null, selectedCost: null, truncated: false, searches: [] };
-  let best = planner.plan(starts, goal, { interaction, connections: options.connections ?? [] }), bestConnections = options.connections ?? [];
+  let best = initial ?? planner.plan(starts, goal, { interaction, connections: options.connections ?? [] }), bestConnections = options.connections ?? [];
   const partialConnections = [...bestConnections];
   diagnostics.groundStatus = best.status;
   if (best.status === 'complete') diagnostics.baselineCost = best.cost;
@@ -157,9 +157,10 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
   const shared = {};
   if (!waypoints?.length) return solveJumpRoute(surfaces, world, starts, goal, base, shared, 'final');
   const planner = base.groundPlanner ?? createGroundPlanner(surfaces, base);
-  const initial = planner.plan(starts, goal, { interaction: base.interaction, connections: base.connections ?? [] });
+  const initialConnections = base.connections ?? [];
+  const initial = planner.plan(starts, goal, { interaction: base.interaction, connections: initialConnections });
   if (initial.status === 'complete') {
-    return solveJumpRoute(surfaces, world, starts, goal, { ...base, groundPlanner: planner }, shared, 'final');
+    return solveJumpRoute(surfaces, world, starts, goal, { ...base, groundPlanner: planner }, shared, 'final', initial);
   }
   const prepared = groundPreparation(planner);
   const project = prepared?.projectGoal ?? createGoalProjector(surfaces), searches = [];
@@ -182,7 +183,8 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
     directions.push({ point, witness });
   }
   const budget = Math.floor(base.maxCandidates / (2 * Math.max(1, directions.length)));
-  let connections = base.connections ?? [], remaining = base.maxCandidates;
+  let connections = initialConnections, remaining = base.maxCandidates;
+  let goalRoute = initial, goalConnections = connections;
   for (const [index, { point, witness }] of directions.entries()) {
     if (budget < 1) break;
     onProgress?.({ phase: 'direction-search', completed: index, total: directions.length });
@@ -196,11 +198,18 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
     onProgress?.({ phase: 'direction-search', completed: index + 1, total: directions.length,
       status: result.route.status, connections: connections.length });
     if (connections.length - (base.connections?.length ?? 0) >= base.maxLinks) break;
-    if (connections.length > previous && planner.plan(starts, goal,
-      { interaction: base.interaction, connections }).status === 'complete') break;
+    if (connections.length > previous) {
+      goalRoute = planner.plan(starts, goal, { interaction: base.interaction, connections });
+      goalConnections = connections;
+      if (goalRoute.status === 'complete') break;
+    }
   }
+  // The final phase starts from the same goal probe whenever the action list is
+  // unchanged. Carry that result through this call, without a route-result cache.
+  const unchanged = goalConnections.length === connections.length &&
+    goalConnections.every((connection, index) => connection === connections[index]);
   const result = solveJumpRoute(surfaces, world, starts, goal, { ...base,
-    groundPlanner: planner, connections, maxCandidates: remaining }, shared, 'final');
+    groundPlanner: planner, connections, maxCandidates: remaining }, shared, 'final', unchanged ? goalRoute : undefined);
   result.diagnostics.directions = { requestedGoals: waypoints.length, regions: directions.length,
     budgetPerGoal: budget, remaining, searches };
   return result;

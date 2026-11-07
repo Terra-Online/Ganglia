@@ -253,7 +253,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     ...[true, false].map(connected => ({ boundary: false,
       query: prepared.landingIndex.filterGroups(group => eligible(prepared.representatives[group]) &&
         departure.has(prepared.representatives[group]) === connected) })),
-  ];
+  ].filter(({ query }) => !query.empty);
   // Resume past rejected pairs instead of repeatedly filling a bounded batch with
   // cached failures. Reachability rejections are only valid for this action graph:
   // a new connection may make a previously inaccessible takeoff usable.

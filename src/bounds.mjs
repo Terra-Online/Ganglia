@@ -1,4 +1,7 @@
 const overlaps = (node, bounds) => {
+  if (node.min.length === 3) return node.min[0] <= bounds.max[0] && node.max[0] >= bounds.min[0] &&
+    node.min[1] <= bounds.max[1] && node.max[1] >= bounds.min[1] &&
+    node.min[2] <= bounds.max[2] && node.max[2] >= bounds.min[2];
   for (let axis = 0; axis < node.min.length; axis++) {
     if (!(node.min[axis] <= bounds.max[axis] && node.max[axis] >= bounds.min[axis])) return false;
   }
@@ -15,20 +18,23 @@ const sphereTouches = (node, target, radius) => {
 
 export const createBoundsTree = surfaces => {
   const entries = [...surfaces];
-  // Keep the original three-way partition order, but read each centre once. The
-  // ordinal and centre columns are build-only scratch; leaves retain entry refs.
+  // Packed build-only columns avoid revisiting nested entry bounds at every
+  // level. Leaves retain the original entries and no scratch columns.
   const order = new Uint32Array(entries.length);
-  const centers = Array.from({ length: 3 }, () => new Float64Array(entries.length));
+  const lower = Array.from({ length: 3 }, () => new Float64Array(entries.length));
+  const upper = Array.from({ length: 3 }, () => new Float64Array(entries.length));
   for (let index = 0; index < entries.length; index++) {
     order[index] = index;
     const entry = entries[index];
-    for (let axis = 0; axis < 3; axis++) centers[axis][index] = entry.min[axis] + entry.max[axis];
+    for (let axis = 0; axis < 3; axis++) {
+      lower[axis][index] = entry.min[axis]; upper[axis][index] = entry.max[axis];
+    }
   }
   // Median partitioning avoids sorting every subtree. Equal centres form one
   // partition, so coincident or elongated bounds still terminate in balanced leaves.
   const select = (start, end, middle, axis) => {
-    const values = centers[axis] ?? [];
-    const center = index => values[order[index]];
+    const minima = lower[axis] ?? [], maxima = upper[axis] ?? [];
+    const center = index => minima[order[index]] + maxima[order[index]];
     while (end - start > 1) {
       const first = center(start), last = center(end - 1), mid = center(Math.floor((start + end) / 2));
       const pivot = Math.max(Math.min(first, last), Math.min(Math.max(first, last), mid));
@@ -51,11 +57,10 @@ export const createBoundsTree = surfaces => {
   const build = (start, end) => {
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
     for (let index = start; index < end; index++) {
-      const entry = entries[order[index]];
-      for (let axis = 0; axis < 3; axis++) {
-        min[axis] = Math.min(min[axis], entry.min[axis]);
-        max[axis] = Math.max(max[axis], entry.max[axis]);
-      }
+      const id = order[index];
+      min[0] = Math.min(min[0], lower[0][id]); max[0] = Math.max(max[0], upper[0][id]);
+      min[1] = Math.min(min[1], lower[1][id]); max[1] = Math.max(max[1], upper[1][id]);
+      min[2] = Math.min(min[2], lower[2][id]); max[2] = Math.max(max[2], upper[2][id]);
     }
     if (end - start <= 8) return { min, max, entries: Array.from(order.subarray(start, end), index => entries[index]) };
     const spans = max.map((value, axis) => value - min[axis]);
@@ -131,23 +136,51 @@ const fromRoot = (root, groupOf) => {
     }
   };
   query.nearest = function* (bounds, target) {
-    const pending = createMinHeap();
+    if (!root) return;
+    // Parallel heap columns retain the original comparisons and tie order without
+    // allocating a wrapper for every visited spatial node and candidate entry.
+    const nodes = [], costs = [], entries = [];
     const enqueue = (node, entry = false) => {
       if (!overlaps(node, bounds)) return;
       let cost = 0;
-      for (let axis = 0; axis < node.min.length; axis++) {
+      if (node.min.length === 3) {
+        cost += Math.max(node.min[0] - target[0], 0, target[0] - node.max[0]) ** 2;
+        cost += Math.max(node.min[1] - target[1], 0, target[1] - node.max[1]) ** 2;
+        cost += Math.max(node.min[2] - target[2], 0, target[2] - node.max[2]) ** 2;
+      } else for (let axis = 0; axis < node.min.length; axis++) {
         cost += Math.max(node.min[axis] - target[axis], 0, target[axis] - node.max[axis]) ** 2;
       }
-      pending.push({ node, entry, cost });
+      let index = nodes.length;
+      nodes.push(node); costs.push(cost); entries.push(entry);
+      while (index > 0) {
+        const parent = (index - 1) >> 1;
+        if (costs[parent] <= cost) break;
+        nodes[index] = nodes[parent]; costs[index] = costs[parent]; entries[index] = entries[parent];
+        index = parent;
+      }
+      nodes[index] = node; costs[index] = cost; entries[index] = entry;
     };
     if (root) enqueue(root);
-    while (pending.size) {
-      const { node, entry } = pending.pop();
+    while (nodes.length) {
+      const node = nodes[0], entry = entries[0];
+      const lastNode = nodes.pop(), lastCost = costs.pop(), lastEntry = entries.pop();
+      if (nodes.length) {
+        let index = 0;
+        while (index * 2 + 1 < nodes.length) {
+          let child = index * 2 + 1;
+          if (child + 1 < nodes.length && costs[child + 1] < costs[child]) child++;
+          if (costs[child] >= lastCost) break;
+          nodes[index] = nodes[child]; costs[index] = costs[child]; entries[index] = entries[child];
+          index = child;
+        }
+        nodes[index] = lastNode; costs[index] = lastCost; entries[index] = lastEntry;
+      }
       if (entry) { yield node; continue; }
       if (node.entries) for (const value of node.entries) enqueue(value, true);
       else { enqueue(node.left); enqueue(node.right); }
     }
   };
+  query.empty = !root;
   query.filter = eligible => fromRoot(filterNode(root, eligible), groupOf);
   query.filterGroups = eligible => {
     if (!groupOf) throw new Error('Bounds index has no immutable groups');
@@ -155,5 +188,3 @@ const fromRoot = (root, groupOf) => {
   };
   return query;
 };
-
-import { createMinHeap } from './heap.mjs';

@@ -16,6 +16,18 @@ const options = { profile: { radius: 0.3, height: 1.7 }, walls: [], speed: 7, ru
   model: { gravity: 10, fallingGravity: 10, maxJumpHeight: 2, maxFallingSpeed: 20, apexTime: 0.2, maxHorizontalSpeed: 6.5 } };
 const arrival = position => [{ id: 'player', position, state: 'available', cost: 0 }];
 
+test('a complete initial goal probe is handed to the next phase without a second unchanged solve', () => {
+  const surfaces = [floor('flat', 0, 20, 0)], starts = arrival([2, 0, 0]), goal = [18, 0, 0];
+  const planner = createGroundPlanner(surfaces, options), plan = planner.plan;
+  let calls = 0;
+  planner.plan = (...args) => { calls++; return plan(...args); };
+  const result = planJumpRoute(surfaces, createCollisionWorld(geometry(surfaces)), starts, goal,
+    { ...options, groundPlanner: planner, waypoints: [[10, 0, 0]], maxShortcutCandidates: 0 });
+  assert.equal(result.route.status, 'complete');
+  assert.equal(calls, 1);
+  assert.deepEqual(result.route, createGroundPlanner(surfaces, options).plan(starts, goal));
+});
+
 test('jointly selects multiple jumps through surfaces missing from the ground-only route', () => {
   const surfaces = [floor('start', 0, 4, 0), floor('step', 7, 11, 0), floor('goal', 14, 18, 0)];
   const result = planJumpRoute(surfaces, createCollisionWorld(geometry(surfaces)), arrival([2, 0, 0]), [16, 0, 0], options);

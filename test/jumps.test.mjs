@@ -175,8 +175,14 @@ test('analytic duration reuses the complete jump and terminal-fall phase model',
     const connection = jumpConnection([0, startHeight, 0], [0, endHeight, 0], model);
     assert.equal(jumpDuration(startHeight, endHeight, model), connection.times.at(-1));
   }
+  // Frozen phase-sum result: a sampled phase endpoint's multiply/divide can
+  // differ by one ulp, so it is not an exact analytic-duration reference.
+  assert.equal(jumpDuration(0, 0, { ...options, fallingGravity: 17.25,
+    maxFallingSpeed: 20, apexTime: 0.2 }), 1.3139989443767528);
   assert.equal(jumpDuration(0, 3, { ...options, mode: 'jump' }), null);
   assert.throws(() => jumpDuration(0, 0, { ...options, gravity: 0 }), /Invalid jump model/);
+  assert.throws(() => jumpDuration(Number.MAX_VALUE, 0,
+    { ...options, maxJumpHeight: Number.MAX_VALUE }), /Non-finite jump model/);
 });
 
 test('walk-off drops preserve support before free fall under low headroom', () => {
