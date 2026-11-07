@@ -1,6 +1,6 @@
 # Solver reuse and performance
 
-2026-11-07, alpha.39. This records implementation progress against
+2026-11-07, alpha.47. This records implementation progress against
 [architecture](architecture.md) and [ground topology](ground-topology.md), separately
 from their alpha.21 modeling baseline.
 
@@ -202,3 +202,75 @@ A fresh-process alpha.31 control replay after the candidate corpus took 95.301 s
 for the same three focused requests, against 95.443 s in the frozen record.
 Its complete route, connection and limit objects also matched. This checks that
 the focused improvement is not explained by a large overall machine-speed change.
+
+## Reducing repeated graph work
+
+The next implementation removes duplicate topology and distance searches rather
+than increasing retained cross-query state:
+
+- Ground routing exposes its already validated, wall-filtered graph and forward
+  adjacency to movement discovery. Original edge weights are scaled on relaxation,
+  avoiding a full copied edge graph just for unit conversion. They share its SCC
+  computation and derive the directed rejection DAG from those same components. The standalone public graph planner still
+  retains only its condensation, without keeping the full numeric topology.
+- Each physical query owns only its current forward/reverse distance labels.
+  When actions extend an unchanged graph, Dijkstra resumes from newly improved
+  endpoints. An unchanged field expands no nodes. Deleted/reordered/changed
+  action weights, changed roots or a changed base graph restart the full search.
+  These fields are released with the query; worker preparation does not retain
+  them for another target. Candidate ordering continues to use the same final
+  shortest-distance labels.
+- Ground tracing indexes polygon boundaries by surface ID and integer edge
+  ordinal. Fan diagonals are grouped only within their owning polygon, so they
+  do not require global serialized keys. Neighbour and portal insertion order
+  remains unchanged. Empty diagonal maps are not allocated for triangle faces.
+
+The query diagnostics expose distance-field resets, node expansions, outgoing-edge
+visits and reachable-node counts. The last count records how much a full field
+pass would traverse, making the avoided graph work visible independently of
+wall-clock variance. No candidate budgets, grounded support checks or swept
+collision validations are weakened. A face-level kinematic prefilter was tested
+but excluded because its small rejection rate did not improve total work time.
+
+### Alpha.47 fixed-input validation
+
+All 38 requests again passed exact route, discovered-connection and candidate-limit
+comparisons with alpha.31. Each request ran in a new process; neither prepared
+worker state nor completed route results participated. The packed runtime matches
+the frozen benchmark source. The 188 SDK tests passed.
+
+| Stage | Alpha.31 (s) | Alpha.39 (s) | Alpha.47 (s) |
+| --- | ---: | ---: | ---: |
+| Input | 18.448 | 17.740 | 17.555 |
+| Ground | 118.491 | 106.332 | 93.067 |
+| Collision | 38.407 | 23.326 | 23.155 |
+| Devices | 7.103 | 6.393 | 6.199 |
+| Refinement | 168.900 | 145.287 | 136.351 |
+| Search | 202.690 | 152.695 | 140.154 |
+| Command total | 554.891 | 452.624 | 417.453 |
+
+Alpha.47 reduces the fixed population's command time by 24.8 percent and search
+time by 30.9 percent relative to alpha.31. No case became slower in this replay;
+these remain local measurements rather than latency percentiles. The rear query
+was 53.197 / 29.731 s, the box query 28.463 / 18.089 s, and the third focused query
+13.783 / 10.552 s.
+
+Across 192 distance-field calls, 76 required no expansion. Incremental propagation
+expanded 1,960,025 nodes, versus 5,953,562 reachable nodes across corresponding
+complete field passes: 67.1 percent fewer expansions. The rear query alone visited
+125,646 versus 1,363,499 nodes in these fields. These are distance-field counts,
+not a claim of a 90 percent total-command reduction.
+
+Separate three-request resource runs measured peak RSS around 1.7–2.9 GiB for
+alpha.47, against about 1.9–2.8 GiB for the alpha.31 control. The rear query reached
+3.1 GiB in the complete corpus run. Peak RSS did not uniformly decrease; fewer
+edge copies do not by themselves establish a smaller process peak. An additional
+in-place distance-field-reset experiment showed no stable wall-time/RSS gain and
+was excluded from this release.
+
+The requested ten-percent remaining-time target is not reached. Ground preparation
+and goal refinement still consume about 55 percent of the current command total.
+Further improvement must avoid constructing and traversing unnecessary global
+fine support structures, while preserving directed passages, overlapping supports,
+physical checks and the complete-route incumbent. More retained query results
+cannot substitute for that algorithmic work.

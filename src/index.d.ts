@@ -135,12 +135,23 @@ export function findJumpConnections(surfaces: Surface[], world: CollisionWorld, 
   connections: (GroundConnection & { fromSurface: string; toSurface: string; motionValidation: 'model-based' })[];
   diagnostics: DiscoveryDiagnostics;
 };
+interface FieldWork {
+  /** True when roots, the base graph or existing actions required a full restart. */
+  reset: boolean;
+  expanded: number;
+  /** Outgoing edges visited from expanded labels. */
+  edgeChecks: number;
+  relaxed: number;
+  /** Current reachable labels; a complete distance-field pass visits this many nodes. */
+  reachableNodes: number;
+}
 /** Search collision-checked alternatives to an existing route, including same-component jumps and drops. */
 export interface ShortcutDiagnostics { reason: string; baselineCost: number; boundaryEdges: number; seedChecks: number;
     candidatePairs: number; neighbourChecks: number; endpointChecks: number; attempted: number;
     accepted: number; truncated: boolean; goalFaces: number;
     rejected: { support: number; projection: number; clearance: number; range: number; motion: number; groundDominated: number };
     limits: { seedChecks: number; neighbourChecks: number; endpointChecks: number; arcAttempts: number; maxLinks: number };
+    distanceFields?: { approach: FieldWork; departure: FieldWork };
 }
 interface FrontierDiagnostics extends Omit<ShortcutDiagnostics, 'baselineCost'> { baselineCost: null }
 export function findJumpShortcuts(surfaces: Surface[], world: CollisionWorld,

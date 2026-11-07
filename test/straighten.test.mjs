@@ -160,3 +160,17 @@ test('rebuilding mutated supports revalidates geometry and masks while previous 
   assert.throws(() => createGroundStraightener([surface], options, []), /Invalid surface portals/);
   assert.ok(updated.trace([.2,5,.2],[1.8,5,1.8]));
 });
+
+test('fan neighbours stay local to each face when identical polygons overlap', () => {
+  const a = { ...rectangle('floor"/0', 0, 0, 2, 2), portals: [] };
+  const b = { ...structuredClone(a), id: 'floor/"0' };
+  const input = [[.2,0,.3],[.8,0,.7],[1.8,0,1.7]];
+  const trace = createGroundStraightener([a,b], options);
+  assert.deepEqual(trace.trace(input[0],input.at(-1)),[input[0],input.at(-1)]);
+  assert.deepEqual(trace(input),[input[0],input.at(-1)]);
+});
+
+test('duplicate IDs are rejected even when the first face has no support triangles', () => {
+  const empty = { id: 'floor', vertices: [[0,0,0],[1,0,0],[2,0,0]], portals: [] };
+  assert.throws(() => createGroundStraightener([empty, rectangle('floor',0,0)], options, []), /Invalid surface/);
+});

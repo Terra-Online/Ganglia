@@ -63,17 +63,23 @@ export const directedComponents = (nodeIds, adjacency) => {
     const from = ids.get(edge.from), to = ids.get(edge.to);
     forward[from].push(to); reverse[to].push(from);
   }
-  const topology = componentsOf(ids, forward, reverse);
+  return condenseComponents(componentsOf(ids, forward, reverse));
+};
+
+// Both action proposals and exact graph rejection use the same SCC numbering.
+// Condensation adds only the directed inter-component adjacency, not another DFS.
+export const condenseComponents = topology => {
   const dag = Array.from({ length: topology.count }, () => new Set());
-  for (let node = 0; node < forward.length; node++) {
+  for (let node = 0; node < topology.forward.length; node++) {
     const from = topology.components[node];
-    for (const next of forward[node]) {
+    for (const next of topology.forward[node]) {
       const to = topology.components[next];
       if (from !== to) dag[from].add(to);
     }
   }
-  for (const [id, index] of ids) ids.set(id, topology.components[index]);
-  return { components: ids, forward: dag };
+  const components = new Map();
+  for (const [id, index] of topology.ids) components.set(id, topology.components[index]);
+  return { components, forward: dag };
 };
 
 export const canReach = (base, links, sources, goals) => {

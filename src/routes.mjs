@@ -1,4 +1,4 @@
-import { directedComponents, canReach } from './connectivity.mjs';
+import { groundComponents, condenseComponents, directedComponents, canReach } from './connectivity.mjs';
 import { createMinHeap } from './heap.mjs';
 import { createWallChecker } from './walls.mjs';
 import { validateMotion, routeSegment } from './motion.mjs';
@@ -26,17 +26,39 @@ export function routeFrom(graph, starts, goal, constraints) {
 // newly validated actions need corridor checks on each successive planning pass.
 export function createRoutePlanner(graph, constraints) {
   const base = prepareGraph(graph, constraints);
-  const estimates = {}, ids = graph.nodes.map(node => node.id);
+  const ids = graph.nodes.map(node => node.id);
+  return preparedSearch(base, () => directedComponents(ids, base.edges));
+}
+
+// Ground and movement already need the full numeric topology. Own it once in
+// their shared preparation, without retaining it for standalone graph searches.
+export function prepareRoutePlanner(graph, constraints) {
+  const accepted = [];
+  const base = prepareGraph(graph, constraints, undefined, accepted);
+  const graphSnapshot = { nodes: graph.nodes, edges: accepted.length === graph.edges.length ? graph.edges : accepted };
+  let topology;
+  const preparedBase = {
+    graph: graphSnapshot,
+    forward: base.edges,
+    blocked: base.blocked,
+    get topology() { return topology ??= groundComponents(graphSnapshot); },
+    plan: preparedSearch(base, () => condenseComponents(preparedBase.topology)),
+  };
+  return preparedBase;
+}
+
+const preparedSearch = (base, getComponents) => {
+  const estimates = {};
   let disconnected = false, components;
   return (extra, starts, goal) => {
     const prepared = prepareGraph(extra, null, base);
-    // Ordinary successful queries pay no component-build cost. Only after a
-    // complete failed search do later refinements prepare this necessary check.
-    components ??= disconnected ? directedComponents(ids, base.edges) : undefined;
+    // Successful queries avoid all component work. Only after a complete failed
+    // search do refinements condense the planner's immutable accepted base graph.
+    components ??= disconnected ? getComponents() : undefined;
     return search(prepared, starts, goal, estimates, { components, links: prepared.links,
       exhausted: () => { disconnected = true; } });
   };
-}
+};
 
 const overlay = base => {
   const own = new Map();
@@ -45,7 +67,7 @@ const overlay = base => {
     set: (key, value) => own.set(key, value) };
 };
 
-function prepareGraph(graph, constraints, base) {
+function prepareGraph(graph, constraints, base, accepted) {
   const blocked = base?.blocked ?? (constraints ? createWallChecker(constraints.walls, constraints.profile) : null);
   // Query endpoints and actions overlay the immutable scene. Copying million-node
   // maps on every refinement pass costs memory without changing their contents.
@@ -78,6 +100,7 @@ function prepareGraph(graph, constraints, base) {
       }
       outgoing.push(edge);
       links?.push(edge);
+      accepted?.push(edge);
     }
   }
   return { nodes, edges, blocked, maxSpeed, links };

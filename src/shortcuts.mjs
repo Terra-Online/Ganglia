@@ -1,8 +1,8 @@
 import { movementGeometry } from './movement-geometry.mjs';
+import { advanceDistanceField } from './distance-field.mjs';
 import { boundaryTree, boundaryOrder } from './boundary-order.mjs';
 import { landingCandidates, boundaryLanding } from './landings.mjs';
 import { createBoundsIndex } from './bounds.mjs';
-import { createMinHeap } from './heap.mjs';
 import { createGroundStraightener } from './straighten.mjs';
 import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.mjs';
 import { interleave, standingFoot, validateDiscovery } from './traversal.mjs';
@@ -12,12 +12,15 @@ const horizontal = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 
 const geometries = new WeakMap();
 
-const adjacency = edges => {
-  const forward = new Map(), reverse = new Map();
-  for (const edge of edges) for (const [map, id] of [[forward, edge.from], [reverse, edge.to]]) {
-    const entries = map.get(id) ?? [];
-    entries.push(edge);
-    map.set(id, entries);
+const adjacency = (edges, sharedForward) => {
+  const forward = sharedForward ?? new Map(), reverse = new Map();
+  for (const edge of edges) {
+    if (!sharedForward) {
+      const entries = forward.get(edge.from) ?? [];
+      entries.push(edge); forward.set(edge.from, entries);
+    }
+    const entries = reverse.get(edge.to) ?? [];
+    entries.push(edge); reverse.set(edge.to, entries);
   }
   return { forward, reverse };
 };
@@ -38,7 +41,7 @@ function prepareGeometry(surfaces, options) {
     min: [0, 1, 2].map(axis => Math.min(...surface.vertices.map(point => point[axis]))),
     max: [0, 1, 2].map(axis => Math.max(...surface.vertices.map(point => point[axis]))) }));
 
-  const geometry = { ...adjacency(graph.edges.map(edge => ({ ...edge, cost: edge.cost * shared.lengthScale }))), blocked, boundaries, landingSurfaces,
+  const geometry = { ...adjacency(graph.edges, shared.forward), lengthScale: shared.lengthScale, blocked, boundaries, landingSurfaces,
     boundaryIndex: createBoundsIndex(boundaries, edge => componentOf(edge.surface)),
     landingIndex: createBoundsIndex(landingSurfaces, surface => componentOf(surface.id)), representatives,
     byId, projectSupport,
@@ -49,27 +52,6 @@ function prepareGeometry(surfaces, options) {
   geometries.set(shared, geometry);
   return geometry;
 }
-
-const distanceField = (base, extra, roots, reverse) => {
-  const costs = new Map(), pending = createMinHeap();
-  for (const root of roots) {
-    if (root.cost >= (costs.get(root.id) ?? Infinity)) continue;
-    costs.set(root.id, root.cost);
-    pending.push(root);
-  }
-  while (pending.size) {
-    const current = pending.pop();
-    if (current.cost !== costs.get(current.id)) continue;
-    for (const entries of [base.get(current.id) ?? [], extra.get(current.id) ?? []]) for (const edge of entries) {
-      const to = reverse ? edge.from : edge.to;
-      const cost = current.cost + edge.cost;
-      if (cost >= (costs.get(to) ?? Infinity)) continue;
-      costs.set(to, cost);
-      pending.push({ id: to, cost });
-    }
-  }
-  return costs;
-};
 
 /** Find collision-checked jump/drop alternatives to a complete route.
  * Existing connections participate in reachability and candidate ordering, so a
@@ -142,11 +124,17 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       cost: distance(centers.get(a.surface), a.position) + connection.times.at(-1) * speed +
         distance(b.position, centers.get(b.surface)) });
   }
-  const extra = adjacency(edges);
-  const approach = distanceField(prepared.forward, extra.forward, [{ id: source.surface,
-    cost: distance(source.position, centers.get(source.surface)) }], false);
-  const departure = distanceField(prepared.reverse, extra.reverse, goals.map(goal => ({ id: goal.surface,
-    cost: distance(goal.position, centers.get(goal.surface)) })), true);
+  const fields = cache?.distanceFields ?? {};
+  if (cache) cache.distanceFields = fields;
+  fields.approach = advanceDistanceField(prepared.forward, edges, [{ id: source.surface,
+    cost: distance(source.position, centers.get(source.surface)) }], false, fields.approach, prepared.lengthScale);
+  fields.departure = advanceDistanceField(prepared.reverse, edges, goals.map(goal => ({ id: goal.surface,
+    cost: distance(goal.position, centers.get(goal.surface)) })), true, fields.departure, prepared.lengthScale);
+  const approach = fields.approach.costs, departure = fields.departure.costs;
+  diagnostics.distanceFields = {
+    approach: { ...fields.approach.work, reachableNodes: approach.size },
+    departure: { ...fields.departure.work, reachableNodes: departure.size },
+  };
   diagnostics.boundaryEdges = boundaries.length;
   const endpointTolerance = Math.min(maxVertical, profile.radius), diversity = profile.radius * 2;
   const cellOf = position => position.map(value => Math.floor(value / diversity)).join('/');

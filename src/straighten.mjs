@@ -83,13 +83,17 @@ const makeIndex = triangles => {
 export function createGroundStraightener(surfaces, { walls, profile, portals: imported = [] }, sharedPortals) {
   const blocked = createWallChecker(walls, profile);
   const portals = sharedPortals ?? surfacePortals(surfaces);
-  const triangles = [], edgeOwners = new Map(), boundaryOwners = new Map(), ids = new Set();
+  const triangles = [], boundaryOwners = new Map();
   for (const surface of surfaces) {
     const owned = supportSnapshot(surface);
-    if (!owned || ids.has(owned.id)) throw new Error('Invalid surface');
+    if (!owned || boundaryOwners.has(owned.id)) throw new Error('Invalid surface');
     if (surface.portals !== undefined && (!Array.isArray(surface.portals) || surface.portals.some(index =>
       !Number.isInteger(index) || index < 0 || index >= owned.vertices.length))) throw new Error('Invalid surface portals');
-    ids.add(owned.id);
+    // Polygon boundary edges already have integer ordinals. Avoid a serialized
+    // [surface, edge] key per triangle edge; internal fan edges never join faces.
+    const boundary = [];
+    let edgeOwners;
+    boundaryOwners.set(owned.id, boundary);
     for (const primitive of supportTriangles(owned)) {
       const triangle = { id: triangles.length, vertices: primitive.vertices, neighbours: [],
         determinant: primitive.determinant, min: primitive.min, max: primitive.max };
@@ -98,36 +102,35 @@ export function createGroundStraightener(surfaces, { walls, profile, portals: im
       for (let edge = 0; edge < 3; edge++) {
         const polygonEdge = polygonEdges[edge];
         if (polygonEdge !== null) {
-          boundaryOwners.set(JSON.stringify([surface.id, polygonEdge]), { triangle, edge });
+          boundary[polygonEdge] = { triangle, edge };
           continue;
         }
         const from = pointKey(triangle.vertices[edge]), to = pointKey(triangle.vertices[(edge + 1) % 3]);
         if (from === to) continue;
         const edgeKey = from < to ? from + '/' + to : to + '/' + from;
-        const key = polygonEdge === null ? JSON.stringify(surface.id) + ':' + edgeKey : edgeKey;
-        const owners = edgeOwners.get(key) ?? [];
+        const owners = edgeOwners?.get(edgeKey) ?? [];
         owners.push({ triangle, edge, from, to });
-        edgeOwners.set(key, owners);
+        (edgeOwners ??= new Map()).set(edgeKey, owners);
       }
     }
-  }
-  for (const owners of edgeOwners.values()) {
-    if (owners.length !== 2) continue;
-    const [a, b] = owners;
-    if (a.from !== b.to || a.to !== b.from || a.triangle === b.triangle) continue;
-    a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3 });
-    b.triangle.neighbours.push({ triangle: a.triangle, opposite: (b.edge + 2) % 3 });
+    if (edgeOwners) for (const owners of edgeOwners.values()) {
+      if (owners.length !== 2) continue;
+      const [a, b] = owners;
+      if (a.from !== b.to || a.to !== b.from || a.triangle === b.triangle) continue;
+      a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3 });
+      b.triangle.neighbours.push({ triangle: a.triangle, opposite: (b.edge + 2) % 3 });
+    }
   }
   for (const portal of portals) {
-    const a = boundaryOwners.get(JSON.stringify([portal.from, portal.fromEdge]));
-    const b = boundaryOwners.get(JSON.stringify([portal.to, portal.toEdge]));
+    const a = boundaryOwners.get(portal.from)?.[portal.fromEdge];
+    const b = boundaryOwners.get(portal.to)?.[portal.toEdge];
     if (!a || !b) continue;
     a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3, portal });
     b.triangle.neighbours.push({ triangle: a.triangle, opposite: (b.edge + 2) % 3, portal });
   }
   for (const portal of directedPortals(surfaces, imported)) {
-    const a = boundaryOwners.get(JSON.stringify([portal.from, portal.fromEdge]));
-    const b = boundaryOwners.get(JSON.stringify([portal.to, portal.toEdge]));
+    const a = boundaryOwners.get(portal.from)?.[portal.fromEdge];
+    const b = boundaryOwners.get(portal.to)?.[portal.toEdge];
     if (a && b) a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3, portal });
   }
   const supporting = makeIndex(triangles);

@@ -67,7 +67,7 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage) {
     const exhausted = new Set();
     const cache = { standing: shared.standing ?? new Map(), motions: shared.motions ?? new Map(),
       exits: shared.exits ?? new Map(), approaches: shared.approaches ?? new Map(),
-      geometry: shared.geometry, visibility: shared.visibility, traces: shared.traces };
+      geometry: shared.geometry, visibility: shared.visibility, traces: shared.traces, distanceFields: shared.distanceFields };
     while (incumbent.status !== 'complete' && remaining > 0) {
       const maxLinks = options.maxLinks - connections.length + (options.connections?.length ?? 0);
       if (maxLinks <= 0) { diagnostics.truncated = true; break; }
@@ -99,7 +99,7 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage) {
       connections.push(...additions);
       incumbent = planner.plan([arrival], goal, { interaction, connections });
     }
-    for (const key of ['standing', 'motions', 'exits', 'approaches', 'geometry', 'visibility', 'traces']) shared[key] = cache[key];
+    for (const key of ['standing', 'motions', 'exits', 'approaches', 'geometry', 'visibility', 'traces', 'distanceFields']) shared[key] = cache[key];
     if (incumbent.status !== 'complete') {
       partialConnections.push(...connections.slice(options.connections?.length ?? 0));
       continue;

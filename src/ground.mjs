@@ -1,11 +1,10 @@
 import { createSupportProjector } from './support-projector.mjs';
 import { surfaceGraph, surfacePortals } from './surfaces.mjs';
-import { createRoutePlanner } from './routes.mjs';
+import { createRoutePlanner, prepareRoutePlanner } from './routes.mjs';
 import { validateMotion } from './motion.mjs';
 import { createGoalProjector } from './goals.mjs';
 import { createGroundStraightener } from './straighten.mjs';
 import { retimeGroundRoute } from './locomotion.mjs';
-import { createWallChecker } from './walls.mjs';
 
 const preparations = new WeakMap();
 /** Internal immutable preparation shared with action discovery for the same planner. */
@@ -32,8 +31,9 @@ export function createGroundPlanner(surfaces, options) {
   const searchSpeed = options.locomotion?.sprintSpeed ?? speed;
   const portals = surfacePortals(surfaces);
   const base = surfaceGraph(surfaces, { speed: searchSpeed, portals: options.portals }, portals);
-  const routeBase = createRoutePlanner(base, { walls, profile });
-  const blocked = createWallChecker(walls, profile);
+  const routeBase = prepareRoutePlanner(base, { walls, profile });
+  const blocked = routeBase.blocked;
+  const constraintsSignature = JSON.stringify([walls, profile]);
   let supportRoute;
   const baseCenters = new Map(base.nodes.map(node => [node.id, node.position]));
   const byId = new Map(surfaces.map(surface => [surface.id, surface]));
@@ -146,7 +146,7 @@ export function createGroundPlanner(surfaces, options) {
     let best = null;
     for (const arrival of arrivals) {
       if (best && arrival.cost >= best.cost) continue;
-      let candidate = routeBase(graph, [arrival], targetIds);
+      let candidate = routeBase.plan(graph, [arrival], targetIds);
       if (candidate.status !== 'complete' && walls.some(wall => wall.state !== 'inactive')) {
         // A blocked polygon centre can disconnect the representative graph even
         // when its support corridor admits a clear continuous path. Try that
@@ -165,7 +165,7 @@ export function createGroundPlanner(surfaces, options) {
     return best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
   } };
   preparations.set(planner, { surfaces, portals, straighten, projectGoal, projectSupport, byId, centers: baseCenters,
-    graph: base, searchSpeed, importedPortals: options.portals });
+    graph: base, routeBase, constraintsSignature, searchSpeed, importedPortals: options.portals });
   return planner;
 }
 
