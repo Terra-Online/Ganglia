@@ -28,6 +28,34 @@ const validateProfile = profile => {
       !Number.isFinite(profile.height) || profile.height <= 0) throw new Error('Invalid wall query');
 };
 
+// A translating upright capsule sweeps a vertical segment across its feet path.
+// Distance to that swept parallelogram is piecewise quadratic in path time.
+const touchesSphere = (start, end, sphere, inflation) => {
+  const delta = end.map((v, i) => v - start[i]);
+  const relative = sphere.center.map((v, i) => v - start[i]);
+  const radius = sphere.radius + sphere.margin + inflation;
+  const cuts = [0, 1];
+  if (delta[1] !== 0) for (const height of [sphere.lower, sphere.upper]) {
+    const time = (relative[1] - height) / delta[1];
+    if (time > 0 && time < 1) cuts.push(time);
+  }
+  cuts.sort((a, b) => a - b);
+  for (let i = 1; i < cuts.length; i++) {
+    const low = cuts[i - 1], high = cuts[i], middle = (low + high) / 2;
+    const height = relative[1] - middle * delta[1];
+    const vertical = height < sphere.lower ? sphere.lower : height > sphere.upper ? sphere.upper : null;
+    const squared = delta[0] ** 2 + delta[2] ** 2 + (vertical === null ? 0 : delta[1] ** 2);
+    const dot = relative[0] * delta[0] + relative[2] * delta[2] +
+      (vertical === null ? 0 : (relative[1] - vertical) * delta[1]);
+    const time = squared === 0 ? low : Math.max(low, Math.min(high, dot / squared));
+    const y = relative[1] - time * delta[1];
+    const gapY = Math.max(sphere.lower - y, y - sphere.upper, 0);
+    if ((relative[0] - time * delta[0]) ** 2 + gapY ** 2 +
+        (relative[2] - time * delta[2]) ** 2 <= radius ** 2) return true;
+  }
+  return false;
+};
+
 const wallRecord = (wall, radius, height, snapshot) => {
   if (!wall || !finitePoint(wall.min) || !finitePoint(wall.max) || wall.min.some((v, i) => v > wall.max[i]) ||
       !['active', 'inactive', 'unknown'].includes(wall.state) || !Number.isFinite(wall.padding ?? 0) || (wall.padding ?? 0) < 0) throw new Error('Invalid wall');
@@ -35,6 +63,9 @@ const wallRecord = (wall, radius, height, snapshot) => {
       wall.points.some(p => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('Invalid wall polyline');
   if (wall.polygon !== undefined && (!Array.isArray(wall.polygon) || wall.polygon.length < 3 || wall.points !== undefined ||
       wall.polygon.some(p => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))) throw new Error('Invalid wall polygon');
+  if (wall.sphere !== undefined && (!finitePoint(wall.sphere?.center) ||
+      !Number.isFinite(wall.sphere.radius) || wall.sphere.radius <= 0 ||
+      wall.points !== undefined || wall.polygon !== undefined)) throw new Error('Invalid wall sphere');
   if (wall.state === 'inactive') return null;
   const margin = radius + (wall.padding ?? 0);
   const min = wall.min.map((v, i) => v - (i === 1 ? height : margin));
@@ -44,7 +75,21 @@ const wallRecord = (wall, radius, height, snapshot) => {
     min[0] = Math.min(min[0], p[0] - margin); min[2] = Math.min(min[2], p[1] - margin);
     max[0] = Math.max(max[0], p[0] + margin); max[2] = Math.max(max[2], p[1] + margin);
   }
-  return { min, max, margin, filled: wall.polygon !== undefined,
+  let sphere;
+  if (wall.sphere) {
+    const center = snapshot ? [...wall.sphere.center] : wall.sphere.center;
+    const r = wall.sphere.radius;
+    // A profile shorter than its diameter has no capsule spine. Retain a
+    // conservative full-height segment for that legacy wall-query input.
+    const lower = height >= radius * 2 ? radius : 0;
+    const upper = height >= radius * 2 ? height - radius : height;
+    for (let axis = 0; axis < 3; axis++) {
+      min[axis] = Math.min(min[axis], center[axis] - r - margin - (axis === 1 ? upper : 0));
+      max[axis] = Math.max(max[axis], center[axis] + r + margin - (axis === 1 ? lower : 0));
+    }
+    sphere = { center, radius: r, margin, lower, upper };
+  }
+  return { min, max, margin, sphere, filled: wall.polygon !== undefined,
     ring: snapshot && points ? points.map(p => [...p]) : points };
 };
 
@@ -63,8 +108,9 @@ const segmentTouchesBounds = (start, end, min, max, inflation = 0) => {
   return near <= far;
 };
 
-const touchesWall = (start, end, { min, max, margin, ring, filled }, inflation = 0) => {
+const touchesWall = (start, end, { min, max, margin, ring, filled, sphere }, inflation = 0) => {
   if (!segmentTouchesBounds(start, end, min, max, inflation)) return false;
+  if (sphere) return touchesSphere(start, end, sphere, inflation);
   if (!ring) return true;
   // Clip to vertical overlap before comparing XZ distances. A lower/upper walkway
   // may pass the same wall footprint without intersecting its collision height.
@@ -85,6 +131,7 @@ const touchesWall = (start, end, { min, max, margin, ring, filled }, inflation =
 
 /** Snapshot and validate exclusions for repeated feet-segment queries with one body.
  * Expanded 3D bounds include padding and all authored polyline/polygon vertices.
+ * Optional spheres retain their round occupied volume, including initial overlap.
  * Unknown state blocks. Later caller mutations require a new checker. Every wall,
  * including inactive records, is validated before any query can return a hit.
  * Optional query inflation expands the indexed body uniformly for curved sweeps.

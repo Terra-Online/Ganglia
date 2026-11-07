@@ -113,3 +113,43 @@ test('indexed queries match the single-query checker for deterministic mixed wal
     }
   }
 });
+
+
+test('round solid occupancy rejects containment and swept contact without filling AABB corners', () => {
+  const wall = { min: [-2, -2, -2], max: [2, 2, 2], state: 'unknown',
+    sphere: { center: [0, 0, 0], radius: 2 } };
+  const profile = { radius: 0.25, height: 1.5 };
+  const query = createWallChecker([wall], profile);
+  for (const [start, end, blocked] of [
+    [[0, 0, 0], [0, 0, 0], true],
+    [[1.9, 0, 1.9], [1.9, 0, 1.9], false],
+    [[-4, 0, 0], [4, 0, 0], true],
+    [[-4, 4, 0], [4, -4, 0], true],
+    [[-4, 3, 0], [4, 3, 0], false],
+    [[0, -4, 0], [0, -4, 0], false],
+    [[0, -3, 0], [0, -3, 0], true],
+  ]) {
+    assert.equal(query(start, end), blocked);
+    assert.equal(blockedByWalls(start, end, [wall], profile), blocked);
+  }
+  assert.equal(query([2.5, 0, 0], [2.5, 0, 0], 0.3), true);
+  assert.equal(query([2.5, 0, 0], [2.5, 0, 0]), false);
+  wall.sphere.center[0] = 100;
+  assert.equal(query([0, 0, 0], [0, 0, 0]), true);
+  assert.equal(blockedByWalls([0, 0, 0], [0, 0, 0], [wall], profile), false);
+});
+
+test('sphere validation and broad-phase bounds cover the complete solid and padded body', () => {
+  const wall = { min: [0, 0, 0], max: [0, 0, 0], state: 'active', padding: 0.3,
+    sphere: { center: [100, 2, 0], radius: 1 } };
+  const profile = { radius: 0.2, height: 1.6 };
+  const query = createWallChecker([wall], profile);
+  assert.equal(query([101.45, 1, 0], [101.45, 1, 0]), true);
+  assert.equal(query([100, -0.7, 0], [100, -0.7, 0]), true);
+  assert.equal(query([100, -1.5, 0], [100, -1.5, 0]), false);
+  for (const sphere of [{ center: [0, 0, 0], radius: -1 }, { center: [NaN, 0, 0], radius: 1 }]) {
+    assert.throws(() => createWallChecker([{ ...wall, state: 'inactive', sphere }], profile), /Invalid wall sphere/);
+  }
+  assert.throws(() => createWallChecker([{ ...wall, points: [[0, 0], [1, 1]] }], profile), /Invalid wall sphere/);
+  assert.throws(() => createWallChecker([{ ...wall, polygon: [[0, 0], [1, 1], [0, 1]] }], profile), /Invalid wall sphere/);
+});

@@ -8,6 +8,9 @@ export interface Graph { nodes: Node[]; edges: Edge[] }
 export type Route = { status: 'complete'; start: string; cost: number; arrivalCost: number; length: number; locomotion?: { initial: number; final: number; minimum: number; search?: { truncated: boolean; maxLabels: number } }; points: Vec3[]; segments: Segment[] } | { status: 'unmapped' | 'no-verified-route' };
 export interface Wall {
   min: Vec3; max: Vec3; state: 'active' | 'inactive' | 'unknown'; padding?: number;
+  /** Solid sphere, mutually exclusive with points and polygon. Bounds remain a
+   * broad-phase enclosure. Padding expands the sphere uniformly. */
+  sphere?: { center: Vec3; radius: number };
   /** Open, thin wall polyline. Mutually exclusive with polygon. */
   points?: [number, number][];
   /** Filled XZ ring extruded between min.y and max.y; closed implicitly. */

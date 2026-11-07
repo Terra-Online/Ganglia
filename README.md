@@ -24,6 +24,11 @@ transfers can connect height differences within the importer's verified step lim
 Ground stitching preserves the importer's verified edge and step constraints.
 Optional movement discovery below uses a separately supplied physical model.
 
+Walls may also carry `sphere: { center, radius }` for solid round exclusions.
+Their AABB remains a broad-phase bound. Continuous capsule/sphere intersection
+checks occupancy and swept travel while retaining empty space at box corners.
+Sphere padding is uniform, and prepared queries snapshot the sphere coordinates.
+
 Arrivals supply `{ id, position, cost, state }`. Costs are seconds; availability is
 `available`, `locked` or `unknown`. Include the player at cost zero and unlocked teleport
 platforms/base centres at their teleport overhead. The result identifies the selected
