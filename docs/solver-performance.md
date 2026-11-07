@@ -334,3 +334,16 @@ replay. The largest process peak was 3.09 / 3.21 GiB, so lower allocation work h
 not established a lower RSS peak. The ten historical quality gaps noted above
 remain unchanged. Neither G3 contraction nor the requested ten-percent
 remaining-time target is complete.
+
+## Per-point audit and prebuilt assets
+
+The [per-point table](per-point-performance.md) contains all 38 tokens, stage times,
+exact route/action gates, four interleaved retests and the ten historical quality
+gaps. The retests ran alongside a CPU-heavy simulator update and have wide ranges.
+They support further controlled measurement before classifying a latency change.
+
+[Prebuilt navigation assets](prebuilt-navigation.md) records the current native
+surface pipeline, the lost polygon/detail ownership, measured binary payloads,
+full-scene coverage estimates and a scoped WASM prototype. The next structural
+work is persistent regional geometry/topology and directed transfers, with detail
+support and collision loaded for required validations.
