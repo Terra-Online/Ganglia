@@ -1,4 +1,6 @@
-import { init } from '@recast-navigation/core';
+import {
+  init, RecastBuildContext, VerticesArray, TrianglesArray, TriangleAreasArray, markWalkableTriangles,
+} from '@recast-navigation/core';
 
 import { clipSurface, tolerance } from './clip-surface.mjs';
 import { buildSupportField } from './support-field.mjs';
@@ -29,6 +31,135 @@ function validateBounds(bounds) {
       ![...bounds.min, ...bounds.max].every(Number.isFinite) || bounds.min.some((value, axis) => value >= bounds.max[axis])) {
     throw new Error('Invalid ground build bounds');
   }
+}
+
+function clipHeight(vertices, low, high) {
+  // World-grid arithmetic can place a source vertex a double-precision ulp
+  // outside a boundary. The rasterizer sees Float32, so retain that same plane.
+  let clipped = vertices.map(point => {
+    for (const boundary of [low, high]) {
+      if (Math.fround(point[1]) === Math.fround(boundary)) return [point[0], boundary, point[2]];
+    }
+    return point;
+  });
+  for (const [boundary, keepAbove] of [[low, true], [high, false]]) {
+    const output = [];
+    for (let i = 0; i < clipped.length; i++) {
+      const from = clipped[i], to = clipped[(i + 1) % clipped.length];
+      const fromInside = keepAbove ? from[1] >= boundary : from[1] <= boundary;
+      const toInside = keepAbove ? to[1] >= boundary : to[1] <= boundary;
+      if (fromInside) output.push(from);
+      if (fromInside !== toInside) {
+        const ratio = (boundary - from[1]) / (to[1] - from[1]);
+        const point = from.map((value, axis) => value + ratio * (to[axis] - value));
+        point[1] = boundary;
+        output.push(point);
+      }
+    }
+    clipped = output;
+  }
+  return clipped.filter((point, index) => point.some((value, axis) =>
+    Math.abs(value - clipped[(index + clipped.length - 1) % clipped.length][axis]) > 1e-9));
+}
+
+function supportHeightRanges(vertices, settings) {
+  const context = new RecastBuildContext();
+  const points = new VerticesArray(), indices = new TrianglesArray(), areas = new TriangleAreasArray();
+  try {
+    points.copy(vertices);
+    indices.copy(Array.from({ length: vertices.length / 3 }, (_, index) => index));
+    areas.resize(vertices.length / 9);
+    markWalkableTriangles(context, settings.walkableSlopeAngle, points, points.size / 3,
+      indices, areas.size, areas);
+    const ranges = [], marking = [];
+    for (let i = 0; i < areas.size; i++) {
+      marking.push(areas.get(i));
+      if (marking[i] === 0) continue;
+      const heights = [points.get(i * 9 + 1), points.get(i * 9 + 4), points.get(i * 9 + 7)];
+      // Low-hanging spans may inherit the walkability of the floor below them.
+      // Reserve the climb allowance and rasterization rounding around each floor.
+      ranges.push([Math.floor(Math.min(...heights) / settings.ch) - 2,
+        Math.ceil(Math.max(...heights) / settings.ch) + settings.walkableClimb + 2]);
+    }
+    ranges.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const range of ranges) {
+      if (merged.length && range[0] <= merged.at(-1)[1] + 1) merged.at(-1)[1] = Math.max(merged.at(-1)[1], range[1]);
+      else merged.push(range);
+    }
+    return { ranges: merged, areas: marking };
+  } finally {
+    areas.destroy(); indices.destroy(); points.destroy(); context.destroy();
+  }
+}
+
+function buildHeightLayers(vertices, min, max, settings) {
+  // Headroom and radius erosion need neighboring support even when it belongs to
+  // another core. Chamfer-distance diagonals traverse two support connections,
+  // so reserve two climb steps per erosion-radius cell plus boundary neighbors.
+  const halo = settings.walkableHeight + settings.walkableClimb * (2 * settings.walkableRadius + 3) + 2;
+  const coreCells = 8190 - 2 * halo;
+  const first = Math.round(min[1] / settings.ch), last = Math.round(max[1] / settings.ch);
+  if (coreCells <= 0 || !Number.isSafeInteger(first) || !Number.isSafeInteger(last) ||
+      Math.ceil((last - first) / coreCells) > 512) {
+    throw new Error('Collision region exceeds ground build voxel limits; partition the input');
+  }
+  const { ranges, areas } = supportHeightRanges(vertices, settings), boundaries = [first];
+  let start = first;
+  while (last - start > coreCells) {
+    let end = start + coreCells;
+    const crossing = ranges.find(([low, high]) => low <= end && end <= high);
+    if (crossing) end = crossing[0] - 1;
+    if (end <= start || boundaries.length >= 512) {
+      throw new Error('Continuous support exceeds ground build vertical voxel limits; partition the input');
+    }
+    boundaries.push(end);
+    start = end;
+  }
+  boundaries.push(last);
+  const surfaces = [];
+  for (let layer = 0; layer < boundaries.length - 1; layer++) {
+    const low = boundaries[layer] * settings.ch, high = boundaries[layer + 1] * settings.ch;
+    const paddedLow = Math.max(min[1], (boundaries[layer] - halo) * settings.ch);
+    const paddedHigh = Math.min(max[1], (boundaries[layer + 1] + halo) * settings.ch);
+    const selected = [], selectedAreas = [];
+    let bottom = Infinity, top = -Infinity;
+    for (let i = 0; i < vertices.length; i += 9) {
+      const triangle = [vertices.slice(i, i + 3), vertices.slice(i + 3, i + 6), vertices.slice(i + 6, i + 9)];
+      if (triangle.every(point => Math.fround(point[1]) < Math.fround(paddedLow)) ||
+          triangle.every(point => Math.fround(point[1]) > Math.fround(paddedHigh))) continue;
+      // Clip solids without adding caps. A tall wall must remain a wall, while
+      // its off-slab vertices cannot overflow Recast's compact span height.
+      const clipped = clipHeight(triangle, paddedLow, paddedHigh);
+      for (let corner = 1; corner < clipped.length - 1; corner++) {
+        selected.push(...clipped[0], ...clipped[corner], ...clipped[corner + 1]);
+        selectedAreas.push(areas[i / 9]);
+        for (const point of [clipped[0], clipped[corner], clipped[corner + 1]]) {
+          bottom = Math.min(bottom, point[1]); top = Math.max(top, point[1]);
+        }
+      }
+    }
+    if (!selected.length) continue;
+    // Empty vertical padding is unnecessary once every intersecting solid has
+    // been retained. Keep the native origin close to its actual input heights.
+    const nativeLow = Math.max(Math.round(paddedLow / settings.ch), Math.floor(bottom / settings.ch)) * settings.ch;
+    const nativeHigh = Math.min(Math.round(paddedHigh / settings.ch), Math.ceil(top / settings.ch)) * settings.ch;
+    const built = buildSupportField(selected,
+      [[min[0], nativeLow, min[2]], [max[0], nativeHigh, max[2]]], settings, selectedAreas);
+    for (const surface of built) {
+      const bottom = Math.min(...surface.vertices.map(point => point[1]));
+      const top = Math.max(...surface.vertices.map(point => point[1]));
+      // Independently simplified detail meshes do not share an exact contour at
+      // arbitrary height cuts. Only empty support gaps may separate the cores.
+      if ((layer > 0 && bottom <= low && top >= low) ||
+          (layer < boundaries.length - 2 && bottom <= high && top >= high)) {
+        throw new Error('Vertical ground partition intersects support; partition the input');
+      }
+      if ((layer > 0 && top < low) || (layer < boundaries.length - 2 && bottom > high)) continue;
+      surfaces.push({ ...surface, id: String(surfaces.length) });
+    }
+  }
+  return surfaces;
 }
 
 /** Build player ground surfaces from selected world-space collision triangles.
@@ -69,20 +200,22 @@ export async function buildGroundSurfaces(geometry, options) {
   max[1] = Math.ceil(max[1] / cellHeight) * cellHeight;
   const width = Math.ceil((max[0] - min[0]) / cellSize);
   const depth = Math.ceil((max[2] - min[2]) / cellSize);
-  if (width < 1 || depth < 1 || width * depth > 8_000_000 || (max[1] - min[1]) / cellHeight > 8190) {
+  if (width < 1 || depth < 1 || width * depth > 8_000_000) {
     throw new Error('Collision region exceeds ground build voxel limits; partition the input');
   }
   const height = Math.ceil(profile.height / cellHeight), radius = Math.ceil(profile.radius / cellSize);
   const climb = Math.max(0, Math.floor(Math.min(stepUp, stepDown) / cellHeight) - 1);
   await init();
-  return buildSupportField(vertices, [min, max], {
+  const settings = {
     cs: cellSize, ch: cellHeight, walkableSlopeAngle: maxSlope,
     walkableHeight: height, walkableRadius: radius,
     // Reserve one vertical voxel for rasterization error. The larger downward
     // allowance must not accidentally authorize the same climb in reverse.
     walkableClimb: climb,
     maxSimplificationError: 0.5,
-  });
+  };
+  if ((max[1] - min[1]) / cellHeight > 8190) return buildHeightLayers(vertices, min, max, settings);
+  return buildSupportField(vertices, [min, max], settings);
 }
 
 function boundaryEdges(surfaces, axis, boundary) {

@@ -47,6 +47,23 @@ records every request and stage. Command time totals 457.298 seconds against
 were not load-isolated or interleaved. They do not establish a stable speedup,
 and the earlier alpha.53 total was 398.647 seconds.
 
+## Tall physical build domains
+
+The offline builder partitions excessive vertical extent at empty potential-support
+height gaps. Each partition retains overlapping collision for headroom and radius
+erosion. Clipped triangles inherit their original native slope classification.
+Ordinary-sized builds keep the original native call. Continuous walkable support
+spanning the native vertical limit still fails explicitly, because independently
+sampled height contours cannot supply an exact ground seam.
+
+A retained physical tile that previously exceeded the 8,190-voxel limit built
+15,898 faces in 1.958 seconds. Eight actual support-height samples projected back
+within 0.01 metre, and the separated low and high support domains received no
+ordinary cross-domain portal. The SDK's 199 tests passed at this checkpoint,
+including low ceilings, inherited low-hanging support and horizontal tile seams.
+This establishes the tile-build repair only. It does not establish complete route
+reachability through that region.
+
 ## Reuse without changing candidate coverage
 
 CPU sampling of the successful rear-approach query found about 12 seconds under

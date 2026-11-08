@@ -23,7 +23,11 @@ export interface BuildOptions {
 /** Offline voxel build from complete, state-selected collision geometry, including
  * obstacles and ceilings. No gap, jump or drop links are invented. Detail heights
  * are approximate within the voxel field. Callers retain build/profile bindings.
- * Throws for invalid inputs, excessive region size or a failed native build.
+ * Excessive vertical extent is split only at empty potential-support height gaps,
+ * retaining overlapping collision for clearance and world-aligned voxel heights.
+ * No ground seam is inferred across independently sampled height contours.
+ * Throws for invalid inputs, excessive horizontal size, continuous support spanning
+ * the vertical voxel limit, more than 512 height partitions or a failed native build.
  */
 export function buildGroundSurfaces(geometry: CollisionGeometry, options: BuildOptions): Promise<Surface[]>;
 
