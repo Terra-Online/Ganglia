@@ -1,6 +1,6 @@
 # Solver reuse and performance
 
-2026-11-07, alpha.53. This records implementation progress against
+2026-11-08, alpha.56. This records implementation progress against
 [architecture](architecture.md) and [ground topology](ground-topology.md), separately
 from their alpha.21 modeling baseline.
 
@@ -36,6 +36,16 @@ unavailable. final heap use was 3.716 and 3.744 GB respectively. this single rep
 does not establish a uniform speedup or a reduction in large-region memory use.
 full-detail graph preparation and regional entry/exit contraction remain open
 performance work.
+
+The post-integration replay retains 38/38 complete candidates at the same selected
+cost as the frozen baseline. Exact object comparisons match 37 selected routes
+and 36 complete action sets, retaining the reference-number and unused-action
+differences from the preceding integration. The
+[updated per-point table](per-point-performance.md#alpha56-移动支撑集成后的固定输入回放)
+records every request and stage. Command time totals 457.298 seconds against
+467.518 in the preceding moving-support integration replay. These separate runs
+were not load-isolated or interleaved. They do not establish a stable speedup,
+and the earlier alpha.53 total was 398.647 seconds.
 
 ## Reuse without changing candidate coverage
 
