@@ -14,6 +14,29 @@ incumbents and interleaved origin/coverage attempts. The full I0 resource-state 
 forward-replay reference is incomplete; I1 currently has terrain assets rather
 than shared regional action assets. Static device macros do not complete I2.
 
+## Moving-support endpoint visibility in alpha.56
+
+phase-free moving supports can introduce hundreds of transport endpoints into
+one query. ground transfer comparison now rejects pairs whose supporting
+triangles share no weak portal component. component membership comes from the
+straightener's own immutable triangle graph and point locator. overlapping
+supports retain every possible component, and directed passage and wall checks
+remain part of the final trace. mutable endpoint arrays are rechecked against
+their current coordinates.
+
+failed visibility traces are no longer retained as serialized endpoint-pair
+keys. successful traces remain reusable for successive action comparisons.
+candidate budgets, transport durations and collision rules retain their existing
+contracts. the SDK's 195 tests pass, including overlapping support, endpoint
+mutation, one-way passage and disconnected device-chain cases.
+
+one fresh-process device preflight on retained inputs with 838,331 ground faces
+took 61.06 seconds with alpha.55 and 55.04 seconds with alpha.56. both returned
+unavailable. final heap use was 3.716 and 3.744 GB respectively. this single replay
+does not establish a uniform speedup or a reduction in large-region memory use.
+full-detail graph preparation and regional entry/exit contraction remain open
+performance work.
+
 ## Reuse without changing candidate coverage
 
 CPU sampling of the successful rear-approach query found about 12 seconds under

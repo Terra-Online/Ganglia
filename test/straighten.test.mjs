@@ -139,10 +139,24 @@ test('shared primitives retain one-way imported steps without sharing planner ne
   const reverse = createGroundStraightener([...surfaces,rectangle('far',100,100)],
     {...options,portals:[{from:portal.to,to:portal.from,points:[...portal.points].reverse(),entry:portal.exit,exit:portal.entry}]});
   assert.ok(forward.trace(start,end));
+  assert.equal(forward.mayConnect(start, end), true);
+  assert.equal(forward.mayConnect(end, start), true);
   assert.equal(forward.trace(end,start), null);
   assert.ok(reverse.trace(end,start));
   assert.equal(reverse.trace(start,end), null);
   assert.ok(forward.trace(start,end));
+});
+
+test('weak support rejection retains overlapping faces and rechecks mutated endpoint positions', () => {
+  const ground = createGroundStraightener([
+    rectangle('small', 0, 0, 2, 2), rectangle('overlap', -1, -1, 12, 4), rectangle('island', 20, 0),
+  ], options);
+  const start = [.5,0,.5], end = [20.5,0,.5];
+  assert.equal(ground.mayConnect(start, end), false);
+  assert.equal(ground.trace(start, end), null);
+  end[0] = 9;
+  assert.equal(ground.mayConnect(start, end), true);
+  assert.deepEqual(ground.trace(start, end), [start, end]);
 });
 
 test('rebuilding mutated supports revalidates geometry and masks while previous traces stay owned', () => {

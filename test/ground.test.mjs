@@ -106,4 +106,21 @@ test('an initially unmapped query still permits later tracing on overlapping sup
   assert.equal(result.status, 'complete');
   assert.equal(result.cost, 1.6);
   assert.deepEqual(result.points, [[1,0,0],[9,0,0]]);
+  const idle = { id: 'idle', mode: 'rope', state: 'open', points: [[1,0,0], [1,0,0]], times: [0,1] };
+  const withActions = planner.plan(starts, [9,0,0], { connections: [idle] });
+  assert.equal(withActions.status, 'complete');
+  assert.equal(withActions.cost, 1.6);
+});
+
+test('many disconnected device supports retain only the supplied transfers between islands', () => {
+  const islands = Array.from({ length: 80 }, (_, i) => ({ id: String(i),
+    vertices: [[i*3,0,0],[i*3+1,0,0],[i*3+1,0,1],[i*3,0,1]] }));
+  const connections = islands.slice(1).map((_, i) => ({ id: 'ride/'+i, mode: 'rope', state: 'open',
+    points: [[i*3+.5,0,.5],[(i+1)*3+.5,0,.5]], times: [0,1] }));
+  const planner = createGroundPlanner(islands, options);
+  const starts = [{ id: 'first', position: [.5,0,.5], cost: 0, state: 'available' }];
+  const result = planner.plan(starts, [237.5,0,.5], { connections });
+  assert.equal(result.status, 'complete');
+  assert.equal(result.cost, 79);
+  assert.equal(planner.plan(starts, [237.5,0,.5], { connections: connections.slice(1) }).status, 'no-verified-route');
 });

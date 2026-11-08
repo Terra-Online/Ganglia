@@ -7,6 +7,7 @@ import { createGroundStraightener } from './straighten.mjs';
 import { retimeGroundRoute } from './locomotion.mjs';
 
 const preparations = new WeakMap();
+
 /** Internal immutable preparation shared with action discovery for the same planner. */
 export const groundPreparation = planner => preparations.get(planner);
 
@@ -129,12 +130,13 @@ export function createGroundPlanner(surfaces, options) {
     const groups = [...endpoints.values()];
     for (let a = 0; a < groups.length; a++) for (let b = a + 1; b < groups.length; b++) {
       for (const left of groups[a]) for (const right of groups[b]) {
+        if (connectionIds.size && !straighten.mayConnect(left.support, right.support)) continue;
         for (const [from, to] of [[left, right], [right, left]]) {
           if (goals.has(from.id) && goals.has(to.id)) continue;
           const key = JSON.stringify([from.support, to.support]);
-          if (!visibility.has(key)) visibility.set(key, straighten.trace(from.support, to.support));
-          const traced = visibility.get(key);
+          const traced = visibility.get(key) ?? straighten.trace(from.support, to.support);
           if (!traced) continue;
+          visibility.set(key, traced);
           const points = [from.position, ...traced.slice(1, -1), to.position];
           const cost = points.slice(1).reduce((sum, point, index) => sum + distance(points[index], point), 0) / searchSpeed;
           graph.edges.push({ from: from.id, to: to.id, points, cost, state: 'open' });

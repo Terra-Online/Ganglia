@@ -134,6 +134,30 @@ export function createGroundStraightener(surfaces, { walls, profile, portals: im
     if (a && b) a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3, portal });
   }
   const supporting = makeIndex(triangles);
+  let components;
+  const endpointComponents = new WeakMap();
+  const componentRoot = index => {
+    while (components[index] !== index) {
+      components[index] = components[components[index]];
+      index = components[index];
+    }
+    return index;
+  };
+  const groupsAt = point => {
+    if (!components) {
+      components = Int32Array.from(triangles, triangle => triangle.id);
+      for (const triangle of triangles) for (const neighbour of triangle.neighbours) {
+        components[componentRoot(neighbour.triangle.id)] = componentRoot(triangle.id);
+      }
+    }
+    const previous = endpointComponents.get(point);
+    if (previous && previous.position.every((value, axis) => value === point[axis])) return previous.groups;
+    // A point may lie on several overlapping supports. Keep every component
+    // accepted by the same locator that trace uses, including masked faces.
+    const groups = new Set(supporting(point).map(triangle => componentRoot(triangle.id)));
+    endpointComponents.set(point, { position: [...point], groups });
+    return groups;
+  };
 
   const trace = (start, end, supports) => {
     if (Math.hypot(end[0] - start[0], end[2] - start[2]) < 1e-10) {
@@ -232,6 +256,14 @@ export function createGroundStraightener(surfaces, { walls, profile, portals: im
   straighten.trace = (start, end) => {
     if (!finitePoint(start) || !finitePoint(end)) throw new Error('Invalid ground visibility endpoints');
     return trace(start, end, supporting(start));
+  };
+  // Weak connectivity only rules out impossible traces. Passage direction and
+  // complete wall clearance are still checked by trace itself.
+  straighten.mayConnect = (start, end) => {
+    if (!finitePoint(start) || !finitePoint(end)) throw new Error('Invalid ground visibility endpoints');
+    const from = groupsAt(start), to = groupsAt(end);
+    for (const group of from) if (to.has(group)) return true;
+    return false;
   };
   return straighten;
 }
