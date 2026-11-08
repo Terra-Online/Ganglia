@@ -43,16 +43,24 @@ export function createGroundPlanner(surfaces, options) {
   const projectGoal = createGoalProjector(surfaces);
   let targetKey;
   const visibility = new Map();
+  const failedVisibility = new Map();
+  let endpointKeys = new Map();
   const planner = { project: projectGoal, plan(starts, goal, query = {}) {
     // Action discovery extends one goal query repeatedly. Retain its continuous
     // transfers while dropping them when the target changes, bounding cross-query storage.
     const key = JSON.stringify([goal, query.interaction]);
-    if (key !== targetKey) { visibility.clear(); targetKey = key; }
+    if (key !== targetKey) {
+      visibility.clear(); failedVisibility.clear(); endpointKeys.clear(); targetKey = key;
+    }
     const graph = { nodes: [], edges: [] };
     const targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
-    if (!targets.length) return { status: 'unmapped' };
+    if (!targets.length) {
+      failedVisibility.clear(); endpointKeys.clear();
+      return { status: 'unmapped' };
+    }
     const centers = baseCenters;
     const endpoints = new Map();
+    const currentKeys = new Map();
     let serial = 0;
     const unique = () => {
       let id;
@@ -74,7 +82,13 @@ export function createGroundPlanner(surfaces, options) {
         connect(id, peer.id, projected.position, peer.position);
         connect(peer.id, id, peer.position, projected.position);
       }
-      peers.push({ id, position: projected.position, support: projected.support ?? projected.position });
+      const support = projected.support ?? projected.position;
+      // Recheck caller-owned coordinates on every plan, sharing one string per
+      // live support point across all directional failure sets and query extensions.
+      const serialized = JSON.stringify(support);
+      const key = currentKeys.get(serialized) ?? endpointKeys.get(serialized) ?? serialized;
+      currentKeys.set(key, key);
+      peers.push({ id, position: projected.position, support, key });
       endpoints.set(projected.surface, peers);
       return id;
     };
@@ -124,6 +138,16 @@ export function createGroundPlanner(surfaces, options) {
       graph.edges.push({ from: fromId, to: toId, state, cost, mode, points, times, connection: id,
         ...(requiredGait === undefined ? {} : { requiredGait }) });
     }
+    // Failure proofs belong only to this query's live endpoints. Growing action
+    // overlays need no pair scan; removed or moved endpoints discard both directions.
+    let discarded = false;
+    for (const key of endpointKeys.keys()) if (!currentKeys.has(key)) { discarded = true; break; }
+    if (discarded) for (const [from, targets] of failedVisibility) {
+      if (!currentKeys.has(from)) { failedVisibility.delete(from); continue; }
+      for (const to of targets) if (!currentKeys.has(to)) targets.delete(to);
+      if (!targets.size) failedVisibility.delete(from);
+    }
+    endpointKeys = currentKeys;
     // Action decisions use continuous, supported ground transfers whenever the
     // endpoints see each other. Dense triangulation must not make an otherwise
     // cheap walk to a takeoff appear longer than a different jump sequence.
@@ -133,9 +157,14 @@ export function createGroundPlanner(surfaces, options) {
         if (connectionIds.size && !straighten.mayConnect(left.support, right.support)) continue;
         for (const [from, to] of [[left, right], [right, left]]) {
           if (goals.has(from.id) && goals.has(to.id)) continue;
+          if (failedVisibility.get(from.key)?.has(to.key)) continue;
           const key = JSON.stringify([from.support, to.support]);
           const traced = visibility.get(key) ?? straighten.trace(from.support, to.support);
-          if (!traced) continue;
+          if (!traced) {
+            const failed = failedVisibility.get(from.key) ?? new Set();
+            failed.add(to.key); failedVisibility.set(from.key, failed);
+            continue;
+          }
           visibility.set(key, traced);
           const points = [from.position, ...traced.slice(1, -1), to.position];
           const cost = points.slice(1).reduce((sum, point, index) => sum + distance(points[index], point), 0) / searchSpeed;

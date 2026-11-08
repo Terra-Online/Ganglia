@@ -74,7 +74,7 @@ consulted Unity's navigation internals and the Detour query interface.
 
 ## Early player-collision ground builder
 
-The separate offline `@oem/ganglia/build` entry point generated `Surface[]` with detail
+The separate offline `@opendfieldmap/ganglia/build` entry point generated `Surface[]` with detail
 heights from explicitly selected world-space collision triangles through Recast. The runtime
 entry point kept the generator and WASM in the offline build dependency.
 

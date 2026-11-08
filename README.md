@@ -1,11 +1,11 @@
 # Ganglia
 
-`@oem/ganglia` is an experimental ESM ground-routing package for OEM,
+`@opendfieldmap/ganglia` is an experimental ESM ground-routing package for OEM,
 with TypeScript declarations. It runs in Node and browsers. Camera rules belong to
 noclip; game asset decoding belongs to its extractor.
 
 ```js
-import { planGroundRoute, sampleJourney } from '@oem/ganglia';
+import { planGroundRoute, sampleJourney } from '@opendfieldmap/ganglia';
 const result = planGroundRoute(surfaces, arrivals, target, {
   speed: 3, maxVertical: 0.5,
   profile: { radius: 0.4, height: 2 }, walls,
@@ -232,7 +232,7 @@ that already have a complete baseline and want to manage final comparison.
 
 ## Offline player navigation build
 
-`@oem/ganglia/build` exports `buildGroundSurfaces(geometry, options)`. This separate
+`@opendfieldmap/ganglia/build` exports `buildGroundSurfaces(geometry, options)`. This separate
 entry point uses Recast 0.44.0; the runtime root does not import WebAssembly or generators.
 Supply indexed world-space collision triangles with outward normals, including ceilings,
 buildings and solid obstacles. Importers select the active state and player collision
@@ -240,7 +240,7 @@ layers. Factory floors are eligible even when absent from the monster AI navigat
 Missing collision coverage must be reported by the importer, not interpreted as a wall.
 
 ```js
-import { buildGroundSurfaces } from '@oem/ganglia/build';
+import { buildGroundSurfaces } from '@opendfieldmap/ganglia/build';
 const surfaces = await buildGroundSurfaces({ positions, indices }, {
   profile, maxSlope: 46, stepUp: 0.4, stepDown: 0.6,
   cellSize: 0.1, cellHeight: 0.05,
@@ -285,7 +285,7 @@ and complete factory coverage remain under investigation in noclip.
 
 ## Continuous triangle collision checks
 
-`@oem/ganglia/collision` exports `createCollisionWorld({ positions, indices })`, which
+`@opendfieldmap/ganglia/collision` exports `createCollisionWorld({ positions, indices })`, which
 copies world-space triangles and indexes them in a BVH. Its
 `sweepCapsule(startFeet, endFeet, { radius, height, inflation? })` checks the entire
 straight translation of an upright capsule. Thin walls between clear endpoints still

@@ -55,12 +55,12 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
     let remaining = options.maxCandidates;
     // Cheap region-chain proposals cover simple transfers before broad frontiers.
     // The same bounded stage runs for every unresolved query.
-    const proposalBudget = stage === 'direction' ? 0 : Math.min(128, Math.floor(remaining / 8));
+    const proposalBudget = stage === 'direction' ? 0 : stage === 'relations' ? remaining : Math.min(128, Math.floor(remaining / 8));
     if (incumbent.status !== 'complete' && proposalBudget > 0) {
       const proposal = findJumpConnections(surfaces, world, discoveryOptions,
-        { arcAttempts: proposalBudget * 2, regionSearches: proposalBudget });
+        { arcAttempts: proposalBudget * 2, regionSearches: proposalBudget }, stage === 'entry' || stage === 'relations');
       connections.push(...search(proposal));
-      remaining -= proposalBudget;
+      remaining = stage === 'relations' ? 0 : remaining - proposalBudget;
       if (proposal.connections.length) incumbent = planner.plan([arrival], goal, { interaction, connections });
     }
     const batches = [Math.min(128, remaining), Math.min(128, remaining)], spent = [0, 0];
@@ -147,15 +147,14 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
  * constrain the final route to visit those points. Only the accumulated physically
  * validated actions enter the final, jointly timed start-to-goal query.
  */
-function planDirectedRoute(surfaces, world, starts, goal, options) {
+function planDirectedRoute(surfaces, world, starts, goal, options, shared, stage) {
   const { waypoints, onProgress, ...base } = options;
   if (waypoints !== undefined && (!Array.isArray(waypoints) || waypoints.length > 128 ||
       waypoints.some(point => !Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite)))) {
     throw new Error('Invalid coarse waypoints');
   }
   if (onProgress !== undefined && typeof onProgress !== 'function') throw new Error('Invalid route progress callback');
-  const shared = {};
-  if (!waypoints?.length) return solveJumpRoute(surfaces, world, starts, goal, base, shared, 'final');
+  if (!waypoints?.length) return solveJumpRoute(surfaces, world, starts, goal, base, shared, stage);
   const planner = base.groundPlanner ?? createGroundPlanner(surfaces, base);
   const initialConnections = base.connections ?? [];
   const initial = planner.plan(starts, goal, { interaction: base.interaction, connections: initialConnections });
@@ -209,7 +208,7 @@ function planDirectedRoute(surfaces, world, starts, goal, options) {
   const unchanged = goalConnections.length === connections.length &&
     goalConnections.every((connection, index) => connection === connections[index]);
   const result = solveJumpRoute(surfaces, world, starts, goal, { ...base,
-    groundPlanner: planner, connections, maxCandidates: remaining }, shared, 'final', unchanged ? goalRoute : undefined);
+      groundPlanner: planner, connections, maxCandidates: remaining }, shared, stage, unchanged ? goalRoute : undefined);
   result.diagnostics.directions = { requestedGoals: waypoints.length, regions: directions.length,
     budgetPerGoal: budget, remaining, searches };
   return result;
@@ -220,10 +219,13 @@ function planDirectedRoute(surfaces, world, starts, goal, options) {
  * gets an explicit bounded query. Only a complete joint final-goal solve is returned.
  */
 export function planJumpRoute(surfaces, world, starts, goal, options) {
-  const result = planDirectedRoute(surfaces, world, starts, goal, options);
+  const shared = {};
+  const result = planDirectedRoute(surfaces, world, starts, goal, options, shared, 'final');
   if (result.route.status === 'complete' || !options.connections?.length) return result;
   const planner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
-  const known = options.connections;
+  // Failed discovery still contains physically validated actions. Entry searches
+  // continue that pool and its geometry preparation within this immutable query.
+  let known = result.connections;
   const probe = (position, target, interaction) => planner.plan([
     { id: '@device-entry', position, state: 'available', cost: 0 },
   ], target, { interaction, connections: known }).status === 'complete';
@@ -233,19 +235,30 @@ export function planJumpRoute(surfaces, world, starts, goal, options) {
   // Keep one representative for mutual reachability, preserving directed chains.
   const sources = entries.filter((edge, index) => !entries.some((other, j) => j !== index &&
     probe(other.points[0], edge.points[0]) && (!probe(edge.points[0], other.points[0]) || j < index)));
-  if (!sources.length) return result;
+  if (!sources.length) {
+    // New action chains supplement an unresolved primary query. Earlier feasible
+    // searches keep their original discovery and shortcut budgets.
+    const continuation = solveJumpRoute(surfaces, world, starts, goal, { ...options,
+      groundPlanner: planner, connections: known, maxCandidates: Math.min(128, options.maxCandidates),
+      maxShortcutCandidates: 0 }, shared, 'relations');
+    return { ...continuation, diagnostics: { ...result.diagnostics,
+      selectedCost: continuation.diagnostics.selectedCost, knownActionChains: continuation.diagnostics } };
+  }
   const attempts = { budgetPerGoal: options.maxCandidates, goals: sources.length, searches: [] };
   for (const [index, edge] of sources.entries()) {
     options.onProgress?.({ phase: 'device-entry-search', completed: index, total: sources.length });
     const trial = planDirectedRoute(surfaces, world, starts, edge.points[0], {
-      ...options, groundPlanner: planner, interaction: undefined, waypoints: undefined, maxShortcutCandidates: 0,
-    });
+      ...options, groundPlanner: planner, connections: known,
+      interaction: undefined, waypoints: undefined, maxShortcutCandidates: 0,
+    }, shared, 'entry');
+    known = trial.connections;
     const route = planner.plan(starts, goal, { interaction: options.interaction, connections: trial.connections });
     attempts.searches.push({ device: edge.id, status: route.status, discovery: trial.diagnostics });
     options.onProgress?.({ phase: 'device-entry-search', completed: index + 1, total: sources.length, status: route.status });
     if (route.status === 'complete') return { ...result, route, connections: trial.connections,
       diagnostics: { ...result.diagnostics, selectedCost: route.cost, deviceApproaches: attempts } };
   }
+  result.connections = known;
   result.diagnostics.deviceApproaches = attempts;
   return result;
 }

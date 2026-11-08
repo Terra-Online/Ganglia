@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { planGroundRoute, route, createGroundPlanner } from '../src/index.mjs';
+import { groundPreparation } from '../src/ground.mjs';
 const surfaces = [{ id: 'a', vertices: [[0,0,0],[2,0,0],[2,0,2],[0,0,2]] },
   { id: 'b', vertices: [[2,0,0],[4,0,0],[4,0,2],[2,0,2]] },
   { id: 'island', vertices: [[5,0,0],[6,0,0],[6,0,2],[5,0,2]] }];
@@ -123,4 +124,82 @@ test('many disconnected device supports retain only the supplied transfers betwe
   assert.equal(result.status, 'complete');
   assert.equal(result.cost, 79);
   assert.equal(planner.plan(starts, [237.5,0,.5], { connections: connections.slice(1) }).status, 'no-verified-route');
+});
+
+const observeVisibility = planner => {
+  const { straighten } = groundPreparation(planner), calls = [];
+  const trace = straighten.trace;
+  straighten.trace = (from, to) => {
+    const result = trace(from, to);
+    calls.push({ from: [...from], to: [...to], result });
+    return result;
+  };
+  return calls;
+};
+
+test('failed visibility is reused only for the current live endpoints of one goal query', () => {
+  const square = (id, x, z) => ({ id,
+    vertices: [[x,0,z],[x+2,0,z],[x+2,0,z+2],[x,0,z+2]] });
+  const scene = [square('left', 0, 0), square('left-turn', 0, 2), square('bridge', 2, 2),
+    square('right-turn', 4, 2), square('right', 4, 0)];
+  const planner = createGroundPlanner(scene, options), calls = observeVisibility(planner);
+  const starts = [{ id: 'player', position: [1,0,1], cost: 0, state: 'available' }];
+  const goal = [5,0,1], point = [.5,0,.5];
+  const idle = { id: 'idle', mode: 'rope', state: 'open', points: [point, point], times: [0,1] };
+  const extra = { ...idle, id: 'extra', points: [[1.5,0,.5],[1.5,0,.5]] };
+  const check = (connections, target = goal) => {
+    const query = { connections };
+    const actual = planner.plan(starts, target, query);
+    assert.deepEqual(actual, createGroundPlanner(scene, options).plan(starts, target, query));
+    assert.equal(actual.status, 'complete');
+    return actual;
+  };
+  // Both ends share one weak component, but their straight line crosses the gap.
+  assert.equal(groundPreparation(planner).straighten.mayConnect(starts[0].position, goal), true);
+  assert.ok(check([idle]).cost > 4);
+  assert.equal(calls.length, 4);
+  assert.ok(calls.every(call => call.result === null));
+  check([{ ...idle, points: idle.points.map(p => [...p]) }]);
+  assert.equal(calls.length, 4);
+  check([idle, extra]);
+  assert.equal(calls.length, 6);
+  check([extra]);
+  assert.equal(calls.length, 6);
+  check([idle, extra]);
+  assert.equal(calls.length, 8); // Restoring the removed point retraces both directions.
+  point[2] = 1.5;
+  check([idle, extra]);
+  assert.equal(calls.length, 10);
+  point[2] = .5;
+  check([idle, extra]);
+  assert.equal(calls.length, 12);
+  // The projected support stays identical, but this is a different goal query.
+  check([idle, extra], [5,.1,1]);
+  assert.equal(calls.length, 18);
+  check([idle, extra]);
+  assert.equal(calls.length, 24);
+});
+
+test('a cached reverse visibility failure preserves the valid one-way ground passage', () => {
+  const scene = [
+    { id: 'lower', vertices: [[0,0,0],[1,0,0],[1,0,1],[0,0,1]], portals: [] },
+    { id: 'upper', vertices: [[1,.2,0],[2,.2,0],[2,.2,1],[1,.2,1]], portals: [] },
+  ];
+  const portal = { from: 'lower', to: 'upper', points: [[1,0,.5],[1,.2,.5]],
+    entry: [[1,0,0],[1,0,1]], exit: [[1,.2,0],[1,.2,1]] };
+  const constraints = { ...options, portals: [portal] };
+  const planner = createGroundPlanner(scene, constraints), calls = observeVisibility(planner);
+  const starts = [{ id: 'player', position: [.5,0,.5], cost: 0, state: 'available' }];
+  const goal = [1.5,.2,.5];
+  const idle = { id: 'idle', mode: 'rope', state: 'open',
+    points: [starts[0].position, starts[0].position], times: [0,1] };
+  const query = { connections: [idle] };
+  const expected = createGroundPlanner(scene, constraints).plan(starts, goal, query);
+  assert.equal(expected.status, 'complete');
+  assert.deepEqual(planner.plan(starts, goal, query), expected);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], { from: goal, to: starts[0].position, result: null });
+  assert.deepEqual(calls[1].result, [[.5,0,.5],[1,0,.5],[1,.2,.5],[1.5,.2,.5]]);
+  assert.deepEqual(planner.plan(starts, goal, query), expected);
+  assert.equal(calls.length, 2);
 });

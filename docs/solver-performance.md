@@ -1,6 +1,6 @@
 # Solver reuse and performance
 
-2026-11-08, alpha.56. This records implementation progress against
+2026-11-08, alpha.58. This records implementation progress against
 [architecture](architecture.md) and [ground topology](ground-topology.md), separately
 from their alpha.21 modeling baseline.
 
@@ -41,7 +41,7 @@ The post-integration replay retains 38/38 complete candidates at the same select
 cost as the frozen baseline. Exact object comparisons match 37 selected routes
 and 36 complete action sets, retaining the reference-number and unused-action
 differences from the preceding integration. The
-[updated per-point table](per-point-performance.md#alpha56-移动支撑集成后的固定输入回放)
+[updated per-point table](per-point-performance.md#alpha5658-移动支撑集成后的固定输入回放)
 records every request and stage. Command time totals 457.298 seconds against
 467.518 in the preceding moving-support integration replay. These separate runs
 were not load-isolated or interleaved. They do not establish a stable speedup,
