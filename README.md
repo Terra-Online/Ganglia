@@ -70,6 +70,18 @@ is separate. Atlos consumes this archive as a package dependency. Runtime player
 integration, complete player navigation coverage and in-game traversal validation remain
 outstanding; this is an alpha implementation.
 
+## Workspace ownership
+
+Since 2026-11-08, this repository owns only the `@opendfieldmap/ganglia` algorithm package.
+Atlos owns World UI, the local game-data adapters and the noclip integration inputs in
+`talos/integrations/noclip`. Its `.cache/noclip` is generated from the current pinned upstream
+archive and extension patches; it is not an editable source checkout. Update those patches when
+changing extraction or renderer integration, then regenerate and validate the cache. Keep only the
+current package artifact in Atlos. The standalone noclip `trunk` mirrors upstream exactly and must
+not receive local navigation or OEM commits. There are no repack or filters work directories;
+`feat/filters` remains a branch for potential upstream work. Retained raw data and route results
+stay in the existing local data directories and are not duplicated or recomputed by this migration.
+
 ## Directed movement and playback
 
 `GroundOptions.connections` accepts explicit `{ id, mode, points, times, state }`
