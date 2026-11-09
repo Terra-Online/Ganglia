@@ -149,7 +149,10 @@ export const validateDiscovery = (world, options) => {
     model.maxHorizontalSpeed < 0 ||
     ((model.airAcceleration !== undefined || model.airDeceleration !== undefined) &&
       (![model.airAcceleration, model.airDeceleration].every(Number.isFinite) ||
-        model.airAcceleration <= 0 || model.airDeceleration <= 0))
+        model.airAcceleration <= 0 || model.airDeceleration <= 0)) ||
+    ((model.startHorizontalSpeed !== undefined || model.airOverspeedDeceleration !== undefined) &&
+      (![model.startHorizontalSpeed, model.airOverspeedDeceleration].every(Number.isFinite) ||
+        model.startHorizontalSpeed < 0 || model.airOverspeedDeceleration <= 0))
   ) {
     throw new Error('Invalid traversal discovery options');
   }

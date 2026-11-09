@@ -39,7 +39,9 @@ function sprintDistance(seconds, speed, cap, acceleration) {
 }
 
 function scheduleBlock(block, options, state, allowSprint) {
-  const { speed, sprintSpeed, sprintAcceleration, stamina } = options;
+  const { sprintAcceleration, stamina } = options;
+  const speed = options.speed * (block[0].boost?.multiplier ?? 1);
+  const sprintSpeed = options.sprintSpeed * (block[0].boost?.multiplier ?? 1);
   const drain = stamina?.sprintDrain ?? 0;
   const draining = drain > 0;
   const activationCost = stamina?.activationCost ?? 0;
@@ -172,6 +174,23 @@ const sameContinuation = (a, b) => {
 const dominates = (a, b) => sameContinuation(a.state, b.state) && a.duration <= b.duration + epsilon &&
   a.state.energy >= b.state.energy - epsilon && a.state.delay <= b.state.delay + epsilon;
 
+/** Shared transitions for graph search and fixed-corridor scheduling. The authored
+ * non-ground policy still resets ground velocity at exit; physical air replay is
+ * a separate contract. Do not infer a landing velocity from these resource states.
+ */
+export function createLocomotion(options) {
+  validateOptions(options);
+  const energy = options.stamina?.initial ?? 0;
+  return {
+    initial: () => ({ energy, minimum: energy, delay: 0, sprinting: false,
+      hasActivated: false, velocity: options.speed, previousDirection: null }),
+    advance(segment, state) {
+      const choices = segment.mode === 'walk' ? [true, false] : [true];
+      return choices.map(choice => scheduleBlock([segment], options, state, choice)).filter(Boolean);
+    },
+  };
+}
+
 /** Retime a continuous path while allocating sprint activations across ground runs.
  * Each run offers running or the feasible sprint/recovery schedule. Labels carry exact
  * energy, recovery delay, gait and velocity across movement boundaries. Dominance pruning
@@ -207,7 +226,8 @@ export function retimeGroundRoute(route, options) {
     if (distance(endpoint, segment.points[0]) > 1e-6) throw new Error('Discontinuous locomotion route');
     endpoint = segment.points.at(-1);
     const last = blocks.at(-1);
-    if (segment.mode === 'walk' && last?.[0].mode === 'walk') last.push(segment);
+    if (segment.mode === 'walk' && last?.[0].mode === 'walk' &&
+        JSON.stringify(segment.boost) === JSON.stringify(last[0].boost)) last.push(segment);
     else blocks.push([segment]);
   }
   if (distance(endpoint, route.points.at(-1)) > 1e-6) throw new Error('Inconsistent locomotion endpoint');

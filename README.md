@@ -373,3 +373,26 @@ step-limited directed seams. Geometry may include factory floors absent from AI
 navigation. Empty geometry and native-confirmed empty polygon meshes remain empty.
 A failed tile aborts the result. All selected collision/state/profile inputs must
 cover the padded region, and hazard/device constraints remain caller-owned.
+
+### Airborne pickups and speed boosts
+
+`planJumpRoute` accepts `interaction.airborne` for an interaction volume entered during flight.
+A completed route includes `goalHit` and ends at the first collection event.
+Collision checks stop there. Terminal collection connections cannot become ground transfers.
+The interaction radius and optional height/facing constraints are preserved.
+
+Optional `boosts` provide an ID, position, interaction volume, duration in seconds and speed multiplier.
+The planner compares ordinary routes with routes that first enter a boost trigger. Ground, jump-launch
+and sustained air speed use the multiplier. A collection jump may outlast the boost after its changed speed
+curve is collision checked again, with `boostExpiry` recording the transition time within that segment. Joined resource retiming
+preserves stamina across pickup. Selected routes report `boosts` and annotate affected segments.
+Returned conditional connections carry `requiredBoost` and ordinary ground queries exclude them.
+This bounded search considers one pickup per candidate. Diagnostics retain unresolved approaches,
+expired candidates and truncated flight searches.
+
+Optional `startHorizontalSpeed` and `airOverspeedDeceleration` describe a jump impulse above the
+sustained air-speed cap. The excess decays under forward input. Both values come from the caller.
+
+Ground queries fall back to resource-state labels when the fastest static corridor cannot be
+scheduled. `route` and `routeFrom` also accept an explicit `locomotion` policy for this search.
+`locomotion.search` bounds labels and expansions, with truncation reported on the result.

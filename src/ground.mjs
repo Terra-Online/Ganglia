@@ -53,7 +53,15 @@ export function createGroundPlanner(surfaces, options) {
       visibility.clear(); failedVisibility.clear(); endpointKeys.clear(); targetKey = key;
     }
     const graph = { nodes: [], edges: [] };
-    const targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
+    let targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
+    if (query.endpointTolerance !== undefined) {
+      const tolerance = query.endpointTolerance;
+      if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > Math.min(maxVertical, profile.radius) || query.interaction) {
+        throw new Error('Invalid goal endpoint tolerance');
+      }
+      const support = projectSupport(goal, tolerance);
+      targets = support ? [{ ...support, support: support.position, position: goal }] : [];
+    }
     if (!targets.length) {
       failedVisibility.clear(); endpointKeys.clear();
       return { status: 'unmapped' };
@@ -114,7 +122,7 @@ export function createGroundPlanner(surfaces, options) {
       connectionIds.add(id);
       const cost = times.at(-1);
       validateMotion({ mode, points, times, cost, connection: id, requiredGait });
-      if (state !== 'open') continue;
+      if (state !== 'open' || connection.terminal || (connection.requiredBoost !== undefined && connection.requiredBoost !== options.activeBoost)) continue;
       // Gait-dependent trajectories need an explicit resource policy to prove
       // their entry condition. Other supplied connections remain usable.
       if (requiredGait !== undefined && !options.locomotion) continue;
@@ -174,7 +182,7 @@ export function createGroundPlanner(surfaces, options) {
     }
     // Compare actual continuous lengths and movement times for each available origin.
     // Centre-corridor costs alone can rank nearby teleport arrivals incorrectly.
-    let best = null;
+    let best = null, search;
     for (const arrival of arrivals) {
       if (best && arrival.cost >= best.cost) continue;
       let candidate = routeBase.plan(graph, [arrival], targetIds);
@@ -189,11 +197,25 @@ export function createGroundPlanner(surfaces, options) {
       const continuous = straightenRoute(candidate, straighten, speed);
       if (blocked(continuous.points[0], continuous.points[0]) ||
           continuous.points.slice(1).some((point, index) => blocked(continuous.points[index], point))) continue;
-      const timed = options.locomotion ? retimeGroundRoute(continuous, options.locomotion) : continuous;
+      let timed = options.locomotion ? retimeGroundRoute(continuous, options.locomotion) : continuous;
+      if (timed.status !== 'complete' && options.locomotion) {
+        // An infeasible fastest corridor must not hide a slower resource-feasible
+        // alternative. Retain the searched schedule if smoothing removes recovery.
+        const resource = routeBase.plan(graph, [arrival], targetIds, options.locomotion);
+        search = { ...resource.search, expanded: (search?.expanded ?? 0) + resource.search.expanded,
+          truncated: Boolean(search?.truncated || resource.search.truncated) };
+        if (resource.status === 'complete') {
+          const smoothed = straightenRoute(resource, straighten, speed);
+          const retimed = retimeGroundRoute(smoothed, options.locomotion);
+          timed = retimed.status === 'complete' && retimed.cost < resource.cost ? retimed : resource;
+          timed = { ...timed, search: resource.search };
+        } else timed = resource;
+      }
       if (timed.status !== 'complete') continue;
       if (!best || timed.cost < best.cost) best = timed;
     }
-    return best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
+    const result = best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
+    return search ? { ...result, search } : result;
   } };
   preparations.set(planner, { surfaces, portals, straighten, projectGoal, projectSupport, byId, centers: baseCenters,
     graph: base, routeBase, constraintsSignature, searchSpeed, importedPortals: options.portals });

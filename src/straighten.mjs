@@ -232,10 +232,10 @@ export function createGroundStraightener(surfaces, { walls, profile, portals: im
     let anchor = 0;
     while (anchor + 1 < points.length) {
       let chosen = anchor + 1, shortcut = null;
-      // A distant goal is cheap on open ground. Bound subsequent lookahead on winding
-      // paths so repeated arbitrary queries do not require quadratic visibility tests.
+      // Search the whole remaining corridor. A detail-dense mesh can place a
+      // visible turn beyond 128 vertices even when it is only a few metres away.
       const candidates = [points.length - 1];
-      for (let end = Math.min(points.length - 2, anchor + 128); end > anchor + 1; end--) candidates.push(end);
+      for (let end = points.length - 2; end > anchor + 1; end--) candidates.push(end);
       for (const candidate of candidates) {
         if (candidate <= anchor + 1) continue;
         const path = trace(points[anchor], points[candidate], supports(anchor));
@@ -249,7 +249,27 @@ export function createGroundStraightener(surfaces, { walls, profile, portals: im
       else output.push([...points[chosen]]);
       anchor = chosen;
     }
-    return output;
+    // Centre-based corridors leave corners away from the actual obstacle. Move
+    // each planar bend toward its chord while checking both complete supported
+    // legs. Height changes and disconnected input legs retain their old geometry.
+    for (let pass = 0; pass < 2; pass++) for (let index = 1; index + 1 < output.length; index++) {
+      const a = output[index - 1], corner = output[index], b = output[index + 1];
+      if (Math.abs(a[1] - corner[1]) > tolerance || Math.abs(b[1] - corner[1]) > tolerance) continue;
+      if (!trace(a, corner, supporting(a)) || !trace(corner, b, supporting(corner))) continue;
+      const middle = a.map((value, axis) => (value + b[axis]) / 2);
+      let low = 0, high = 1, chosen = corner;
+      for (let step = 0; step < 10; step++) {
+        const fraction = (low + high) / 2;
+        const point = corner.map((value, axis) => value + fraction * (middle[axis] - value));
+        const left = trace(a, point, supporting(a)), right = trace(point, b, supporting(point));
+        // A height excursion needs its reconstructed samples and cannot be
+        // represented by replacing only this one planar vertex.
+        if (left?.length === 2 && right?.length === 2) { low = fraction; chosen = point; }
+        else high = fraction;
+      }
+      output[index] = chosen;
+    }
+    return simplifyCollinear(output);
   };
   // Unlike straightening an already verified run, a visibility query can reject
   // its endpoints. The same support and portal tracing serves both contracts.

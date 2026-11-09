@@ -20,6 +20,19 @@ const horizontalLeg = (distance, speed, acceleration, deceleration) => {
   } };
 };
 
+// Distance for the forward-input flight family, including a launch impulse.
+export const jumpTravel = (initial, time, model) => {
+  const { maxHorizontalSpeed, airOverspeedDeceleration, expireAfter, expiredHorizontalSpeed } = model;
+  const travel = (speed, cap, duration) => {
+    if (speed <= cap) return speed * duration;
+    const braking = Math.min(duration, (speed - cap) / airOverspeedDeceleration);
+    return speed * braking - airOverspeedDeceleration * braking * braking / 2 + cap * (duration - braking);
+  };
+  if (expireAfter === undefined || time <= expireAfter) return travel(initial, maxHorizontalSpeed, time);
+  const speed = Math.max(Math.min(initial, maxHorizontalSpeed), initial - airOverspeedDeceleration * expireAfter);
+  return travel(initial, maxHorizontalSpeed, expireAfter) + travel(speed, expiredHorizontalSpeed, time - expireAfter);
+};
+
 // Bounded control primitives share the same vertical model and collision proof.
 // A split moves partway early, brakes, then completes the motion late. This can
 // clear a railing, descend through an opening and move under an overhang.
@@ -155,7 +168,8 @@ export function jumpDuration(startHeight, endHeight, options) {
 /** Construct one directed, model-based jump or drop between caller-supported feet.
  * Gravity values are positive magnitudes. A jump uses the full authored height,
  * followed by an explicit vertical apex hold and terminal-speed-limited descent.
- * Horizontal motion is constant between the endpoints, subject to the speed cap.
+ * Horizontal motion uses the speed cap, optional launch impulse and expiry,
+ * or the explicitly supplied split/waypoint control.
  *
  * Each chord receives a continuous full-body capsule sweep. Its inflation bounds
  * the complete quadratic arc between samples, including optional extra clearance.
@@ -218,10 +232,40 @@ export function jumpConnection(start, end, options) {
   // Avoid an unbounded allocation for inputs outside any practical scene extent.
   if (duration / maximumStep > 100000) throw new Error('Jump model exceeds the sweep budget');
   const horizontalDistance = Math.hypot(end[0] - start[0], end[2] - start[2]);
-  if (horizontalDistance / duration > maxHorizontalSpeed) return null;
   let horizontalAt = time => [start[0] + (end[0] - start[0]) * time / duration,
     start[2] + (end[2] - start[2]) * time / duration];
   let horizontalAcceleration = 0, peakHorizontalSpeed;
+  const { startHorizontalSpeed, airOverspeedDeceleration } = options;
+  if (startHorizontalSpeed !== undefined || airOverspeedDeceleration !== undefined) {
+    if (![startHorizontalSpeed, airOverspeedDeceleration].every(Number.isFinite) ||
+        startHorizontalSpeed < 0 || airOverspeedDeceleration <= 0) throw new Error('Invalid jump launch speed');
+  }
+  const expires = options.expireAfter !== undefined;
+  if (expires && (!Number.isFinite(options.expireAfter) || options.expireAfter < 0 ||
+      !Number.isFinite(options.expiredHorizontalSpeed) || options.expiredHorizontalSpeed < 0 ||
+      options.expiredHorizontalSpeed > maxHorizontalSpeed || !Number.isFinite(airOverspeedDeceleration))) {
+    throw new Error('Invalid flight speed expiry');
+  }
+  if (horizontalDistance / duration > maxHorizontalSpeed || expires) {
+    if (mode !== 'jump' || startHorizontalSpeed === undefined || (!expires && startHorizontalSpeed <= maxHorizontalSpeed) ||
+        options.horizontalSplit !== undefined || options.horizontalWaypoint !== undefined) return null;
+    // A jump impulse can exceed the sustained air-speed limit. Keep steering
+    // forward while the excess decays, then continue at the sustained speed.
+    const travelled = (initial, time) => jumpTravel(initial, time, options);
+    if (travelled(Math.max(startHorizontalSpeed, maxHorizontalSpeed), duration) < horizontalDistance) return null;
+    let low = expires ? 0 : maxHorizontalSpeed, high = Math.max(startHorizontalSpeed, maxHorizontalSpeed);
+    for (let index = 0; index < 40; index++) {
+      const middle = (low + high) / 2;
+      if (travelled(middle, duration) < horizontalDistance) low = middle;
+      else high = middle;
+    }
+    peakHorizontalSpeed = high;
+    horizontalAcceleration = airOverspeedDeceleration;
+    horizontalAt = time => {
+      const fraction = travelled(high, time) / horizontalDistance;
+      return [start[0] + (end[0] - start[0]) * fraction, start[2] + (end[2] - start[2]) * fraction];
+    };
+  }
   if (options.horizontalSplit !== undefined || options.horizontalWaypoint !== undefined) {
     const { horizontalSplit, airAcceleration, airDeceleration } = options;
     if (![airAcceleration, airDeceleration].every(Number.isFinite) || airAcceleration <= 0 || airDeceleration <= 0 ||

@@ -2,6 +2,7 @@ import { groundComponents, condenseComponents, directedComponents, canReach } fr
 import { createMinHeap } from './heap.mjs';
 import { createWallChecker } from './walls.mjs';
 import { validateMotion, routeSegment } from './motion.mjs';
+import { searchResources } from './resource-search.mjs';
 // Edges are directed, clearance-checked corridors supplied by the navigation importer.
 // This module never connects points by proximity or projects between floors.
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -19,7 +20,7 @@ export function route(graph, start, goal, constraints) {
  * Entry costs and corridor costs use the same units. Unknown/locked arrivals are excluded.
  */
 export function routeFrom(graph, starts, goal, constraints) {
-  return search(prepareGraph(graph, constraints), starts, goal);
+  return search(prepareGraph(graph, constraints), starts, goal, {}, undefined, constraints?.locomotion);
 }
 
 // The ground planner owns its immutable base graph. Only query endpoints and
@@ -50,13 +51,13 @@ export function prepareRoutePlanner(graph, constraints) {
 const preparedSearch = (base, getComponents) => {
   const estimates = {};
   let disconnected = false, components;
-  return (extra, starts, goal) => {
+  return (extra, starts, goal, locomotion) => {
     const prepared = prepareGraph(extra, null, base);
     // Successful queries avoid all component work. Only after a complete failed
     // search do refinements condense the planner's immutable accepted base graph.
     components ??= disconnected ? getComponents() : undefined;
     return search(prepared, starts, goal, estimates, { components, links: prepared.links,
-      exhausted: () => { disconnected = true; } });
+      exhausted: () => { disconnected = true; } }, locomotion);
   };
 };
 
@@ -106,12 +107,13 @@ function prepareGraph(graph, constraints, base, accepted) {
   return { nodes, edges, blocked, maxSpeed, links };
 }
 
-function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {}, connectivity) {
+function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {}, connectivity, locomotion) {
   const requested = Array.isArray(goal) ? goal : [goal];
   const mapped = requested.filter(id => nodes.has(id));
   if (!mapped.length) return { status: 'unmapped' };
   const goals = new Set(mapped.filter(id => !blocked || !blocked(nodes.get(id), nodes.get(id))));
   if (!goals.size) return { status: 'no-verified-route' };
+  if (locomotion) return searchResources({ nodes, edges, blocked }, starts, goals, locomotion);
   // Derive the speed bound from all usable edges, including fast authored actions.
   // Triangle inequality makes distance / this bound admissible and consistent.
   // A displaced zero-cost edge correctly falls back to Dijkstra.

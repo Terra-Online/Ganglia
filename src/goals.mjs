@@ -132,29 +132,7 @@ export function createGoalProjector(surfaces) {
       }
       return best ? [best] : [];
     }
-    if (!interaction || !Number.isFinite(interaction.radius) || interaction.radius < 0 ||
-        (interaction.maxVertical !== undefined && (!Number.isFinite(interaction.maxVertical) || interaction.maxVertical < 0))) {
-      throw new Error('Invalid interaction goal range');
-    }
-    const planes = [];
-    if (interaction.maxVertical !== undefined) {
-      planes.push(point => point[1] - target[1] + interaction.maxVertical,
-        point => target[1] + interaction.maxVertical - point[1]);
-    }
-    if (interaction.facing !== undefined || interaction.halfAngle !== undefined) {
-      if (!finitePoint(interaction.facing) || Math.hypot(interaction.facing[0], interaction.facing[2]) === 0 ||
-          !Number.isFinite(interaction.halfAngle) || interaction.halfAngle <= 0 || interaction.halfAngle > 90) {
-        throw new Error('Invalid interaction facing cone');
-      }
-      const length = Math.hypot(interaction.facing[0], interaction.facing[2]);
-      const forwardX = interaction.facing[0] / length, forwardZ = interaction.facing[2] / length;
-      const angle = interaction.halfAngle * Math.PI / 180;
-      const sine = Math.sin(angle), cosine = interaction.halfAngle === 90 ? 0 : Math.cos(angle);
-      const forward = point => (point[0] - target[0]) * forwardX + (point[2] - target[2]) * forwardZ;
-      const side = point => (point[0] - target[0]) * forwardZ - (point[2] - target[2]) * forwardX;
-      planes.push(point => forward(point) * sine + side(point) * cosine,
-        point => forward(point) * sine - side(point) * cosine);
-    }
+    const planes = interactionPlanes(target, interaction);
     const radius = interaction.radius;
     const bounds = { min: target.map(value => value - radius), max: target.map(value => value + radius) };
     if (interaction.maxVertical !== undefined) {
@@ -174,4 +152,81 @@ export function createGoalProjector(surfaces) {
 /** Project a single goal. Reuse createGoalProjector for repeated queries. */
 export function projectGoal(surfaces, target, options) {
   return createGoalProjector(surfaces)(target, options);
+}
+
+function interactionPlanes(target, interaction) {
+  if (!interaction || !Number.isFinite(interaction.radius) || interaction.radius < 0 ||
+      (interaction.maxVertical !== undefined && (!Number.isFinite(interaction.maxVertical) || interaction.maxVertical < 0))) {
+    throw new Error('Invalid interaction goal range');
+  }
+  const planes = [];
+  if (interaction.maxVertical !== undefined) {
+    planes.push(point => point[1] - target[1] + interaction.maxVertical,
+      point => target[1] + interaction.maxVertical - point[1]);
+  }
+  if (interaction.facing !== undefined || interaction.halfAngle !== undefined) {
+    if (!finitePoint(interaction.facing) || Math.hypot(interaction.facing[0], interaction.facing[2]) === 0 ||
+        !Number.isFinite(interaction.halfAngle) || interaction.halfAngle <= 0 || interaction.halfAngle > 90) {
+      throw new Error('Invalid interaction facing cone');
+    }
+    const length = Math.hypot(interaction.facing[0], interaction.facing[2]);
+    const forwardX = interaction.facing[0] / length, forwardZ = interaction.facing[2] / length;
+    const angle = interaction.halfAngle * Math.PI / 180;
+    const sine = Math.sin(angle), cosine = interaction.halfAngle === 90 ? 0 : Math.cos(angle);
+    const forward = point => (point[0] - target[0]) * forwardX + (point[2] - target[2]) * forwardZ;
+    const side = point => (point[0] - target[0]) * forwardZ - (point[2] - target[2]) * forwardX;
+    planes.push(point => forward(point) * sine + side(point) * cosine,
+      point => forward(point) * sine - side(point) * cosine);
+  }
+  return planes;
+}
+
+/** Locate a hit along a supplied piecewise-linear trajectory. The caller owns
+ * collision validation and safe termination after the hit. */
+export function findGoalHit(points, target, interaction) {
+  if (!finitePoint(target) || !Array.isArray(points) || !points.length || !points.every(finitePoint)) {
+    throw new Error('Invalid goal trajectory');
+  }
+  const planes = interactionPlanes(target, interaction);
+  for (let index = 1; index < points.length; index++) {
+    const a = points[index - 1], b = points[index];
+    let near = 0, far = 1;
+    for (const plane of planes) {
+      const first = plane(a), last = plane(b);
+      if (first < 0 && last < 0) { far = -1; break; }
+      if (first < 0) near = Math.max(near, first / (first - last));
+      if (last < 0) far = Math.min(far, first / (first - last));
+    }
+    if (near > far) continue;
+    const delta = b.map((value, axis) => value - a[axis]);
+    const offset = a.map((value, axis) => value - target[axis]);
+    const quadratic = delta.reduce((sum, value) => sum + value * value, 0);
+    const linear = delta.reduce((sum, value, axis) => sum + value * offset[axis], 0);
+    const constant = distanceSquared(a, target) - interaction.radius ** 2;
+    if (quadratic === 0) {
+      if (constant <= 0) return { index, fraction: near, position: [...a] };
+      continue;
+    }
+    const discriminant = linear * linear - quadratic * constant;
+    if (discriminant < 0) continue;
+    const root = Math.sqrt(discriminant);
+    let fraction = Math.max(near, (-linear - root) / quadratic);
+    if (fraction > Math.min(far, (-linear + root) / quadratic) + 1e-9) continue;
+    fraction = Math.min(far, fraction);
+    const position = a.map((value, axis) => value + fraction * delta[axis]);
+    return { index, fraction, position };
+  }
+  return null;
+}
+
+// Interaction completion owns the terminal point of an airborne collection action.
+export function trimGoalFlight(arc, target, interaction) {
+  if (!arc) return null;
+  const hit = findGoalHit(arc.points, target, interaction);
+  if (!hit) return null;
+  const time = arc.times[hit.index - 1] + hit.fraction * (arc.times[hit.index] - arc.times[hit.index - 1]);
+  if (time <= 0) return null;
+  const points = arc.points.slice(0, hit.index), times = arc.times.slice(0, hit.index);
+  if (time > times.at(-1)) { points.push(hit.position); times.push(time); }
+  return { ...arc, points, times };
 }

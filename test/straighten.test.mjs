@@ -75,6 +75,11 @@ test('keeps a wall-avoiding bend and checks body clearance', () => {
   const input = [[.5, 0, 2], [1, 0, 3.5], [3, 0, 3.5], [3.5, 0, 2]];
   const result = createGroundStraightener([surface], { ...options, walls: [wall] })(input);
   assert.ok(result.length > 2);
+  const length = points => points.slice(1).reduce((sum, point, index) =>
+    sum + Math.hypot(...point.map((value, axis) => value - points[index][axis])), 0);
+  assert.ok(length(result) < length(input) - .1);
+  const tracer = createGroundStraightener([surface], { ...options, walls: [wall] });
+  for (let index = 1; index < result.length; index++) assert.ok(tracer.trace(result[index - 1], result[index]));
   assert.deepEqual(result[0], input[0]);
   assert.deepEqual(result.at(-1), input.at(-1));
 });
