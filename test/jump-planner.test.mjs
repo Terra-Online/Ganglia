@@ -322,10 +322,11 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
   assert.equal(result.route.status, 'complete');
   assert.equal(result.route.segments.filter(segment => segment.mode === 'jump').length, 2);
   assert.ok(result.route.segments.some(segment => segment.connection === launch.id));
-  assert.equal(result.diagnostics.deviceApproaches.goals, 1);
+  // Lazy screening retains the authored entry and the discovered partial entry.
+  assert.equal(result.diagnostics.deviceApproaches.goals, 2);
   assert.equal(result.diagnostics.deviceApproaches.budgetPerGoal, settings.maxCandidates);
   assert.equal(result.diagnostics.deviceApproaches.searches[0].device, launch.id);
-  assert.ok(progress.some(value => value.phase === 'device-entry-search' && value.completed === value.total));
+  assert.ok(progress.some(value => value.phase === 'device-entry-search' && value.completed > 0 && value.status === 'complete'));
   // Observe the real planner without replacing its results. The small budget
   // leaves one valid primary jump which the entry search must continue using.
   const primary = queries.filter(query => !query.causal).at(-1);
@@ -348,4 +349,28 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
   const closed = planJumpRoute(surfaces, world, starts, goal, { ...settings, connections: [{ ...launch, state: 'closed' }] });
   assert.notEqual(closed.route.status, 'complete');
   assert.equal(closed.diagnostics.deviceApproaches, undefined);
+});
+
+test('returns a complete device approach before probing every other known entry', () => {
+  const surfaces = [floor('origin', 0, 4, 0), floor('step', 7, 11, 1.5), floor('entry', 14, 18, 3),
+    floor('goal', 100, 104, 20), ...Array.from({ length: 8 }, (_, index) =>
+      floor(`decoy/${index}`, 100 + index % 2 * 8, 104 + index % 2 * 8, 23 + Math.floor(index / 2) * 3))];
+  const connections = Array.from({ length: 12 }, (_, index) => ({ id: `launch/${index}`,
+    mode: 'launch', state: 'open', points: [[16, 3, index / 10], [102, 20, 0]], times: [0, 1] }));
+  const settings = { ...options, speed: 4, profile: { radius: 0.2, height: 1.6 },
+    maxDrop: 40, maxCandidates: 4, maxShortcutCandidates: 0, connections };
+  const planner = createGroundPlanner(surfaces, settings), plan = planner.plan;
+  let probes = 0;
+  planner.plan = (...args) => {
+    if (args[0][0].id === '@device-entry') probes++;
+    return plan(...args);
+  };
+  const result = planJumpRoute(surfaces, createCollisionWorld(geometry(surfaces)),
+    arrival([2, 0, 0]), [102, 20, 0], { ...settings, groundPlanner: planner });
+  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.segments.some(segment => segment.connection === connections[0].id));
+  // Each probe executes the real ground planner with the full action overlay.
+  // A useful first entry must yield its result before unrelated pairwise probes.
+  assert.ok(probes < connections.length, `probed ${probes} entries before returning the first route`);
+  assert.equal(result.diagnostics.deviceApproaches.searches.length, 1);
 });

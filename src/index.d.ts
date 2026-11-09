@@ -229,3 +229,52 @@ export function planJumpRoute(surfaces: Surface[], world: CollisionWorld, starts
     connections: GroundConnection[];
     diagnostics: JumpDiagnostics;
   };
+
+/** Unknown edge costs are optimistic lower bounds in seconds. The planner
+ * retains validation results for later calls. Input nodes and edges must remain
+ * immutable. Concurrent calls are rejected. */
+export function createLazyRoutePlanner(graph: Graph): {
+  plan(starts: Arrival[], goal: string | string[], options: {
+    validate: (edge: Edge, index: number) => Promise<Edge | null>;
+    maxValidations?: number;
+    signal?: AbortSignal;
+  }): Promise<{
+    status: 'complete' | 'incomplete' | 'unmapped' | 'no-verified-route';
+    reason?: 'aborted' | 'validation-budget';
+    route?: Extract<Route, { status: 'complete' }>;
+    validation: { attempted: number; pending: number };
+  }>;
+};
+
+export interface CandidateEdge {
+  mode?: string;
+  device?: string;
+  index: number;
+  from: string;
+  to: string;
+  points: Vec3[];
+  unresolved: boolean;
+}
+/** Produces navigation proposals requiring physical verification at every segment.
+ * score ranks discovery effort and must never be displayed as travel time. */
+export function createCandidatePlanner(data: {
+  surfaces: Surface[];
+  options: Pick<GroundOptions, 'speed' | 'maxVertical' | 'portals'>;
+}, options?: {
+  radius?: number;
+  verticalRange?: number;
+  transferPenalty?: number;
+  ascentPenalty?: number;
+  endpointRadius?: number;
+  connections?: { from: string; to: string; points: Vec3[]; mode?: string; device?: string }[];
+}): {
+  reject(indices: number[]): void;
+  plan(arrivals: GroundArrival[], goal: Vec3, query?: { excludedEdges?: number[] }): {
+    status: 'candidate';
+    arrival: GroundArrival;
+    points: Vec3[];
+    path: CandidateEdge[];
+    unresolved: CandidateEdge[];
+    score: number;
+  } | { status: 'unmapped' | 'no-candidate' };
+};

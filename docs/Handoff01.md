@@ -33,6 +33,15 @@ Atlos 导出、请求导入、打包版本及普通重计时入口均接入该�
 World 以蓝、黄、橙、紫、绿、粉、青区分跑步、持续疾跑、冲刺、跳跃／下落、绳索、弹跳装置和移动支撑，并显示本路线图例、冲刺次数和剩余体力。
 本轮 220 项 Ganglia、26 项相关提取器和 44 项 World 测试通过，World 类型检查与构建通过。WebGPU shader 和管线通过无头浏览器验证，真实地图新配色视觉验收及普通冲刺实际位移仍待确认。
 
+## alpha.63 接入搜索调查
+
+地面通行缓存跨目标保留固定设备端点验证，并在端点移除、移动或未映射查询时清理。
+设备入口改为逐个筛选并在完整联合路线出现后返回，按有向地面连通区合并接入搜索，分摊入口工作预算并传播截断状态。
+
+当前正确案例为 `02gcZm4`。打包实例仍能复现绳索下端到北侧屋顶涡流再空中收集的 8.068946 秒局部路线。真实传送点到这些街道层入口仍无连续验证结果。
+15 条局部跳跃碰撞验证成功，但加入 TP30005 的完整地面查询后仍缺更早的接入，局部成功不能代表全链路验收。
+当前证据支持继续修改能力链的反向接入、区域加载和查询预算调度，尚不能保证仅调整搜索参数即可解决完整路线。
+
 ## 1. 当前工作区与责任边界
 
 | 仓库或组件 | 调查时版本 | 状态与职责 |
@@ -189,3 +198,23 @@ C/WASM BVH 原型的内核构建中位数由 151.8 ms 降至 86.1 ms，计入初
 5. Atlos `talos/apps/world/physical-route-builder.ts` 和 `talos/integrations/noclip/`，再查看生成的 `player-route.ts`、`moving-ground.ts`、`following-route.ts`。
 
 本轮算法与案例复验以开头的最新进展为准，历史记录保留其版本和原有适用范围。
+
+
+## alpha.64 — candidate corridors and bounded physical windows
+
+The shared candidate planner supports all query distances, multiple arrivals,
+query-local excluded edges, and unresolved local access for endpoints outside the
+navigation mesh. Candidate scores prioritize discovery work and remain separate
+from executable travel time. The lazy route planner prepares its graph once and
+replaces individual validated edges without copying the full scene per retry.
+
+Atlos applies terminal navigation assets and validates bounded physical windows,
+propagating actual exits and retiming the complete motion sequence. Target-side
+windows can be displayed independently with explicit partial scope. Factories
+use their region centres as teleport anchors under the fully traversable factory
+assumption. All task progress is completed. The fixed map02 snapshot uses day.
+
+Validation passed 228 Ganglia tests, plus the focused query-local exclusion check.
+Full terminal-physics south-to-north acceptance remains in progress. Earlier
+south-prefix and north-tail evidence used base streaming collision and must not
+be represented as terminal-physics acceptance.

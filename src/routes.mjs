@@ -23,6 +23,31 @@ export function routeFrom(graph, starts, goal, constraints) {
   return search(prepareGraph(graph, constraints), starts, goal, {}, undefined, constraints?.locomotion);
 }
 
+/** Internal mutable edge index for lazy validation. Nodes and unchanged edges
+ * remain immutable caller-owned data. Replacements retain endpoint identity. */
+export function createUpdatingRoutePlanner(graph) {
+  const base = prepareGraph(graph);
+  const estimates = {};
+  return {
+    plan(starts, goal) {
+      let path = [];
+      const route = search(base, starts, goal, estimates, undefined, undefined, edges => { path = edges; });
+      return { route, path };
+    },
+    replace(previous, next) {
+      if (previous.from !== next.from || previous.to !== next.to) throw new Error('Changed edge endpoints');
+      const checked = prepareGraph({ nodes: [], edges: [next] }, null, base);
+      const outgoing = base.edges.get(previous.from);
+      const index = outgoing?.indexOf(previous) ?? -1;
+      if (index < 0) throw new Error('Missing replaced edge');
+      if (next.state === 'open') outgoing[index] = next;
+      else outgoing.splice(index, 1);
+      // Keeping an older, larger bound is admissible after a cost increase.
+      base.maxSpeed = Math.max(base.maxSpeed, checked.maxSpeed);
+    },
+  };
+}
+
 // The ground planner owns its immutable base graph. Only query endpoints and
 // newly validated actions need corridor checks on each successive planning pass.
 export function createRoutePlanner(graph, constraints) {
@@ -107,7 +132,7 @@ function prepareGraph(graph, constraints, base, accepted) {
   return { nodes, edges, blocked, maxSpeed, links };
 }
 
-function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {}, connectivity, locomotion) {
+function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {}, connectivity, locomotion, onPath) {
   const requested = Array.isArray(goal) ? goal : [goal];
   const mapped = requested.filter(id => nodes.has(id));
   if (!mapped.length) return { status: 'unmapped' };
@@ -173,6 +198,7 @@ function search({ nodes, edges, blocked, maxSpeed }, starts, goal, estimates = {
         path.push(edge); id = edge.from; root = id;
       }
       path.reverse();
+      onPath?.(path);
       const points = [[...nodes.get(root)]];
       for (const edge of path) for (const point of edge.points.slice(1)) {
         if (distance(points.at(-1), point) > 1e-9) points.push([...point]);

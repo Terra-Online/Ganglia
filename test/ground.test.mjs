@@ -137,7 +137,7 @@ const observeVisibility = planner => {
   return calls;
 };
 
-test('failed visibility is reused only for the current live endpoints of one goal query', () => {
+test('failed visibility is reused for live endpoints across target changes', () => {
   const square = (id, x, z) => ({ id,
     vertices: [[x,0,z],[x+2,0,z],[x+2,0,z+2],[x,0,z+2]] });
   const scene = [square('left', 0, 0), square('left-turn', 0, 2), square('bridge', 2, 2),
@@ -173,11 +173,12 @@ test('failed visibility is reused only for the current live endpoints of one goa
   point[2] = .5;
   check([idle, extra]);
   assert.equal(calls.length, 12);
-  // The projected support stays identical, but this is a different goal query.
+  // A target-height change projects to the same support. Fresh planners agree,
+  // and the unchanged directional failure proofs remain valid.
   check([idle, extra], [5,.1,1]);
-  assert.equal(calls.length, 18);
+  assert.equal(calls.length, 12);
   check([idle, extra]);
-  assert.equal(calls.length, 24);
+  assert.equal(calls.length, 12);
 });
 
 test('a cached reverse visibility failure preserves the valid one-way ground passage', () => {
@@ -202,4 +203,32 @@ test('a cached reverse visibility failure preserves the valid one-way ground pas
   assert.deepEqual(calls[1].result, [[.5,0,.5],[1,0,.5],[1,.2,.5],[1.5,.2,.5]]);
   assert.deepEqual(planner.plan(starts, goal, query), expected);
   assert.equal(calls.length, 2);
+});
+
+
+test('fixed device transfers survive target changes and expire with removed endpoints', () => {
+  const scene = surfaces.slice(0, 2);
+  const starts = [{ id: 'player', position: [.5,0,1], state: 'available', cost: 0 }];
+  const a = [1,0,.5], b = [3,0,.5];
+  const idle = (id, point) => ({ id, mode: 'rope', state: 'open', points: [point, point], times: [0,1] });
+  const connections = [idle('a', a), idle('b', b)];
+  const planner = createGroundPlanner(scene, options), calls = observeVisibility(planner);
+  const check = (target, edges = connections) => {
+    const actual = planner.plan(starts, target, { connections: edges });
+    assert.deepEqual(actual, createGroundPlanner(scene, options).plan(starts, target, { connections: edges }));
+    assert.equal(actual.status, 'complete');
+  };
+  const fixed = () => calls.filter(call => JSON.stringify(call.from) === JSON.stringify(a) &&
+    JSON.stringify(call.to) === JSON.stringify(b));
+  check([3.5,0,1.5]);
+  assert.equal(fixed().length, 1);
+  assert.ok(fixed()[0].result);
+  check([3.2,0,1.5]);
+  assert.equal(fixed().length, 1);
+  check([3.5,0,1.5], connections.slice(1));
+  check([3.2,0,1.5]);
+  assert.equal(fixed().length, 2);
+  assert.equal(planner.plan(starts, [3.2,10,1.5]).status, 'unmapped');
+  check([3.2,0,1.5]);
+  assert.equal(fixed().length, 3);
 });

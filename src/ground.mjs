@@ -41,17 +41,12 @@ export function createGroundPlanner(surfaces, options) {
   const projectSupport = createSupportProjector(surfaces, byId);
   const straighten = createGroundStraightener(surfaces, options, portals);
   const projectGoal = createGoalProjector(surfaces);
-  let targetKey;
   const visibility = new Map();
   const failedVisibility = new Map();
   let endpointKeys = new Map();
   const planner = { project: projectGoal, plan(starts, goal, query = {}) {
-    // Action discovery extends one goal query repeatedly. Retain its continuous
-    // transfers while dropping them when the target changes, bounding cross-query storage.
-    const key = JSON.stringify([goal, query.interaction]);
-    if (key !== targetKey) {
-      visibility.clear(); failedVisibility.clear(); endpointKeys.clear(); targetKey = key;
-    }
+    // Transfers depend on support coordinates within this immutable planner.
+    // Keep fixed device transfers when action discovery changes its target.
     const graph = { nodes: [], edges: [] };
     let targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
     if (query.endpointTolerance !== undefined) {
@@ -63,7 +58,7 @@ export function createGroundPlanner(surfaces, options) {
       targets = support ? [{ ...support, support: support.position, position: goal }] : [];
     }
     if (!targets.length) {
-      failedVisibility.clear(); endpointKeys.clear();
+      visibility.clear(); failedVisibility.clear(); endpointKeys.clear();
       return { status: 'unmapped' };
     }
     const centers = baseCenters;
@@ -146,14 +141,16 @@ export function createGroundPlanner(surfaces, options) {
       graph.edges.push({ from: fromId, to: toId, state, cost, mode, points, times, connection: id,
         ...(requiredGait === undefined ? {} : { requiredGait }) });
     }
-    // Failure proofs belong only to this query's live endpoints. Growing action
-    // overlays need no pair scan; removed or moved endpoints discard both directions.
+    // Transfer proofs belong only to the live endpoints. Growing action overlays
+    // need no pair scan; removed or moved endpoints discard both directions.
     let discarded = false;
     for (const key of endpointKeys.keys()) if (!currentKeys.has(key)) { discarded = true; break; }
-    if (discarded) for (const [from, targets] of failedVisibility) {
-      if (!currentKeys.has(from)) { failedVisibility.delete(from); continue; }
-      for (const to of targets) if (!currentKeys.has(to)) targets.delete(to);
-      if (!targets.size) failedVisibility.delete(from);
+    if (discarded) for (const cache of [visibility, failedVisibility]) {
+      for (const [from, targets] of cache) {
+        if (!currentKeys.has(from)) { cache.delete(from); continue; }
+        for (const to of targets.keys()) if (!currentKeys.has(to)) targets.delete(to);
+        if (!targets.size) cache.delete(from);
+      }
     }
     endpointKeys = currentKeys;
     // Action decisions use continuous, supported ground transfers whenever the
@@ -166,14 +163,14 @@ export function createGroundPlanner(surfaces, options) {
         for (const [from, to] of [[left, right], [right, left]]) {
           if (goals.has(from.id) && goals.has(to.id)) continue;
           if (failedVisibility.get(from.key)?.has(to.key)) continue;
-          const key = JSON.stringify([from.support, to.support]);
-          const traced = visibility.get(key) ?? straighten.trace(from.support, to.support);
+          const traced = visibility.get(from.key)?.get(to.key) ?? straighten.trace(from.support, to.support);
           if (!traced) {
             const failed = failedVisibility.get(from.key) ?? new Set();
             failed.add(to.key); failedVisibility.set(from.key, failed);
             continue;
           }
-          visibility.set(key, traced);
+          const visible = visibility.get(from.key) ?? new Map();
+          visible.set(to.key, traced); visibility.set(from.key, visible);
           const points = [from.position, ...traced.slice(1, -1), to.position];
           const cost = points.slice(1).reduce((sum, point, index) => sum + distance(points[index], point), 0) / searchSpeed;
           graph.edges.push({ from: from.id, to: to.id, points, cost, state: 'open' });

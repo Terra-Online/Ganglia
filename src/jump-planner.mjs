@@ -252,13 +252,50 @@ function planBaseRoute(surfaces, world, starts, goal, options) {
   const probe = (position, target, interaction) => planner.plan([
     { id: '@device-entry', position, state: 'available', cost: 0 },
   ], target, { interaction, endpointTolerance: options.endpointTolerance, connections: known }).status === 'complete';
-  const entries = known.filter(edge => edge.state === 'open' &&
-    probe(edge.points[0], goal, options.interaction));
-  // A reachable upstream entry already covers its downstream device entries.
-  // Keep one representative for mutual reachability, preserving directed chains.
-  const sources = entries.filter((edge, index) => !entries.some((other, j) => j !== index &&
-    probe(other.points[0], edge.points[0]) && (!probe(edge.points[0], other.points[0]) || j < index)));
-  if (!sources.length) {
+  // Screen entries lazily so an early complete route can be published without
+  // first solving every pair of device approaches. Exact-coordinate duplicates
+  // share the same fresh entry state; distinct positions retain their own trial.
+  const sources = [...new Map(known.filter(edge => edge.state === 'open' && !edge.terminal)
+    .map(edge => [JSON.stringify(edge.points[0]), edge])).values()];
+  let eligible = false;
+  const geometry = movementGeometry(surfaces, { ...options, groundPlanner: planner });
+  const regions = new Map(sources.map(edge => {
+    const support = geometry.projectSupport(edge.points[0], edge.endpointTolerance ?? 1e-6, edge.fromSurface);
+    const component = support && geometry.topology.components[geometry.topology.ids.get(support.surface)];
+    return [edge, component ?? edge.id];
+  }));
+  // Divide causal approach work across distinct ground regions instead of
+  // multiplying the full query budget by every discovered device endpoint.
+  const entryBudget = Math.min(options.maxCandidates, Math.max(128,
+    Math.floor(options.maxCandidates / Math.max(1, new Set(regions.values()).size))));
+  const attempts = { budgetPerGoal: entryBudget, goals: sources.length, searches: [] };
+  const searchedRegions = new Set();
+  for (const [index, edge] of sources.entries()) {
+    const region = regions.get(edge);
+    // One entry discovery covers a mutually walk-reachable ground region. This
+    // reuses the existing directed ground proof without solving every entry pair.
+    if (region !== undefined && region !== null && searchedRegions.has(region)) continue;
+    options.onProgress?.({ phase: 'device-entry-search', completed: index, total: sources.length });
+    if (!probe(edge.points[0], goal, options.interaction)) {
+      options.onProgress?.({ phase: 'device-entry-search', completed: index + 1,
+        total: sources.length, status: 'no-verified-route' });
+      continue;
+    }
+    eligible = true;
+    if (region !== undefined && region !== null) searchedRegions.add(region);
+    const trial = planDirectedRoute(surfaces, world, starts, edge.points[0], {
+      ...options, groundPlanner: planner, connections: known,
+      interaction: undefined, waypoints: undefined, maxShortcutCandidates: 0, maxCandidates: entryBudget,
+    }, shared, 'entry');
+    result.diagnostics.truncated ||= trial.diagnostics.truncated;
+    known = trial.connections;
+    const route = planner.plan(starts, goal, { interaction: options.interaction, connections: trial.connections });
+    attempts.searches.push({ device: edge.id, status: route.status, discovery: trial.diagnostics });
+    options.onProgress?.({ phase: 'device-entry-search', completed: index + 1, total: sources.length, status: route.status });
+    if (route.status === 'complete') return { ...result, route, connections: trial.connections,
+      diagnostics: { ...result.diagnostics, selectedCost: route.cost, deviceApproaches: attempts } };
+  }
+  if (!eligible) {
     // New action chains supplement an unresolved primary query. Earlier feasible
     // searches keep their original discovery and shortcut budgets.
     const continuation = solveJumpRoute(surfaces, world, starts, goal, { ...options,
@@ -266,20 +303,6 @@ function planBaseRoute(surfaces, world, starts, goal, options) {
       maxShortcutCandidates: 0 }, shared, 'relations');
     return { ...continuation, diagnostics: { ...result.diagnostics,
       selectedCost: continuation.diagnostics.selectedCost, knownActionChains: continuation.diagnostics } };
-  }
-  const attempts = { budgetPerGoal: options.maxCandidates, goals: sources.length, searches: [] };
-  for (const [index, edge] of sources.entries()) {
-    options.onProgress?.({ phase: 'device-entry-search', completed: index, total: sources.length });
-    const trial = planDirectedRoute(surfaces, world, starts, edge.points[0], {
-      ...options, groundPlanner: planner, connections: known,
-      interaction: undefined, waypoints: undefined, maxShortcutCandidates: 0,
-    }, shared, 'entry');
-    known = trial.connections;
-    const route = planner.plan(starts, goal, { interaction: options.interaction, connections: trial.connections });
-    attempts.searches.push({ device: edge.id, status: route.status, discovery: trial.diagnostics });
-    options.onProgress?.({ phase: 'device-entry-search', completed: index + 1, total: sources.length, status: route.status });
-    if (route.status === 'complete') return { ...result, route, connections: trial.connections,
-      diagnostics: { ...result.diagnostics, selectedCost: route.cost, deviceApproaches: attempts } };
   }
   result.connections = known;
   result.diagnostics.deviceApproaches = attempts;

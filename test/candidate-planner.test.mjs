@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createCandidatePlanner} from '../src/candidate-planner.mjs';
+const square=(id,x,z)=>({id,vertices:[[x,0,z],[x+2,0,z],[x+2,0,z+2],[x,0,z+2]]});
+test('candidate rejection preserves alternative spatial entrances and never reports execution',()=>{
+ const data={surfaces:[square('a',0,0),square('b',4,0),square('c',2,4)],options:{speed:5,maxVertical:1}};
+ const planner=createCandidatePlanner(data,{radius:5});
+ const starts=[{id:'start',position:[1,0,1],state:'available',cost:0}];
+ const first=planner.plan(starts,[5,0,1]);
+ assert.equal(first.status,'candidate');assert.ok(first.unresolved.length);assert.equal(first.cost,undefined);
+ const excluded = planner.plan(starts,[5,0,1],{excludedEdges:first.path.map(e=>e.index)});
+ assert.equal(excluded.status,'candidate');
+ assert.ok(excluded.path.every(e=>!first.path.some(old=>old.index===e.index)));
+ assert.deepEqual(planner.plan(starts,[5,0,1]).path,first.path);
+ planner.reject(first.path.map(e=>e.index));
+ const next=planner.plan(starts,[5,0,1]);
+ assert.equal(next.status,'candidate');
+ assert.ok(next.path.every(e=>!first.path.some(old=>old.index===e.index)));
+});
+test('unmapped endpoints retain their actual positions and use unresolved local access',()=>{
+ const data={surfaces:[square('road',40,0)],options:{speed:5,maxVertical:1}};
+ const planner=createCandidatePlanner(data,{endpointRadius:50});
+ const start=[0,5,1],goal=[45,4,1];
+ const result=planner.plan([{id:'factory',position:start,cost:0,state:'available'}],goal);
+ assert.equal(result.status,'candidate');
+ assert.deepEqual(result.points[0],start);
+ assert.deepEqual(result.points.at(-1),goal);
+ assert.equal(result.unresolved.length,2);
+ assert.deepEqual(result.unresolved[0].points[0],start);
+ assert.deepEqual(result.unresolved.at(-1).points.at(-1),goal);
+});

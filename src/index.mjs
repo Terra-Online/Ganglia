@@ -10,3 +10,5 @@ export { jumpConnection, jumpDuration } from './jumps.mjs';
 export { findJumpConnections } from './traversal.mjs';
 export { findJumpShortcuts } from './shortcuts.mjs';
 export { planJumpRoute } from './jump-planner.mjs';
+export { createLazyRoutePlanner } from './lazy-route.mjs';
+export { createCandidatePlanner } from './candidate-planner.mjs';
