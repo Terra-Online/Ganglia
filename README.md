@@ -396,3 +396,11 @@ sustained air-speed cap. The excess decays under forward input. Both values come
 Ground queries fall back to resource-state labels when the fastest static corridor cannot be
 scheduled. `route` and `routeFrom` also accept an explicit `locomotion` policy for this search.
 `locomotion.search` bounds labels and expansions, with truncation reported on the result.
+
+Ground dash scheduling accepts `locomotion.dash` with explicit speed, duration,
+cooldown and charge cost. A bounded label DP chooses spending or saving charges
+at spatial intervals along the route. It minimizes travel time, breaking equal-time
+ties by lower remaining energy. Ground dash ends at turns or air transitions,
+while cooldown and recovery continue across actions. Results retain dash count,
+model parameters and label-limit truncation. The speed input is a declared model,
+and needs independent game-motion validation.

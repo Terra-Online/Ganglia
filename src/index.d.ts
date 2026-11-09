@@ -4,11 +4,11 @@ export interface Node { id: string; position: Vec3 }
 export type MovementMode = 'walk' | 'rope' | 'jump' | 'drop' | 'launch';
 export interface BoostUse { id: string; multiplier: number; duration: number }
 export interface SpeedBoost extends BoostUse { position: Vec3; interaction: InteractionGoal }
-export interface Segment { boostExpiry?: number; boost?: BoostUse; mode: MovementMode; points: Vec3[]; times: number[]; connection?: string; gait?: 'run' | 'sprint'; requiredGait?: 'sprint' }
+export interface Segment { boostExpiry?: number; boost?: BoostUse; mode: MovementMode; points: Vec3[]; times: number[]; connection?: string; gait?: 'run' | 'sprint' | 'dash'; requiredGait?: 'sprint' }
 export interface Edge { from: string; to: string; cost: number; state: 'open' | 'closed' | 'unknown'; points: Vec3[]; mode?: MovementMode; times?: number[]; connection?: string; requiredGait?: 'sprint' }
 export interface Graph { nodes: Node[]; edges: Edge[] }
 export interface ResourceSearch { truncated: boolean; expanded: number; maxLabels: number; maxExpanded: number }
-export type Route = { status: 'complete'; boosts?: (BoostUse & { position: Vec3; elapsed: number })[]; start: string; cost: number; arrivalCost: number; length: number; search?: ResourceSearch; goalHit?: { segment: number; time: number; position: Vec3 }; locomotion?: { initial: number; final: number; minimum: number; search?: { truncated: boolean; maxLabels: number } }; points: Vec3[]; segments: Segment[] } | { status: 'unmapped' | 'no-verified-route'; search?: ResourceSearch };
+export type Route = { status: 'complete'; boosts?: (BoostUse & { position: Vec3; elapsed: number })[]; start: string; cost: number; arrivalCost: number; length: number; search?: ResourceSearch; goalHit?: { segment: number; time: number; position: Vec3 }; locomotion?: { initial: number; final: number; minimum: number; dashes?: number; dash?: { speed: number; duration: number; cooldown: number; cost: number }; search?: { truncated: boolean; maxLabels: number } }; points: Vec3[]; segments: Segment[] } | { status: 'unmapped' | 'no-verified-route'; search?: ResourceSearch };
 export interface Wall {
   min: Vec3; max: Vec3; state: 'active' | 'inactive' | 'unknown'; padding?: number;
   /** Solid sphere, mutually exclusive with points and polygon. Bounds remain a
@@ -68,6 +68,8 @@ export interface LocomotionOptions {
   speed: number;
   sprintSpeed: number;
   sprintAcceleration: number;
+  /** Optional ground dash pulse, sharing the stamina pool and cooldown across actions. */
+  dash?: { speed: number; duration: number; cooldown: number; cost: number };
   /** Movement modes that preserve an already active sprint across their authored trajectory. */
   sprintThrough?: Exclude<MovementMode, 'walk'>[];
   stamina?: {

@@ -34,7 +34,8 @@ export function planBoostedRoute(surfaces, world, starts, goal, options, incumbe
       throw new Error('Invalid speed boost');
     }
     ids.add(boost.id);
-    const speed = Math.max(options.model.maxHorizontalSpeed, options.locomotion?.sprintSpeed ?? options.speed);
+    const speed = Math.max(options.model.maxHorizontalSpeed, options.model.startHorizontalSpeed ?? 0,
+      options.locomotion?.sprintSpeed ?? options.speed, options.locomotion?.dash?.speed ?? 0);
     if (Math.hypot(boost.position[0] - goal[0], boost.position[2] - goal[2]) >
         boost.duration * speed * boost.multiplier + boost.interaction.radius + (options.interaction?.radius ?? 0)) continue;
     const ordinary = { ...options, boosts: undefined, connections: incumbent.connections };
@@ -51,7 +52,8 @@ export function planBoostedRoute(surfaces, world, starts, goal, options, incumbe
     if (pickupElapsed >= boost.duration) { evidence.status = 'expired'; continue; }
     const multiplier = boost.multiplier;
     const locomotion = options.locomotion && { ...options.locomotion,
-      speed: options.locomotion.speed * multiplier, sprintSpeed: options.locomotion.sprintSpeed * multiplier };
+      speed: options.locomotion.speed * multiplier, sprintSpeed: options.locomotion.sprintSpeed * multiplier,
+      ...(options.locomotion.dash ? { dash: { ...options.locomotion.dash, speed: options.locomotion.dash.speed * multiplier } } : {}) };
     const tail = plan(surfaces, world, [{ id: '@boost', position: prefix.points.at(-1), cost: 0, state: 'available' }], goal, {
       ...ordinary, groundPlanner: undefined, connections: approach.connections, activeBoost: boost.id,
       speed: options.speed * multiplier, locomotion,

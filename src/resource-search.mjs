@@ -8,7 +8,7 @@ const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis])
 // scheduling policy. More energy alone is insufficient: automatic sprint restart
 // may occur earlier and alter the entry gait at the next action.
 const stateKey = state => JSON.stringify([state.energy, state.delay, state.sprinting,
-  state.hasActivated, state.velocity, state.previousDirection]);
+  state.hasActivated, state.velocity, state.previousDirection, state.dashCooldown, state.dashRemaining]);
 
 /** Label-setting search over the finite retained graph and exact resource states.
  * Limits bound cyclic continuous-state graphs. Reaching either limit is exposed

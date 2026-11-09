@@ -249,7 +249,7 @@ export function planAirborneGoal(surfaces, world, starts, goal, options, approac
   if (!first) return { route: { status: 'unmapped' }, connections: [], diagnostics };
   candidates.sort((a, b) => distance(first.position, a.start.position) - distance(first.position, b.start.position) ||
     a.arc.times.at(-1) - b.arc.times.at(-1));
-  let maxSpeed = Math.max(options.speed, options.locomotion?.sprintSpeed ?? 0,
+  let maxSpeed = Math.max(options.speed, options.locomotion?.sprintSpeed ?? 0, options.locomotion?.dash?.speed ?? 0,
     options.model.maxHorizontalSpeed, options.model.startHorizontalSpeed ?? 0);
   for (const edge of options.connections ?? []) for (let index = 1; index < edge.points.length; index++) {
     const span = Math.hypot(edge.points[index][0] - edge.points[index - 1][0],
