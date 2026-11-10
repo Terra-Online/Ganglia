@@ -12,7 +12,8 @@
     "types": ["node"],
     "noEmitOnError": true,
     "noFallthroughCasesInSwitch": true,
-    "noImplicitOverride": true
+    "noImplicitOverride": true,
+    "customConditions": ["ganglia-source"]
   },
   "include": ["src/**/*.ts", "bench/**/*.ts", "test/*.types.ts"]
 }

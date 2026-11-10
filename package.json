@@ -12,31 +12,43 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": {
+        "ganglia-source": "./src/index.ts",
+        "default": "./dist/index.d.ts"
+      },
       "import": "./dist/index.js"
     },
     "./build": {
-      "types": "./dist/build.d.ts",
+      "types": {
+        "ganglia-source": "./src/build.ts",
+        "default": "./dist/build.d.ts"
+      },
       "import": "./dist/build.js"
     },
     "./collision": {
-      "types": "./dist/collision.d.ts",
+      "types": {
+        "ganglia-source": "./src/collision.ts",
+        "default": "./dist/collision.d.ts"
+      },
       "import": "./dist/collision.js"
     },
     "./solver": {
-      "types": "./dist/solver/index.d.ts",
+      "types": {
+        "ganglia-source": "./src/solver/index.ts",
+        "default": "./dist/solver/index.d.ts"
+      },
       "import": "./dist/solver/index.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "pnpm --silent build && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "check": "pnpm format:check && pnpm typecheck && pnpm test",
     "test": "node --import tsx --test test/*.test.ts",
     "benchmark": "pnpm --silent build && node --import tsx bench/cli.ts",
-    "prepack": "pnpm check"
+    "prepack": "pnpm check && pnpm build"
   },
   "dependencies": {
     "@recast-navigation/core": "0.44.0"
