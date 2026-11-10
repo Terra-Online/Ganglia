@@ -4,8 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { resolve } from 'node:path';
 import { jumpDuration } from '../../src/jumps.mjs';
 
-// Fixed supported points from the retained map02_lv004 walking traces. The final
-// two queries exercise an airborne objective without supplying a boost/device.
+// Fixed supported points from the retained map02_lv004 walking traces.
 const points = [
   [-1366.8111572265625, 298.30939069046434, -1651.3255615234375],
   [-1365.0442435400341, 298.32390252428604, -1646.809563397809],
@@ -15,13 +14,9 @@ const points = [
   [-1332.5409449892861, 298.3029295480361, -1627.3871537766443],
   [-1328.6625579833985, 294.8500061035156, -1612.9499877929688],
 ];
-const pairs = [[0, 3], [3, 0], [0, 2], [2, 0], [1, 3], [3, 1], [4, 5], [5, 6]];
+const pairs = [[0, 3], [3, 0], [0, 2], [2, 0], [1, 3], [3, 1], [4, 5], [5, 6], [5, 4], [6, 5]];
 export const cases = pairs.map(([a, b], i) => ({ id: `ground-${i + 1}`,
   query: { starts: [{ id: 'player', position: points[a], state: 'available', cost: 0 }], goal: points[b] } }));
-for (const [i, start] of [points[6], points[0]].entries()) cases.push({ id: `airborne-${i + 1}`,
-  query: { starts: [{ id: 'player', position: start, state: 'available', cost: 0 }],
-    goal: [-1345.7430419921875, 277.8000122070313, -1596.0150146484375],
-    options: { interaction: { radius: 2.090000033378601, airborne: true } } } });
 
 /** Import this retained physical fixture without depending on Atlos or its CLI.
  * Data stays local; hashes bind the exact input bytes and workload definition. */

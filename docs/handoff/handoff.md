@@ -182,9 +182,10 @@ output comparison from query timing. Discovery indices remain lazy and their fir
 use is charged to a query. Separate prepared instances isolate the two passes;
 process JIT/GC and OS pages are not controlled. See [the guide](../../bench/README.md).
 
-The initial local run completed eight ground requests; two airborne requests were
-unmapped with truncated discovery under the fixed 128-candidate budget, without
-devices, boosts or target refinement. All ten batch route/connection outcomes and
-truncation flags matched their single-query counterparts. This bounded SDK workload
-does not replace the heavy-action controls or establish a performance improvement.
-The historical optimization target and outstanding modeling gaps remain unchanged.
+The current workload uses ten ground-to-ground requests only, including reverse
+directions from retained walking traces. The two original airborne objectives were
+removed at the user's request. All ten requests completed without truncation in
+the ground-only run; batch route/connection outcomes and truncation flags matched
+single-query results. This bounded SDK workload does not replace the heavy-action
+controls or establish a performance improvement. The historical optimization target
+and outstanding modeling gaps remain unchanged.

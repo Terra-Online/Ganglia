@@ -59,9 +59,9 @@ No game data is distributed or downloaded by this script. Missing inputs produce
 a nonzero exit and a diagnostic on stderr. For clean JSON stdout through npm,
 use `--silent`; direct `node bench/cli.mjs --json` also emits JSON only.
 
-`bench/scenes/map02.mjs` defines ten fixed pairs: eight ground objectives from
-retained walking traces and two airborne objectives in the same map02_lv004
-window. Requests use 128 candidates, 64 links and no optional shortcut budget.
+`bench/scenes/map02.mjs` defines ten fixed ground-to-ground pairs from retained
+walking traces in the same map02_lv004 window, including reverse-direction
+requests. Requests use 128 candidates, 64 links and no optional shortcut budget.
 This is a small, bounded SDK workload; it does not reproduce the full Atlos
 pipeline, devices, boosts, goal refinement, live-game execution or the historical
 heavy-action acceptance corpus. Unavailable/truncated outcomes are reported.

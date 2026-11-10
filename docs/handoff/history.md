@@ -252,3 +252,21 @@ truncation comparisons were retained. This different-runtime observation is not
 a performance comparison with the initial Node 26 run. The two benchmark tests
 passed again after the statistics correction; no solver implementation changed.
 Standards and specification reviews found no blocking issues in the addition.
+
+### Ground-only workload revision (2026-11-11)
+
+At the user's request, replaced both airborne objectives with reverse-direction
+ground requests, retaining ten cases. Existing solver and benchmark seams are
+unchanged. All ten single and batch requests completed without truncation; all ten
+route/connection outcomes and truncation flags matched. The four focused solver/
+benchmark tests passed.
+
+The actual npm `--json` run is retained in
+`.local/research/solver-benchmark-ground.json`: Node v24.22.0, base revision
+`e46a1e1f36e93941806a33abb8ceea45689c16cf`, source/workload digest
+`82dde7683a75b98c430fe8c14442f64f9d83e398243c75d8474d1cdd023c87a1`. Single calls totaled
+31.332 ms; batch took 25.802 ms
+(387.566 requests/s). Preparation is excluded as before.
+These timings belong to the ground-only workload and must not be interpreted as
+an algorithm speedup against the earlier mixed-objective measurements. Earlier
+records and outputs are preserved.
