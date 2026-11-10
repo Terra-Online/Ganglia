@@ -88,7 +88,13 @@ test('required gait survives graph and ground planning and excludes unproved air
   { id: 'approach', position: [-2,0,0], cost: 0, state: 'available' },
  ], [9,0,0], { ...options, speed: 5, connections: [jump], locomotion });
  assert.equal(paid.status, 'complete');
- assert.equal(paid.start, 'approach');
+ // Resource search can now leave the nearer arrival, establish a paid sprint
+ // on a short supported approach and return to the launch point.
+ assert.equal(paid.start, 'no-approach');
+ const launch = paid.segments.findIndex(segment => segment.mode === 'jump');
+ assert.ok(launch > 0);
+ assert.ok(paid.segments.slice(0, launch).some(segment => segment.gait === 'sprint' && segment.times.at(-1) > 0));
+ assert.equal(paid.locomotion.initial - paid.locomotion.final, 1);
  assert.equal(paid.segments.find(segment => segment.mode === 'jump').requiredGait, 'sprint');
  assert.equal(planGroundRoute(platforms, player([-2,0,0]), [9,0,0], {
   ...options, speed: 5, connections: [jump], locomotion: {

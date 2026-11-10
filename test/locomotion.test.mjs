@@ -238,3 +238,66 @@ test('consecutive sprint-required jumps need held gait or enough natural recover
   assert.equal(result.segments.filter(segment => segment.requiredGait === 'sprint').length, 2);
   assert.equal(result.locomotion.minimum, 0);
 });
+
+const dashPolicy = { ...options, dash: { speed: 10, duration: .3, cooldown: .8, cost: 1 },
+  stamina: { capacity: 8, initial: 8, activationCost: 1, recoveryRate: 1 / 1.7,
+    recoveryDelay: .9, reserve: 0, recoveryDuringSprint: true, recoveryDuringNonWalk: true } };
+
+test('dash allocation repeats pulses and beats sustained sprint with the same resource pool', () => {
+  const input = line(80);
+  const baseline = retimeGroundRoute(input, { ...dashPolicy, dash: undefined });
+  const result = retimeGroundRoute(input, dashPolicy);
+  assert.ok(result.cost < baseline.cost);
+  assert.ok(result.locomotion.dashes > 1);
+  assert.ok(result.locomotion.final < baseline.locomotion.final);
+  assert.ok(result.locomotion.minimum >= 0);
+  assert.ok(result.segments.some(segment => segment.gait === 'dash'));
+  assert.ok(result.segments.some(segment => segment.gait === 'sprint'));
+  assert.deepEqual(result.points.at(-1), input.points.at(-1));
+});
+
+test('dash pulses cross tessellation seams without resetting cooldown or charging again', () => {
+  const input = line(20);
+  const split = route(Array.from({length: 40}, (_, index) => walk([[index / 2,0,0],[(index+1)/2,0,0]])));
+  const whole = retimeGroundRoute(input, dashPolicy);
+  const tiled = retimeGroundRoute(split, dashPolicy);
+  near(whole.cost, tiled.cost);
+  near(whole.locomotion.final, tiled.locomotion.final);
+  assert.equal(whole.locomotion.dashes, tiled.locomotion.dashes);
+});
+
+test('dash cooldown and energy continue over a jump without changing its motion', () => {
+  const jump = {mode:'jump',points:[[3,0,0],[3,0,1]],times:[0,.1]};
+  const result = retimeGroundRoute(route([walk([[0,0,0],[3,0,0]]),jump,walk([[3,0,1],[6,0,1]])]),
+    {...dashPolicy, stamina: {...dashPolicy.stamina, recoveryRate:0,initial:1}});
+  assert.equal(result.locomotion.dashes,1);
+  assert.deepEqual(result.segments.find(segment => segment.mode === 'jump'),jump);
+  near(result.locomotion.final,0);
+  assert.throws(() => retimeGroundRoute(line(10), {...dashPolicy,dash:{...dashPolicy.dash,cooldown:.1}}),/dash policy/);
+});
+
+test('interior allocation saves a charge past a short approach and sharp turn', () => {
+  const input = route([walk([[0,0,0],[.1,0,0],[.1,0,30]])]);
+  const result = retimeGroundRoute(input, {...dashPolicy,
+    stamina:{...dashPolicy.stamina,initial:1,capacity:1,recoveryRate:0,activationCost:0}});
+  assert.equal(result.locomotion.dashes,1);
+  const pulse = result.segments.find(segment => segment.gait === 'dash');
+  assert.ok(pulse.points[0][2] > 0);
+  assert.ok(pulse.points.at(-1)[2] - pulse.points[0][2] > 2.9);
+  near(result.locomotion.final,0);
+  assert.deepEqual(result.locomotion.dash,dashPolicy.dash);
+});
+
+test('retiming keeps terminal airborne goal evidence attached to its shifted segment', () => {
+  const jump = {mode:'jump',points:[[20,0,0],[24,2,0]],times:[0,.7]};
+  const input = route([walk([[0,0,0],[20,0,0]]),jump]);
+  input.goalHit = {segment:1,time:.7,position:[24,2,0]};
+  const original = structuredClone(input);
+  const result = retimeGroundRoute(input,dashPolicy);
+  assert.ok(result.goalHit.segment > input.goalHit.segment);
+  assert.deepEqual(result.segments[result.goalHit.segment],jump);
+  assert.equal(result.goalHit.segment,result.segments.length - 1);
+  assert.equal(result.goalHit.time,.7);
+  assert.deepEqual(result.goalHit.position,[24,2,0]);
+  assert.deepEqual(input,original);
+});

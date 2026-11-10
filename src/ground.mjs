@@ -7,6 +7,7 @@ import { createGroundStraightener } from './straighten.mjs';
 import { retimeGroundRoute } from './locomotion.mjs';
 
 const preparations = new WeakMap();
+
 /** Internal immutable preparation shared with action discovery for the same planner. */
 export const groundPreparation = planner => preparations.get(planner);
 
@@ -40,18 +41,29 @@ export function createGroundPlanner(surfaces, options) {
   const projectSupport = createSupportProjector(surfaces, byId);
   const straighten = createGroundStraightener(surfaces, options, portals);
   const projectGoal = createGoalProjector(surfaces);
-  let targetKey;
   const visibility = new Map();
+  const failedVisibility = new Map();
+  let endpointKeys = new Map();
   const planner = { project: projectGoal, plan(starts, goal, query = {}) {
-    // Action discovery extends one goal query repeatedly. Retain its continuous
-    // transfers while dropping them when the target changes, bounding cross-query storage.
-    const key = JSON.stringify([goal, query.interaction]);
-    if (key !== targetKey) { visibility.clear(); targetKey = key; }
+    // Transfers depend on support coordinates within this immutable planner.
+    // Keep fixed device transfers when action discovery changes its target.
     const graph = { nodes: [], edges: [] };
-    const targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
-    if (!targets.length) return { status: 'unmapped' };
+    let targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
+    if (query.endpointTolerance !== undefined) {
+      const tolerance = query.endpointTolerance;
+      if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > Math.min(maxVertical, profile.radius) || query.interaction) {
+        throw new Error('Invalid goal endpoint tolerance');
+      }
+      const support = projectSupport(goal, tolerance);
+      targets = support ? [{ ...support, support: support.position, position: goal }] : [];
+    }
+    if (!targets.length) {
+      visibility.clear(); failedVisibility.clear(); endpointKeys.clear();
+      return { status: 'unmapped' };
+    }
     const centers = baseCenters;
     const endpoints = new Map();
+    const currentKeys = new Map();
     let serial = 0;
     const unique = () => {
       let id;
@@ -73,7 +85,13 @@ export function createGroundPlanner(surfaces, options) {
         connect(id, peer.id, projected.position, peer.position);
         connect(peer.id, id, peer.position, projected.position);
       }
-      peers.push({ id, position: projected.position, support: projected.support ?? projected.position });
+      const support = projected.support ?? projected.position;
+      // Recheck caller-owned coordinates on every plan, sharing one string per
+      // live support point across all directional failure sets and query extensions.
+      const serialized = JSON.stringify(support);
+      const key = currentKeys.get(serialized) ?? endpointKeys.get(serialized) ?? serialized;
+      currentKeys.set(key, key);
+      peers.push({ id, position: projected.position, support, key });
       endpoints.set(projected.surface, peers);
       return id;
     };
@@ -99,7 +117,7 @@ export function createGroundPlanner(surfaces, options) {
       connectionIds.add(id);
       const cost = times.at(-1);
       validateMotion({ mode, points, times, cost, connection: id, requiredGait });
-      if (state !== 'open') continue;
+      if (state !== 'open' || connection.terminal || (connection.requiredBoost !== undefined && connection.requiredBoost !== options.activeBoost)) continue;
       // Gait-dependent trajectories need an explicit resource policy to prove
       // their entry condition. Other supplied connections remain usable.
       if (requiredGait !== undefined && !options.locomotion) continue;
@@ -123,18 +141,36 @@ export function createGroundPlanner(surfaces, options) {
       graph.edges.push({ from: fromId, to: toId, state, cost, mode, points, times, connection: id,
         ...(requiredGait === undefined ? {} : { requiredGait }) });
     }
+    // Transfer proofs belong only to the live endpoints. Growing action overlays
+    // need no pair scan; removed or moved endpoints discard both directions.
+    let discarded = false;
+    for (const key of endpointKeys.keys()) if (!currentKeys.has(key)) { discarded = true; break; }
+    if (discarded) for (const cache of [visibility, failedVisibility]) {
+      for (const [from, targets] of cache) {
+        if (!currentKeys.has(from)) { cache.delete(from); continue; }
+        for (const to of targets.keys()) if (!currentKeys.has(to)) targets.delete(to);
+        if (!targets.size) cache.delete(from);
+      }
+    }
+    endpointKeys = currentKeys;
     // Action decisions use continuous, supported ground transfers whenever the
     // endpoints see each other. Dense triangulation must not make an otherwise
     // cheap walk to a takeoff appear longer than a different jump sequence.
     const groups = [...endpoints.values()];
     for (let a = 0; a < groups.length; a++) for (let b = a + 1; b < groups.length; b++) {
       for (const left of groups[a]) for (const right of groups[b]) {
+        if (connectionIds.size && !straighten.mayConnect(left.support, right.support)) continue;
         for (const [from, to] of [[left, right], [right, left]]) {
           if (goals.has(from.id) && goals.has(to.id)) continue;
-          const key = JSON.stringify([from.support, to.support]);
-          if (!visibility.has(key)) visibility.set(key, straighten.trace(from.support, to.support));
-          const traced = visibility.get(key);
-          if (!traced) continue;
+          if (failedVisibility.get(from.key)?.has(to.key)) continue;
+          const traced = visibility.get(from.key)?.get(to.key) ?? straighten.trace(from.support, to.support);
+          if (!traced) {
+            const failed = failedVisibility.get(from.key) ?? new Set();
+            failed.add(to.key); failedVisibility.set(from.key, failed);
+            continue;
+          }
+          const visible = visibility.get(from.key) ?? new Map();
+          visible.set(to.key, traced); visibility.set(from.key, visible);
           const points = [from.position, ...traced.slice(1, -1), to.position];
           const cost = points.slice(1).reduce((sum, point, index) => sum + distance(points[index], point), 0) / searchSpeed;
           graph.edges.push({ from: from.id, to: to.id, points, cost, state: 'open' });
@@ -143,7 +179,7 @@ export function createGroundPlanner(surfaces, options) {
     }
     // Compare actual continuous lengths and movement times for each available origin.
     // Centre-corridor costs alone can rank nearby teleport arrivals incorrectly.
-    let best = null;
+    let best = null, search;
     for (const arrival of arrivals) {
       if (best && arrival.cost >= best.cost) continue;
       let candidate = routeBase.plan(graph, [arrival], targetIds);
@@ -158,11 +194,25 @@ export function createGroundPlanner(surfaces, options) {
       const continuous = straightenRoute(candidate, straighten, speed);
       if (blocked(continuous.points[0], continuous.points[0]) ||
           continuous.points.slice(1).some((point, index) => blocked(continuous.points[index], point))) continue;
-      const timed = options.locomotion ? retimeGroundRoute(continuous, options.locomotion) : continuous;
+      let timed = options.locomotion ? retimeGroundRoute(continuous, options.locomotion) : continuous;
+      if (timed.status !== 'complete' && options.locomotion) {
+        // An infeasible fastest corridor must not hide a slower resource-feasible
+        // alternative. Retain the searched schedule if smoothing removes recovery.
+        const resource = routeBase.plan(graph, [arrival], targetIds, options.locomotion);
+        search = { ...resource.search, expanded: (search?.expanded ?? 0) + resource.search.expanded,
+          truncated: Boolean(search?.truncated || resource.search.truncated) };
+        if (resource.status === 'complete') {
+          const smoothed = straightenRoute(resource, straighten, speed);
+          const retimed = retimeGroundRoute(smoothed, options.locomotion);
+          timed = retimed.status === 'complete' && retimed.cost < resource.cost ? retimed : resource;
+          timed = { ...timed, search: resource.search };
+        } else timed = resource;
+      }
       if (timed.status !== 'complete') continue;
       if (!best || timed.cost < best.cost) best = timed;
     }
-    return best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
+    const result = best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
+    return search ? { ...result, search } : result;
   } };
   preparations.set(planner, { surfaces, portals, straighten, projectGoal, projectSupport, byId, centers: baseCenters,
     graph: base, routeBase, constraintsSignature, searchSpeed, importedPortals: options.portals });

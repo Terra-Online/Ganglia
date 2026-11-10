@@ -8,6 +8,14 @@ selectable floors, and sprint-stamina allocation. The repository baseline has be
 120–200-second durations are user reports for some queries. They have not been treated as a measured
 average across all queries, and subsecond performance has not been established.
 
+## Current workspace boundary
+
+The [workspace ownership](../README.md#workspace-ownership) changed on 2026-11-08.
+References below to a noclip importer describe its role in the data pipeline. The local implementation
+is now maintained by Atlos through `talos/integrations/noclip/extractor.patch`; the upstream noclip
+checkout stays unchanged. Ganglia algorithms remain in this repository. This ownership migration
+does not imply completion of any modeling or performance phase below.
+
 ## Decisions in this revision
 
 Implementation status as of 2026-11-07 is tracked separately in

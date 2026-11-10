@@ -35,6 +35,18 @@ test('padded tiles retain continuous ground and detail heights across core seams
   }
 });
 
+test('height-separated builds preserve horizontal tile seams without joining floors', async () => {
+  const data = await buildGroundTiles(geometry([
+    ...quad(-2,18,-2,10,-200), ...quad(-2,18,-2,10,300),
+  ]), options);
+  for (const y of [-200,300]) {
+    assert.equal(plan(data,[2,y,4],[14,y,4]).status,'complete');
+  }
+  assert.equal(plan(data,[2,-200,4],[14,300,4]).status,'no-verified-route');
+  assert.doesNotThrow(() => surfaceGraph(data.surfaces,{speed:5,portals:data.portals}));
+  assert.equal(new Set(data.surfaces.map(surface => surface.id)).size,data.surfaces.length);
+});
+
 test('large negative Float32 coordinates retain exact core planes on sloping detail triangles', async () => {
   const vertices = [];
   const point = (x, z) => [x, 160 + .05 * (x + 806.4) + .08 * Math.sin(z * 5), z];
@@ -111,7 +123,7 @@ test('invalid bounds, tile budgets and failed tile builds reject the whole resul
   }
   await assert.rejects(buildGroundTiles(floor, { ...options, tileCells: 0 }), /tile cell/);
   await assert.rejects(buildGroundTiles(floor, { ...options, tileCells: 1 }), /512 tile/);
-  await assert.rejects(buildGroundTiles(geometry([...quad(-2, 18, -2, 10, 0), ...quad(-2, 18, -2, 10, 1000)]), options),
+  await assert.rejects(buildGroundTiles(geometry([...quad(-2, 18, -2, 10, 0), ...quad(-2, 18, -2, 10, 1e12)]), options),
     /Ground tile \(0, 0\) build failed:.*voxel limits/);
 });
 

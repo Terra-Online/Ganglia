@@ -1,3 +1,5 @@
+import { planBoostedRoute } from './boosted-route.mjs';
+import { planAirborneGoal } from './airborne-goal.mjs';
 import { movementGeometry } from './movement-geometry.mjs';
 import { createGroundPlanner, groundPreparation } from './ground.mjs';
 import { findJumpFrontier, findJumpShortcuts } from './shortcuts.mjs';
@@ -24,7 +26,7 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
   const planner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
   const diagnostics = { strategy: 'surface-action-graph', groundStatus: 'unmapped',
     baselineCost: null, selectedCost: null, truncated: false, searches: [] };
-  let best = initial ?? planner.plan(starts, goal, { interaction, connections: options.connections ?? [] }), bestConnections = options.connections ?? [];
+  let best = initial ?? planner.plan(starts, goal, { interaction, endpointTolerance: options.endpointTolerance, connections: options.connections ?? [] }), bestConnections = options.connections ?? [];
   const partialConnections = [...bestConnections];
   diagnostics.groundStatus = best.status;
   if (best.status === 'complete') diagnostics.baselineCost = best.cost;
@@ -50,24 +52,28 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
   for (const arrival of starts) {
     if (arrival.state !== 'available' || (best.status === 'complete' && arrival.cost >= best.cost)) continue;
     let connections = [...(options.connections ?? [])];
-    let incumbent = starts.length === 1 ? best : planner.plan([arrival], goal, { interaction, connections: options.connections ?? [] });
+    let incumbent = starts.length === 1 ? best : planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections: options.connections ?? [] });
     const discoveryOptions = { ...options, groundPlanner: planner, from: arrival.position, to: goal };
     let remaining = options.maxCandidates;
     // Cheap region-chain proposals cover simple transfers before broad frontiers.
     // The same bounded stage runs for every unresolved query.
-    const proposalBudget = stage === 'direction' ? 0 : Math.min(128, Math.floor(remaining / 8));
+    const proposalBudget = stage === 'direction' ? 0 : stage === 'relations' ? remaining : Math.min(128, Math.floor(remaining / 8));
     if (incumbent.status !== 'complete' && proposalBudget > 0) {
       const proposal = findJumpConnections(surfaces, world, discoveryOptions,
-        { arcAttempts: proposalBudget * 2, regionSearches: proposalBudget });
+        { arcAttempts: proposalBudget * 2, regionSearches: proposalBudget }, stage === 'entry' || stage === 'relations');
       connections.push(...search(proposal));
-      remaining -= proposalBudget;
-      if (proposal.connections.length) incumbent = planner.plan([arrival], goal, { interaction, connections });
+      remaining = stage === 'relations' ? 0 : remaining - proposalBudget;
+      if (proposal.connections.length) incumbent = planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections });
     }
     const batches = [Math.min(128, remaining), Math.min(128, remaining)], spent = [0, 0];
     const exhausted = new Set();
-    const cache = { standing: shared.standing ?? new Map(), motions: shared.motions ?? new Map(),
-      exits: shared.exits ?? new Map(), approaches: shared.approaches ?? new Map(),
-      geometry: shared.geometry, visibility: shared.visibility, traces: shared.traces, distanceFields: shared.distanceFields };
+    // The cache owns one current endpoint/model binding. Sharing the owner also
+    // preserves cursor invalidations when nested direction or entry queries change it.
+    const cache = shared;
+    cache.standing ??= new Map();
+    cache.motions ??= new Map();
+    cache.exits ??= new Map();
+    cache.approaches ??= new Map();
     while (incumbent.status !== 'complete' && remaining > 0) {
       const maxLinks = options.maxLinks - connections.length + (options.connections?.length ?? 0);
       if (maxLinks <= 0) { diagnostics.truncated = true; break; }
@@ -97,9 +103,8 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
       exhausted.clear();
       batches[side] = Math.min(128, remaining);
       connections.push(...additions);
-      incumbent = planner.plan([arrival], goal, { interaction, connections });
+      incumbent = planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections });
     }
-    for (const key of ['standing', 'motions', 'exits', 'approaches', 'geometry', 'visibility', 'traces', 'distanceFields']) shared[key] = cache[key];
     if (incumbent.status !== 'complete') {
       partialConnections.push(...connections.slice(options.connections?.length ?? 0));
       continue;
@@ -117,7 +122,7 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
       maxCandidates: improvementBudget, baseline: incumbent, speed: options.locomotion?.sprintSpeed ?? options.speed }, cache));
     if (alternatives.length) {
       connections = [...connections, ...alternatives];
-      const candidate = planner.plan([arrival], goal, { interaction, connections });
+      const candidate = planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections });
       if (candidate.status === 'complete' && candidate.cost < incumbent.cost - 1e-7) incumbent = candidate;
       if (incumbent.cost < best.cost - 1e-7) { best = incumbent; bestConnections = connections; }
     }
@@ -128,12 +133,12 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
       const additions = search(local);
       if (additions.length) {
         const localConnections = [...localBaseConnections, ...additions];
-        const localRoute = planner.plan([arrival], goal, { interaction, connections: localConnections });
+        const localRoute = planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections: localConnections });
         if (localRoute.status === 'complete' && localRoute.cost < best.cost - 1e-7) {
           best = localRoute; bestConnections = localConnections;
         }
         connections = [...connections, ...additions];
-        const candidate = planner.plan([arrival], goal, { interaction, connections });
+        const candidate = planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections });
         if (candidate.status === 'complete' && candidate.cost < incumbent.cost - 1e-7) incumbent = candidate;
         if (incumbent.cost < best.cost - 1e-7) { best = incumbent; bestConnections = connections; }
       }
@@ -147,18 +152,17 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
  * constrain the final route to visit those points. Only the accumulated physically
  * validated actions enter the final, jointly timed start-to-goal query.
  */
-function planDirectedRoute(surfaces, world, starts, goal, options) {
+function planDirectedRoute(surfaces, world, starts, goal, options, shared, stage) {
   const { waypoints, onProgress, ...base } = options;
   if (waypoints !== undefined && (!Array.isArray(waypoints) || waypoints.length > 128 ||
       waypoints.some(point => !Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite)))) {
     throw new Error('Invalid coarse waypoints');
   }
   if (onProgress !== undefined && typeof onProgress !== 'function') throw new Error('Invalid route progress callback');
-  const shared = {};
-  if (!waypoints?.length) return solveJumpRoute(surfaces, world, starts, goal, base, shared, 'final');
+  if (!waypoints?.length) return solveJumpRoute(surfaces, world, starts, goal, base, shared, stage);
   const planner = base.groundPlanner ?? createGroundPlanner(surfaces, base);
   const initialConnections = base.connections ?? [];
-  const initial = planner.plan(starts, goal, { interaction: base.interaction, connections: initialConnections });
+  const initial = planner.plan(starts, goal, { interaction: base.interaction, endpointTolerance: base.endpointTolerance, connections: initialConnections });
   if (initial.status === 'complete') {
     return solveJumpRoute(surfaces, world, starts, goal, { ...base, groundPlanner: planner }, shared, 'final', initial);
   }
@@ -199,7 +203,7 @@ function planDirectedRoute(surfaces, world, starts, goal, options) {
       status: result.route.status, connections: connections.length });
     if (connections.length - (base.connections?.length ?? 0) >= base.maxLinks) break;
     if (connections.length > previous) {
-      goalRoute = planner.plan(starts, goal, { interaction: base.interaction, connections });
+      goalRoute = planner.plan(starts, goal, { interaction: base.interaction, endpointTolerance: base.endpointTolerance, connections });
       goalConnections = connections;
       if (goalRoute.status === 'complete') break;
     }
@@ -209,7 +213,7 @@ function planDirectedRoute(surfaces, world, starts, goal, options) {
   const unchanged = goalConnections.length === connections.length &&
     goalConnections.every((connection, index) => connection === connections[index]);
   const result = solveJumpRoute(surfaces, world, starts, goal, { ...base,
-    groundPlanner: planner, connections, maxCandidates: remaining }, shared, 'final', unchanged ? goalRoute : undefined);
+      groundPlanner: planner, connections, maxCandidates: remaining }, shared, stage, unchanged ? goalRoute : undefined);
   result.diagnostics.directions = { requestedGoals: waypoints.length, regions: directions.length,
     budgetPerGoal: budget, remaining, searches };
   return result;
@@ -219,33 +223,98 @@ function planDirectedRoute(surfaces, world, starts, goal, options) {
  * actions can reach the goal from a still-inaccessible region. Each retained entry
  * gets an explicit bounded query. Only a complete joint final-goal solve is returned.
  */
-export function planJumpRoute(surfaces, world, starts, goal, options) {
-  const result = planDirectedRoute(surfaces, world, starts, goal, options);
+function planBaseRoute(surfaces, world, starts, goal, options) {
+  const shared = {};
+  const goalPlanner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
+  const airborneOnly = options.interaction?.airborne &&
+    !goalPlanner.project(goal, { maxVertical: options.maxVertical, interaction: options.interaction }).length;
+  // An airborne event has no ground node. Discover its complete flight first,
+  // then search the supported departure using the ordinary entry machinery.
+  const result = airborneOnly
+    ? { route: { status: 'unmapped' }, connections: options.connections ?? [], diagnostics: {
+      strategy: 'surface-action-graph', groundStatus: 'unmapped', baselineCost: null,
+      selectedCost: null, truncated: false, searches: [],
+    } }
+    : planDirectedRoute(surfaces, world, starts, goal, { ...options, groundPlanner: goalPlanner }, shared, 'final');
+  if (options.interaction?.airborne && result.route.status !== 'complete') {
+    const planner = goalPlanner;
+    const airborne = planAirborneGoal(surfaces, world, starts, goal, { ...options, groundPlanner: planner }, position =>
+      planDirectedRoute(surfaces, world, starts, position, { ...options, groundPlanner: planner,
+        interaction: undefined, endpointTolerance: Math.min(options.maxVertical, options.profile.radius),
+        connections: result.connections, maxShortcutCandidates: options.activeBoost ? options.maxCandidates : 0 }, shared, 'entry'));
+    result.diagnostics.airborne = airborne.diagnostics;
+    result.diagnostics.truncated ||= airborne.diagnostics.truncated;
+    if (airborne.route.status === 'complete') return { ...result, route: airborne.route, connections: airborne.connections,
+      diagnostics: { ...result.diagnostics, selectedCost: airborne.route.cost } };
+  }
   if (result.route.status === 'complete' || !options.connections?.length) return result;
   const planner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
-  const known = options.connections;
+  // Failed discovery still contains physically validated actions. Entry searches
+  // continue that pool and its geometry preparation within this immutable query.
+  let known = result.connections;
   const probe = (position, target, interaction) => planner.plan([
     { id: '@device-entry', position, state: 'available', cost: 0 },
-  ], target, { interaction, connections: known }).status === 'complete';
-  const entries = known.filter(edge => edge.state === 'open' &&
-    probe(edge.points[0], goal, options.interaction));
-  // A reachable upstream entry already covers its downstream device entries.
-  // Keep one representative for mutual reachability, preserving directed chains.
-  const sources = entries.filter((edge, index) => !entries.some((other, j) => j !== index &&
-    probe(other.points[0], edge.points[0]) && (!probe(edge.points[0], other.points[0]) || j < index)));
-  if (!sources.length) return result;
-  const attempts = { budgetPerGoal: options.maxCandidates, goals: sources.length, searches: [] };
+  ], target, { interaction, endpointTolerance: options.endpointTolerance, connections: known }).status === 'complete';
+  // Screen entries lazily so an early complete route can be published without
+  // first solving every pair of device approaches. Exact-coordinate duplicates
+  // share the same fresh entry state; distinct positions retain their own trial.
+  const sources = [...new Map(known.filter(edge => edge.state === 'open' && !edge.terminal)
+    .map(edge => [JSON.stringify(edge.points[0]), edge])).values()];
+  let eligible = false;
+  const geometry = movementGeometry(surfaces, { ...options, groundPlanner: planner });
+  const regions = new Map(sources.map(edge => {
+    const support = geometry.projectSupport(edge.points[0], edge.endpointTolerance ?? 1e-6, edge.fromSurface);
+    const component = support && geometry.topology.components[geometry.topology.ids.get(support.surface)];
+    return [edge, component ?? edge.id];
+  }));
+  // Divide causal approach work across distinct ground regions instead of
+  // multiplying the full query budget by every discovered device endpoint.
+  const entryBudget = Math.min(options.maxCandidates, Math.max(128,
+    Math.floor(options.maxCandidates / Math.max(1, new Set(regions.values()).size))));
+  const attempts = { budgetPerGoal: entryBudget, goals: sources.length, searches: [] };
+  const searchedRegions = new Set();
   for (const [index, edge] of sources.entries()) {
+    const region = regions.get(edge);
+    // One entry discovery covers a mutually walk-reachable ground region. This
+    // reuses the existing directed ground proof without solving every entry pair.
+    if (region !== undefined && region !== null && searchedRegions.has(region)) continue;
     options.onProgress?.({ phase: 'device-entry-search', completed: index, total: sources.length });
+    if (!probe(edge.points[0], goal, options.interaction)) {
+      options.onProgress?.({ phase: 'device-entry-search', completed: index + 1,
+        total: sources.length, status: 'no-verified-route' });
+      continue;
+    }
+    eligible = true;
+    if (region !== undefined && region !== null) searchedRegions.add(region);
     const trial = planDirectedRoute(surfaces, world, starts, edge.points[0], {
-      ...options, groundPlanner: planner, interaction: undefined, waypoints: undefined, maxShortcutCandidates: 0,
-    });
+      ...options, groundPlanner: planner, connections: known,
+      interaction: undefined, waypoints: undefined, maxShortcutCandidates: 0, maxCandidates: entryBudget,
+    }, shared, 'entry');
+    result.diagnostics.truncated ||= trial.diagnostics.truncated;
+    known = trial.connections;
     const route = planner.plan(starts, goal, { interaction: options.interaction, connections: trial.connections });
     attempts.searches.push({ device: edge.id, status: route.status, discovery: trial.diagnostics });
     options.onProgress?.({ phase: 'device-entry-search', completed: index + 1, total: sources.length, status: route.status });
     if (route.status === 'complete') return { ...result, route, connections: trial.connections,
       diagnostics: { ...result.diagnostics, selectedCost: route.cost, deviceApproaches: attempts } };
   }
+  if (!eligible) {
+    // New action chains supplement an unresolved primary query. Earlier feasible
+    // searches keep their original discovery and shortcut budgets.
+    const continuation = solveJumpRoute(surfaces, world, starts, goal, { ...options,
+      groundPlanner: planner, connections: known, maxCandidates: Math.min(128, options.maxCandidates),
+      maxShortcutCandidates: 0 }, shared, 'relations');
+    return { ...continuation, diagnostics: { ...result.diagnostics,
+      selectedCost: continuation.diagnostics.selectedCost, knownActionChains: continuation.diagnostics } };
+  }
+  result.connections = known;
   result.diagnostics.deviceApproaches = attempts;
   return result;
+}
+
+export function planJumpRoute(surfaces, world, starts, goal, options) {
+  const result = planBaseRoute(surfaces, world, starts, goal, options);
+  return options.boosts?.length
+    ? planBoostedRoute(surfaces, world, starts, goal, options, result, planBaseRoute)
+    : result;
 }

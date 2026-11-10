@@ -7,12 +7,12 @@ setup and the local 5199, 5173 detail and 5176 World workflow.
 License](LICENSE), which excludes zmdmap.com, fz.wiki and the related operators and projects
 defined there. Read the license before using or distributing the algorithm.
 
-`@oem/ganglia` is an experimental ESM ground-routing package for OEM,
+`@opendfieldmap/ganglia` is an experimental ESM ground-routing package for OEM,
 with TypeScript declarations. It runs in Node and browsers. Camera rules belong to
 noclip; game asset decoding belongs to its extractor.
 
 ```js
-import { planGroundRoute, sampleJourney } from '@oem/ganglia';
+import { planGroundRoute, sampleJourney } from '@opendfieldmap/ganglia';
 const result = planGroundRoute(surfaces, arrivals, target, {
   speed: 3, maxVertical: 0.5,
   profile: { radius: 0.4, height: 2 }, walls,
@@ -76,6 +76,18 @@ declarations and the repository's license, never game assets. Registry publicati
 is separate. Atlos consumes this archive as a package dependency. Runtime player-state
 integration, complete player navigation coverage and in-game traversal validation remain
 outstanding; this is an alpha implementation.
+
+## Workspace ownership
+
+Since 2026-11-08, this repository owns only the `@opendfieldmap/ganglia` algorithm package.
+Atlos owns World UI, the local game-data adapters and the noclip integration inputs in
+`talos/integrations/noclip`. Its `.cache/noclip` is generated from the current pinned upstream
+archive and extension patches; it is not an editable source checkout. Update those patches when
+changing extraction or renderer integration, then regenerate and validate the cache. Keep only the
+current package artifact in Atlos. The standalone noclip `trunk` mirrors upstream exactly and must
+not receive local navigation or OEM commits. There are no repack or filters work directories;
+`feat/filters` remains a branch for potential upstream work. Retained raw data and route results
+stay in the existing local data directories and are not duplicated or recomputed by this migration.
 
 ## Directed movement and playback
 
@@ -187,7 +199,13 @@ a productive multi-hop chain to continue while the opposite side needs refinemen
 Each accepted landing expands directed ground reachability before the next pass.
 Static topology, standing support, ledge approaches and motion checks are reused
 across frontier passes. Spatial hierarchies are built once. Eligibility views prune
-branches for each frontier without sorting the same geometry again.
+branches for each frontier without sorting the same geometry again. Analytic
+flight envelopes reject entire spatial subtrees before landing witnesses are built.
+These envelopes preserve the existing candidate span/height contract, including its
+supported run-off allowance. Exact support and swept trajectories remain authoritative.
+Within an unchanged action graph, frontier batches resume their seed, landing and
+motion-variant cursors. Geometry/model changes invalidate physical caches, and
+endpoint or authored-action changes invalidate the affected candidate cursors.
 Supported continuous ground approaches can also join
 overlapping patches without a shared navigation edge. Landing witnesses include
 boundary pullbacks and surface intersections with the optimistic flight envelope.
@@ -239,7 +257,7 @@ that already have a complete baseline and want to manage final comparison.
 
 ## Offline player navigation build
 
-`@oem/ganglia/build` exports `buildGroundSurfaces(geometry, options)`. This separate
+`@opendfieldmap/ganglia/build` exports `buildGroundSurfaces(geometry, options)`. This separate
 entry point uses Recast 0.44.0; the runtime root does not import WebAssembly or generators.
 Supply indexed world-space collision triangles with outward normals, including ceilings,
 buildings and solid obstacles. Importers select the active state and player collision
@@ -247,7 +265,7 @@ layers. Factory floors are eligible even when absent from the monster AI navigat
 Missing collision coverage must be reported by the importer, not interpreted as a wall.
 
 ```js
-import { buildGroundSurfaces } from '@oem/ganglia/build';
+import { buildGroundSurfaces } from '@opendfieldmap/ganglia/build';
 const surfaces = await buildGroundSurfaces({ positions, indices }, {
   profile, maxSlope: 46, stepUp: 0.4, stepDown: 0.6,
   cellSize: 0.1, cellHeight: 0.05,
@@ -292,7 +310,7 @@ and complete factory coverage remain under investigation in noclip.
 
 ## Continuous triangle collision checks
 
-`@oem/ganglia/collision` exports `createCollisionWorld({ positions, indices })`, which
+`@opendfieldmap/ganglia/collision` exports `createCollisionWorld({ positions, indices })`, which
 copies world-space triangles and indexes them in a BVH. Its
 `sweepCapsule(startFeet, endFeet, { radius, height, inflation? })` checks the entire
 straight translation of an upright capsule. Thin walls between clear endpoints still
@@ -368,3 +386,40 @@ step-limited directed seams. Geometry may include factory floors absent from AI
 navigation. Empty geometry and native-confirmed empty polygon meshes remain empty.
 A failed tile aborts the result. All selected collision/state/profile inputs must
 cover the padded region, and hazard/device constraints remain caller-owned.
+
+### Airborne pickups and speed boosts
+
+`planJumpRoute` accepts `interaction.airborne` for an interaction volume entered during flight.
+A completed route includes `goalHit` and ends at the first collection event.
+Collision checks stop there. Terminal collection connections cannot become ground transfers.
+The interaction radius and optional height/facing constraints are preserved.
+
+Optional `boosts` provide an ID, position, interaction volume, duration in seconds and speed multiplier.
+The planner compares ordinary routes with routes that first enter a boost trigger. Ground, jump-launch
+and sustained air speed use the multiplier. A collection jump may outlast the boost after its changed speed
+curve is collision checked again, with `boostExpiry` recording the transition time within that segment. Joined resource retiming
+preserves stamina across pickup. Selected routes report `boosts` and annotate affected segments.
+Returned conditional connections carry `requiredBoost` and ordinary ground queries exclude them.
+This bounded search considers one pickup per candidate. Diagnostics retain unresolved approaches,
+expired candidates and truncated flight searches.
+
+Optional `startHorizontalSpeed` and `airOverspeedDeceleration` describe a jump impulse above the
+sustained air-speed cap. The excess decays under forward input. Both values come from the caller.
+
+Ground queries fall back to resource-state labels when the fastest static corridor cannot be
+scheduled. `route` and `routeFrom` also accept an explicit `locomotion` policy for this search.
+`locomotion.search` bounds labels and expansions, with truncation reported on the result.
+
+Ground dash scheduling accepts `locomotion.dash` with explicit speed, duration,
+cooldown and charge cost. A bounded label DP chooses spending or saving charges
+at spatial intervals along the route. It minimizes travel time, breaking equal-time
+ties by lower remaining energy. Ground dash ends at turns or air transitions,
+while cooldown and recovery continue across actions. Results retain dash count,
+model parameters and label-limit truncation. The speed input is a declared model,
+and needs independent game-motion validation.
+
+`createCandidatePlanner` indexes endpoint support and materializes unresolved transfers
+when their ground component is expanded. Transfer witnesses retain the eager
+input-order bucket selection. Returned candidate edges include a stable `key` for
+`reject` and `excludedEdges` across query/expansion histories on the same immutable
+input. Numeric `index` exclusions remain available within a prepared planner.

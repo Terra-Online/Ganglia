@@ -246,3 +246,15 @@ test('bounded air control clears an opening before descending under an overhang'
   assert.equal(jumpConnection(start, end, { ...model, horizontalSplit: 0.5, airDeceleration: 0.1 }), null);
   assert.throws(() => jumpConnection(start, end, { ...model, horizontalSplit: -1 }), /horizontal jump/);
 });
+
+test('jump impulse decays above sustained air speed and remains collision checked', () => {
+  const impulse = { ...options, maxHorizontalSpeed: 3, startHorizontalSpeed: 9, airOverspeedDeceleration: 5 };
+  assert.equal(jumpConnection([0,0,0], [7,0,0], { ...options, maxHorizontalSpeed: 3 }), null);
+  const arc = jumpConnection([0,0,0], [7,0,0], impulse);
+  assert.ok(arc);
+  assert.ok(arc.peakHorizontalSpeed > 3 && arc.peakHorizontalSpeed <= 9);
+  const speed = index => (arc.points[index][0] - arc.points[index-1][0]) / (arc.times[index] - arc.times[index-1]);
+  assert.ok(speed(1) > speed(arc.times.length - 1));
+  assert.equal(jumpConnection([0,0,0], [20,0,0], impulse), null);
+  assert.equal(jumpConnection([0,0,0], [7,0,0], { ...impulse, sweep: () => ({}) }), null);
+});

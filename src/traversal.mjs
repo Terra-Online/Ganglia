@@ -149,7 +149,10 @@ export const validateDiscovery = (world, options) => {
     model.maxHorizontalSpeed < 0 ||
     ((model.airAcceleration !== undefined || model.airDeceleration !== undefined) &&
       (![model.airAcceleration, model.airDeceleration].every(Number.isFinite) ||
-        model.airAcceleration <= 0 || model.airDeceleration <= 0))
+        model.airAcceleration <= 0 || model.airDeceleration <= 0)) ||
+    ((model.startHorizontalSpeed !== undefined || model.airOverspeedDeceleration !== undefined) &&
+      (![model.startHorizontalSpeed, model.airOverspeedDeceleration].every(Number.isFinite) ||
+        model.startHorizontalSpeed < 0 || model.airOverspeedDeceleration <= 0))
   ) {
     throw new Error('Invalid traversal discovery options');
   }
@@ -176,7 +179,7 @@ export const standingFoot = (nav, world, { profile, maxVertical, maxSlope, block
  * Optional interaction queries all eligible goal faces together and groups them by
  * directed ground component. Sampling limits remain explicit, so failure is inconclusive.
  */
-export function findJumpConnections(surfaces, world, options, workLimits) {
+export function findJumpConnections(surfaces, world, options, workLimits, intermediateActions = true) {
   const {
     profile, portals = [], walls, from, to, interaction, maxVertical, maxSlope, maxDrop,
     maxHorizontalDistance, sampleSpacing, maxCandidates, maxLinks, model,
@@ -283,6 +286,16 @@ export function findJumpConnections(surfaces, world, options, workLimits) {
   };
   for (const edge of graph.edges) {
     const a = regions[componentOf(edge.from)], b = regions[componentOf(edge.to)];
+    if (a === b) continue;
+    const entries = groundIncoming.get(b.id) ?? new Set();
+    entries.add(transfer(a, b, true, 0));
+    groundIncoming.set(b.id, entries);
+  }
+  // Known actions must also join intermediate proposal regions. Source closure
+  // alone cannot discover a jump into a ride followed by another jump out of it.
+  // Keep their direction without merging the underlying ground components.
+  if (intermediateActions) for (const [from, destinations] of extraForward) for (const to of destinations) {
+    const a = regions[topology.components[from]], b = regions[topology.components[to]];
     if (a === b) continue;
     const entries = groundIncoming.get(b.id) ?? new Set();
     entries.add(transfer(a, b, true, 0));

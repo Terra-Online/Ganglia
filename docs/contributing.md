@@ -16,7 +16,6 @@ and the three services below.
 | --- | --- | --- |
 | [Terra-Online/Ganglia](https://github.com/Terra-Online/Ganglia) | `main` | Algorithm package and tests |
 | [Terra-Online/Atlos](https://github.com/Terra-Online/Atlos/tree/feat/3d-preview) | `feat/3d-preview` | Map detail entry, World, extraction patches and route jobs |
-| [Atlos download-tool branch](https://github.com/Terra-Online/Atlos/tree/chan/noclip-download) | `chan/noclip-download`, based on `feat/3d-preview` | Adds the selective client downloader and its instructions; use this branch until merged, or cherry-pick its downloader commit onto your integration checkout |
 | [mary-ext/endfield-noclip](https://github.com/mary-ext/endfield-noclip) | `trunk`, for upstream reference | Original extractor/viewer; the personal fork is [cirisus/endfield-noclip](https://github.com/cirisus/endfield-noclip) |
 | [An1X3R/Endfield-map-extractor](https://github.com/An1X3R/Endfield-map-extractor) | Local source checkout | Supported VFS-key import source |
 | [Escartem/AnimeStudio](https://github.com/Escartem/AnimeStudio) | Local source checkout | Supported bundle-key import source |
@@ -58,7 +57,7 @@ Our local packing workflow fetched missing `.chk` files **directly from the
 official CDN's split client ZIP using HTTP Range requests**. EndfieldStudio was
 not the CHK downloader. The maintained helper now lives in Atlos at
 `talos/scripts/noclip-download.py`; read its
-[download instructions](https://github.com/Terra-Online/Atlos/blob/chan/noclip-download/talos/scripts/noclip-download.md).
+[download instructions](https://github.com/Terra-Online/Atlos/blob/feat/3d-preview/talos/scripts/noclip-download.md).
 
 Its prerequisite is a local launcher response for the **same PC client build**,
 containing `proxy_rsps[0].get_latest_game_rsp.pkg.packs` with each part's `url` and

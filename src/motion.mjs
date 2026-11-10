@@ -3,7 +3,10 @@ const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
 
 // Shared by graph and grounded-connection import. Sample times are measured from
 // segment entry, not global time; they preserve acceleration and pauses in a path.
-export function validateMotion({ mode = 'walk', points, times, cost, connection, requiredGait }) {
+export function validateMotion({ mode = 'walk', points, times, cost, connection, requiredGait, boost }) {
+  if (boost !== undefined && (!boost || typeof boost.id !== 'string' || !boost.id ||
+      !Number.isFinite(boost.multiplier) || boost.multiplier <= 1 ||
+      !Number.isFinite(boost.duration) || boost.duration <= 0)) throw new Error('Invalid speed boost segment');
   if (!modes.has(mode) || (connection !== undefined && (typeof connection !== 'string' || !connection)) ||
       (requiredGait !== undefined && (requiredGait !== 'sprint' || mode === 'walk'))) {
     throw new Error('Invalid movement segment');

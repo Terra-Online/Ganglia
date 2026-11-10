@@ -101,6 +101,36 @@ test('can discover several hops through an intermediate ground component', () =>
   assert.equal(route.segments.filter((segment) => segment.mode === 'jump').length, 2);
 });
 
+test('discovers jumps before and after a directed known ride between ground components', () => {
+  const surfaces = [floor('start', 0, 4, 0), floor('boarding', 7, 11, 0),
+    floor('exit', 7, 11, 10), floor('target', 14, 18, 10)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const query = { ...options, from: [2, 0, 0], to: [16, 10, 0] };
+  const ride = { id: 'lift', mode: 'rope', state: 'open', fromSurface: 'boarding', toSurface: 'exit',
+    points: [[9, 0, 0], [9, 10, 0]], times: [0, 2] };
+  const result = findJumpConnections(surfaces, world, { ...query, connections: [ride] });
+  assert.equal(result.diagnostics.targetReached, true);
+  assert.deepEqual(result.connections.map(connection => [connection.fromSurface, connection.toSurface]),
+    [['start', 'boarding'], ['exit', 'target']]);
+  const route = planGroundRoute(surfaces,
+    [{ id: 'player', position: query.from, cost: 0, state: 'available' }], query.to,
+    { speed: 5, maxVertical: query.maxVertical, walls: [], profile: query.profile,
+      connections: [ride, ...result.connections] });
+  assert.equal(route.status, 'complete');
+  assert.deepEqual(route.segments.filter(segment => segment.mode !== 'walk').map(segment => segment.mode),
+    ['jump', 'rope', 'jump']);
+  for (const change of [
+    { connections: [{ ...ride, state: 'unknown' }] },
+    { connections: [{ ...ride, fromSurface: 'exit', toSurface: 'boarding',
+      points: [...ride.points].reverse() }] },
+    { connections: [ride], walls: [{ min: [7, 4, -3], max: [11, 6, 3], state: 'active' }] },
+  ]) {
+    const rejected = findJumpConnections(surfaces, world, { ...query, ...change });
+    assert.equal(rejected.diagnostics.targetReached, false);
+    assert.equal(rejected.connections.length, 0);
+  }
+});
+
 test('rejects blocking air walls and distant components without inventing a reverse edge', () => {
   const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)],
     world = createCollisionWorld(geometry(surfaces));

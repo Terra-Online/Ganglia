@@ -2,10 +2,13 @@ import type { CollisionWorld } from './collision.d.ts';
 export type Vec3 = [number, number, number];
 export interface Node { id: string; position: Vec3 }
 export type MovementMode = 'walk' | 'rope' | 'jump' | 'drop' | 'launch';
-export interface Segment { mode: MovementMode; points: Vec3[]; times: number[]; connection?: string; gait?: 'run' | 'sprint'; requiredGait?: 'sprint' }
+export interface BoostUse { id: string; multiplier: number; duration: number }
+export interface SpeedBoost extends BoostUse { position: Vec3; interaction: InteractionGoal }
+export interface Segment { boostExpiry?: number; boost?: BoostUse; mode: MovementMode; points: Vec3[]; times: number[]; connection?: string; gait?: 'run' | 'sprint' | 'dash'; requiredGait?: 'sprint' }
 export interface Edge { from: string; to: string; cost: number; state: 'open' | 'closed' | 'unknown'; points: Vec3[]; mode?: MovementMode; times?: number[]; connection?: string; requiredGait?: 'sprint' }
 export interface Graph { nodes: Node[]; edges: Edge[] }
-export type Route = { status: 'complete'; start: string; cost: number; arrivalCost: number; length: number; locomotion?: { initial: number; final: number; minimum: number; search?: { truncated: boolean; maxLabels: number } }; points: Vec3[]; segments: Segment[] } | { status: 'unmapped' | 'no-verified-route' };
+export interface ResourceSearch { truncated: boolean; expanded: number; maxLabels: number; maxExpanded: number }
+export type Route = { status: 'complete'; boosts?: (BoostUse & { position: Vec3; elapsed: number })[]; start: string; cost: number; arrivalCost: number; length: number; search?: ResourceSearch; goalHit?: { segment: number; time: number; position: Vec3 }; locomotion?: { initial: number; final: number; minimum: number; dashes?: number; dash?: { speed: number; duration: number; cooldown: number; cost: number }; search?: { truncated: boolean; maxLabels: number } }; points: Vec3[]; segments: Segment[] } | { status: 'unmapped' | 'no-verified-route'; search?: ResourceSearch };
 export interface Wall {
   min: Vec3; max: Vec3; state: 'active' | 'inactive' | 'unknown'; padding?: number;
   /** Solid sphere, mutually exclusive with points and polygon. Bounds remain a
@@ -16,7 +19,7 @@ export interface Wall {
   /** Filled XZ ring extruded between min.y and max.y; closed implicitly. */
   polygon?: [number, number][];
 }
-export function route(graph: Graph, start: string, goal: string, constraints?: { walls: Wall[]; profile: { radius: number; height: number } }): Route;
+export function route(graph: Graph, start: string, goal: string, constraints?: { walls: Wall[]; profile: { radius: number; height: number }; locomotion?: LocomotionOptions }): Route;
 export function sampleRoute(points: Vec3[], meters: number): Vec3;
 /** Elapsed seconds after arrival; never includes a teleport flight. */
 export function sampleJourney(route: Extract<Route, {status: 'complete'}>, seconds: number): { position: Vec3; mode: MovementMode | 'complete'; connection?: string };
@@ -35,10 +38,14 @@ export interface Portal {
 export function surfaceGraph(surfaces: Surface[], options: { speed: number; portals?: Portal[] }): Graph;
 
 export interface Arrival { id: string; node: string; cost: number; state: 'available' | 'locked' | 'unknown' }
-export function routeFrom(graph: Graph, starts: Arrival[], goal: string | string[], constraints?: { walls: Wall[]; profile: { radius: number; height: number } }): Route;
+export function routeFrom(graph: Graph, starts: Arrival[], goal: string | string[], constraints?: { walls: Wall[]; profile: { radius: number; height: number }; locomotion?: LocomotionOptions }): Route;
 export function projectPoint(surfaces: Surface[], position: Vec3, options: { maxVertical: number }): { surface: string; position: Vec3 } | null;
 export interface GroundArrival { id: string; position: Vec3; cost: number; state: Arrival['state'] }
 export interface GroundConnection {
+  /** A collection action ends in flight and cannot be used as a transfer. */
+  terminal?: true;
+  /** Conditional trajectories are unavailable without the matching active boost. */
+  requiredBoost?: string;
   id: string; mode: Exclude<MovementMode, 'walk'>; points: Vec3[]; times: number[];
   state: 'open' | 'closed' | 'unknown';
   /** Explicit collision-support allowance, bounded by maxVertical and body radius. Defaults to 1e-6 m. */
@@ -51,14 +58,18 @@ export interface GroundConnection {
   fromSurface?: string;
   toSurface?: string;
 }
-export interface GroundOptions { speed: number; maxVertical: number; walls: Wall[]; profile: { radius: number; height: number }; connections?: GroundConnection[]; portals?: Portal[]; locomotion?: LocomotionOptions }
+export interface GroundOptions { activeBoost?: string; speed: number; maxVertical: number; walls: Wall[]; profile: { radius: number; height: number }; connections?: GroundConnection[]; portals?: Portal[]; locomotion?: LocomotionOptions }
 export function planGroundRoute(surfaces: Surface[], starts: GroundArrival[], goal: Vec3, options: GroundOptions): Route;
 
 /** Explicit movement policy. No unverified game-specific energy defaults are inferred. */
 export interface LocomotionOptions {
+  /** Explicit limits for resource-state fallback search. */
+  search?: { maxLabels?: number; maxExpanded?: number };
   speed: number;
   sprintSpeed: number;
   sprintAcceleration: number;
+  /** Optional ground dash pulse, sharing the stamina pool and cooldown across actions. */
+  dash?: { speed: number; duration: number; cooldown: number; cost: number };
   /** Movement modes that preserve an already active sprint across their authored trajectory. */
   sprintThrough?: Exclude<MovementMode, 'walk'>[];
   stamina?: {
@@ -81,7 +92,7 @@ export function createGroundPlanner(surfaces: Surface[], options: GroundOptions)
   /** Reuse this snapshot's floor/interaction projector. Projection alone does not
    * establish body clearance, wall state or reachability. */
   project: ReturnType<typeof createGoalProjector>;
-  plan(starts: GroundArrival[], goal: Vec3, query?: { interaction?: InteractionGoal; connections?: GroundConnection[] }): Route;
+  plan(starts: GroundArrival[], goal: Vec3, query?: { interaction?: InteractionGoal; endpointTolerance?: number; connections?: GroundConnection[] }): Route;
 };
 
 /** Apply an explicit resource-feasible gait schedule to an existing continuous path.
@@ -89,8 +100,15 @@ export function createGroundPlanner(surfaces: Surface[], options: GroundOptions)
  */
 export function retimeGroundRoute(route: Route, options: LocomotionOptions): Route;
 
+/** Replace unnecessary action excursions with cheaper physically supported walking.
+ * Preserves route endpoints and rechecks the complete resource schedule. */
+export function pruneGroundDetours(route: Route, planner: ReturnType<typeof createGroundPlanner>,
+  locomotion: LocomotionOptions, options?: { maxQueries?: number }):
+  { route: Route; replacements: number; queries: number };
+
 /** Explicit source-derived interaction volume. No per-game defaults are supplied. */
-export interface InteractionGoal { radius: number; maxVertical?: number; facing?: Vec3; halfAngle?: number }
+/** Airborne collection goals finish at the first in-flight hit. */
+export interface InteractionGoal { airborne?: boolean; radius: number; maxVertical?: number; facing?: Vec3; halfAngle?: number }
 export function createGoalProjector(surfaces: Surface[]): (target: Vec3, options: { maxVertical: number; interaction?: InteractionGoal }) => { surface: string; position: Vec3; distance: number }[];
 export function projectGoal(surfaces: Surface[], target: Vec3, options: { maxVertical: number; interaction?: InteractionGoal }): { surface: string; position: Vec3; distance: number }[];
 
@@ -98,6 +116,8 @@ export interface JumpModel {
   gravity: number; fallingGravity: number; maxJumpHeight: number;
   maxFallingSpeed: number; apexTime: number; maxHorizontalSpeed: number;
   airAcceleration?: number; airDeceleration?: number;
+  /** Optional jump impulse ceiling and decay of speed above the sustained air limit. */
+  startHorizontalSpeed?: number; airOverspeedDeceleration?: number;
 }
 export function jumpDuration(startHeight: number, endHeight: number,
   options: Omit<JumpModel, 'maxHorizontalSpeed'> & { mode: 'jump' | 'drop' }): number | null;
@@ -110,6 +130,8 @@ export function jumpConnection(start: Vec3, end: Vec3, options: JumpModel & {
   horizontalSplit?: number;
   /** Optional XZ air waypoint, reached early before the late landing leg. */
   horizontalWaypoint?: [number, number];
+  /** Final jump continuation after a speed boost expires. */
+  expireAfter?: number; expiredHorizontalSpeed?: number;
   /** Optional prepared checker for the same immutable walls and body profile. */
   wallCheck?: ReturnType<typeof createWallChecker>;
 }): { mode: 'jump' | 'drop'; points: Vec3[]; times: number[]; motionValidation: 'model-based'; peakHorizontalSpeed?: number } | null;
@@ -155,6 +177,7 @@ export interface ShortcutDiagnostics { reason: string; baselineCost: number; bou
     rejected: { support: number; projection: number; clearance: number; range: number; motion: number; groundDominated: number };
     limits: { seedChecks: number; neighbourChecks: number; endpointChecks: number; arcAttempts: number; maxLinks: number };
     distanceFields?: { approach: FieldWork; departure: FieldWork };
+    cursor?: { resumed: boolean; pending: number; seedExhausted: boolean; landingQueries: number };
 }
 interface FrontierDiagnostics extends Omit<ShortcutDiagnostics, 'baselineCost'> { baselineCost: null }
 export function findJumpShortcuts(surfaces: Surface[], world: CollisionWorld,
@@ -164,6 +187,7 @@ export function findJumpShortcuts(surfaces: Surface[], world: CollisionWorld,
 };
 
 export interface JumpRouteOptions extends GroundOptions {
+  boosts?: SpeedBoost[];
   /** Optimistic coarse direction samples. At most 128 finite positions. These only
    * guide action discovery; the final route need not visit them. */
   waypoints?: Vec3[];
@@ -191,7 +215,10 @@ export interface JumpRouteOptions extends GroundOptions {
  * an additional maxCandidates query. Progress and diagnostics expose those phases.
  * Sampling limits remain explicit; returned completion does not establish global optimality.
  */
+interface FlightDiagnostics { attempted: number; nominalHits: number; hits: number; approaches: number; truncated: boolean }
 export interface JumpDiagnostics {
+  boosts?: { id: string; status: string; duration: number; multiplier: number; elapsed?: number; truncated?: boolean }[];
+  airborne?: FlightDiagnostics;
   strategy: 'surface-action-graph'; groundStatus: Route['status']; baselineCost: number | null;
   selectedCost: number | null; truncated: boolean;
   searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[];
@@ -209,3 +236,54 @@ export function planJumpRoute(surfaces: Surface[], world: CollisionWorld, starts
     connections: GroundConnection[];
     diagnostics: JumpDiagnostics;
   };
+
+/** Unknown edge costs are optimistic lower bounds in seconds. The planner
+ * retains validation results for later calls. Input nodes and edges must remain
+ * immutable. Concurrent calls are rejected. */
+export function createLazyRoutePlanner(graph: Graph): {
+  plan(starts: Arrival[], goal: string | string[], options: {
+    validate: (edge: Edge, index: number) => Promise<Edge | null>;
+    maxValidations?: number;
+    signal?: AbortSignal;
+  }): Promise<{
+    status: 'complete' | 'incomplete' | 'unmapped' | 'no-verified-route';
+    reason?: 'aborted' | 'validation-budget';
+    route?: Extract<Route, { status: 'complete' }>;
+    validation: { attempted: number; pending: number };
+  }>;
+};
+
+export interface CandidateEdge {
+  mode?: string;
+  device?: string;
+  index: number;
+  /** Stable within immutable input geometry, independent of lazy expansion order. */
+  key?: string;
+  from: string;
+  to: string;
+  points: Vec3[];
+  unresolved: boolean;
+}
+/** Produces navigation proposals requiring physical verification at every segment.
+ * score ranks discovery effort and must never be displayed as travel time. */
+export function createCandidatePlanner(data: {
+  surfaces: Surface[];
+  options: Pick<GroundOptions, 'speed' | 'maxVertical' | 'portals'>;
+}, options?: {
+  radius?: number;
+  verticalRange?: number;
+  transferPenalty?: number;
+  ascentPenalty?: number;
+  endpointRadius?: number;
+  connections?: { from: string; to: string; points: Vec3[]; mode?: string; device?: string }[];
+}): {
+  reject(indices: (number | string)[]): void;
+  plan(arrivals: GroundArrival[], goal: Vec3, query?: { excludedEdges?: (number | string)[]; excludedTransfers?: { from: string; to: string; min: Vec3; max: Vec3 }[] }): {
+    status: 'candidate';
+    arrival: GroundArrival;
+    points: Vec3[];
+    path: CandidateEdge[];
+    unresolved: CandidateEdge[];
+    score: number;
+  } | { status: 'unmapped' | 'no-candidate' };
+};

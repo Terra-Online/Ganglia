@@ -71,3 +71,47 @@ test('bounds restrict extended actors without dropping intersecting floor or hea
     await assert.rejects(build(geometry,{...options,bounds}),/bounds/);
   }
 });
+
+test('height partitions retain distant floors without inventing ground on clipped walls', async () => {
+  const wall = [[5,0,0],[5,500,0],[5,500,8],[5,0,0],[5,500,8],[5,0,8]];
+  const surfaces = await build([...quad(0,10,0,8,0), ...quad(0,10,0,8,500), ...wall]);
+  for (const y of [0, 500]) {
+    assert.ok(projectPoint(surfaces,[2,y,4],{maxVertical:.15}));
+    assert.ok(projectPoint(surfaces,[8,y,4],{maxVertical:.15}));
+  }
+  assert.equal(route(surfaces,[2,0,4],[8,0,4]).status,'no-verified-route');
+  assert.equal(route(surfaces,[2,0,4],[2,500,4]).status,'no-verified-route');
+  assert.ok(surfaces.every(surface => surface.vertices.every(point =>
+    Math.abs(point[1]) < .15 || Math.abs(point[1] - 500) < .15)));
+});
+
+test('height cuts stay outside complete stair flights and slopes at positive and negative heights', async () => {
+  for (const height of [-401, 0, 401]) {
+    const stairs = Array.from({length:20}, (_, index) => quad(index*.5,(index+1)*.5,0,8,height-2+index*.2)).flat();
+    for (const [flight, start, end] of [
+      [quad(0,10,0,8,height-3,height+3), [1,height-2.4,4], [9,height+2.4,4]],
+      [stairs, [.75,height-1.8,4], [9.25,height+1.6,4]],
+    ]) {
+      const surfaces = await build([...quad(0,10,0,8,height-500), ...flight]);
+      // Native detail heights are approximate. This check isolates continuity
+      // from the interaction goal's separate vertical projection allowance.
+      const from = projectPoint(surfaces,start,{maxVertical:.5});
+      const to = projectPoint(surfaces,end,{maxVertical:.5});
+      assert.ok(from); assert.ok(to);
+      assert.equal(route(surfaces,from.position,to.position).status,'complete');
+    }
+  }
+});
+
+test('height partitions preserve low ceilings and low-hanging inherited support', async () => {
+  const blocked = await build([...quad(0,10,0,8,0), ...quad(4,6,0,8,1.4), ...quad(0,10,0,8,500)]);
+  assert.equal(route(blocked,[1,0,4],[9,0,4]).status,'no-verified-route');
+  const floor = 400.7;
+  const lowHanging = quad(4,6,0,8,floor+.3);
+  for (let i = 0; i < lowHanging.length; i += 3) [lowHanging[i], lowHanging[i+1]] = [lowHanging[i+1], lowHanging[i]];
+  const surfaces = await build([...quad(0,10,0,8,0), ...quad(0,10,0,8,floor), ...lowHanging, ...quad(0,10,0,8,500)]);
+  assert.equal(route(surfaces,[1,floor,4],[9,floor,4]).status,'complete');
+  assert.ok(projectPoint(surfaces,[5,floor+.3,4],{maxVertical:.15}));
+  await assert.rejects(build(quad(0,1000,0,8,0,500)),/Continuous support.*voxel limits/);
+  await assert.rejects(build([...quad(0,10,0,8,0),...quad(0,10,0,8,1e12)]),/voxel limits/);
+});

@@ -121,27 +121,32 @@ const filterGroups = (node, eligible, groupOf) => {
 };
 
 const fromRoot = (root, groupOf) => {
-  const query = function* (bounds, target, radius) {
+  // A conservative intersects predicate can reject an entire spatial subtree.
+  // It receives both node and entry bounds, so false must exclude every point
+  // in that box. Entry-only eligibility belongs in filter/filterGroups instead.
+  const query = function* (bounds, target, radius, intersects) {
     const stack = root ? [root] : [];
     while (stack.length) {
       const node = stack.pop();
-      if (!overlaps(node, bounds) || (radius !== undefined && !sphereTouches(node, target, radius))) continue;
+      if (!overlaps(node, bounds) || (radius !== undefined && !sphereTouches(node, target, radius)) ||
+          (intersects && !intersects(node))) continue;
       if (node.entries) {
         for (const entry of node.entries) {
-          if (overlaps(entry, bounds) && (radius === undefined || sphereTouches(entry, target, radius))) yield entry;
+          if (overlaps(entry, bounds) && (radius === undefined || sphereTouches(entry, target, radius)) &&
+              (!intersects || intersects(entry))) yield entry;
         }
       } else {
         stack.push(node.left, node.right);
       }
     }
   };
-  query.nearest = function* (bounds, target) {
+  query.nearest = function* (bounds, target, intersects) {
     if (!root) return;
     // Parallel heap columns retain the original comparisons and tie order without
     // allocating a wrapper for every visited spatial node and candidate entry.
     const nodes = [], costs = [], entries = [];
     const enqueue = (node, entry = false) => {
-      if (!overlaps(node, bounds)) return;
+      if (!overlaps(node, bounds) || (intersects && !intersects(node))) return;
       let cost = 0;
       if (node.min.length === 3) {
         cost += Math.max(node.min[0] - target[0], 0, target[0] - node.max[0]) ** 2;

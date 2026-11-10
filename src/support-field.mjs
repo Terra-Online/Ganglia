@@ -14,7 +14,7 @@ import {
  * neighbors. That extra slope rule erases stairs whose individual steps fit the
  * controller, so ground connectivity is defined by the local connections here.
  */
-export function buildSupportField(positions, bounds, options) {
+export function buildSupportField(positions, bounds, options, triangleAreas) {
   const context = new RecastBuildContext();
   const vertices = new VerticesArray(), indices = new TrianglesArray(), areas = new TriangleAreasArray();
   let config, field, compact, contours, mesh, detail;
@@ -32,7 +32,10 @@ export function buildSupportField(positions, bounds, options) {
     areas.resize(triangleCount);
     field = allocHeightfield();
     check(createHeightfield(context, field, size.width, size.height, bounds[0], bounds[1], config.cs, config.ch), 'heightfield');
-    markWalkableTriangles(context, config.walkableSlopeAngle, vertices, vertexCount, indices, triangleCount, areas);
+    // Height partitions inherit the original native classification. Reclassifying
+    // clipped Float32 triangles can flip a surface at the slope threshold.
+    if (triangleAreas) areas.copy(triangleAreas);
+    else markWalkableTriangles(context, config.walkableSlopeAngle, vertices, vertexCount, indices, triangleCount, areas);
     check(rasterizeTriangles(context, vertices, vertexCount, indices, areas, triangleCount, field, config.walkableClimb), 'rasterization');
     filterLowHangingWalkableObstacles(context, config.walkableClimb, field);
     filterWalkableLowHeightSpans(context, config.walkableHeight, field);

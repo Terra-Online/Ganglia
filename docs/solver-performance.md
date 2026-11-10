@@ -1,6 +1,6 @@
 # Solver reuse and performance
 
-2026-11-07, alpha.53. This records implementation progress against
+2026-11-08, alpha.58. This records implementation progress against
 [architecture](architecture.md) and [ground topology](ground-topology.md), separately
 from their alpha.21 modeling baseline.
 
@@ -13,6 +13,56 @@ Atlos implements parts of G4: shared physical tiles, retained task logs, feasibl
 incumbents and interleaved origin/coverage attempts. The full I0 resource-state and
 forward-replay reference is incomplete; I1 currently has terrain assets rather
 than shared regional action assets. Static device macros do not complete I2.
+
+## Moving-support endpoint visibility in alpha.56
+
+phase-free moving supports can introduce hundreds of transport endpoints into
+one query. ground transfer comparison now rejects pairs whose supporting
+triangles share no weak portal component. component membership comes from the
+straightener's own immutable triangle graph and point locator. overlapping
+supports retain every possible component, and directed passage and wall checks
+remain part of the final trace. mutable endpoint arrays are rechecked against
+their current coordinates.
+
+failed visibility traces are no longer retained as serialized endpoint-pair
+keys. successful traces remain reusable for successive action comparisons.
+candidate budgets, transport durations and collision rules retain their existing
+contracts. the SDK's 195 tests pass, including overlapping support, endpoint
+mutation, one-way passage and disconnected device-chain cases.
+
+one fresh-process device preflight on retained inputs with 838,331 ground faces
+took 61.06 seconds with alpha.55 and 55.04 seconds with alpha.56. both returned
+unavailable. final heap use was 3.716 and 3.744 GB respectively. this single replay
+does not establish a uniform speedup or a reduction in large-region memory use.
+full-detail graph preparation and regional entry/exit contraction remain open
+performance work.
+
+The post-integration replay retains 38/38 complete candidates at the same selected
+cost as the frozen baseline. Exact object comparisons match 37 selected routes
+and 36 complete action sets, retaining the reference-number and unused-action
+differences from the preceding integration. The
+[updated per-point table](per-point-performance.md#alpha5658-移动支撑集成后的固定输入回放)
+records every request and stage. Command time totals 457.298 seconds against
+467.518 in the preceding moving-support integration replay. These separate runs
+were not load-isolated or interleaved. They do not establish a stable speedup,
+and the earlier alpha.53 total was 398.647 seconds.
+
+## Tall physical build domains
+
+The offline builder partitions excessive vertical extent at empty potential-support
+height gaps. Each partition retains overlapping collision for headroom and radius
+erosion. Clipped triangles inherit their original native slope classification.
+Ordinary-sized builds keep the original native call. Continuous walkable support
+spanning the native vertical limit still fails explicitly, because independently
+sampled height contours cannot supply an exact ground seam.
+
+A retained physical tile that previously exceeded the 8,190-voxel limit built
+15,898 faces in 1.958 seconds. Eight actual support-height samples projected back
+within 0.01 metre, and the separated low and high support domains received no
+ordinary cross-domain portal. The SDK's 199 tests passed at this checkpoint,
+including low ceilings, inherited low-hanging support and horizontal tile seams.
+This establishes the tile-build repair only. It does not establish complete route
+reachability through that region.
 
 ## Reuse without changing candidate coverage
 

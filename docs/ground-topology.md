@@ -352,3 +352,41 @@ Action search fell from 44.86 to 11.50 seconds and total solver time from 57.83 
 This is a single-input measurement, not a scene-wide speedup claim. Input decoding, physical indexing
 and fine goal support construction are still charged separately; terrain-cache hits alone do not
 measure solver latency or establish route optimality.
+
+
+## Uniform lazy planning investigation (2026-11-09)
+
+All query distances should share the same topology and validation pipeline. Query
+length alone must not select a separate solver. A same-region query can finish
+without expanding other regions; an unresolved passage triggers local detail and
+action discovery. Physical geometry residency follows the current validation
+window, while accepted transfers remain reusable under their source dependencies.
+
+The intended combination is HPA-style region entrances and LazySP-style candidate
+validation. Preserve directed portals, support identity and distinct spatial
+entrances. SCC condensation accelerates reachability but does not replace the
+cost of travelling between entrances within a component. Candidate edge costs
+must be lower bounds until validated. Rejected candidates trigger replanning;
+budget exhaustion leaves an unknown edge resumable.
+
+Primary algorithm references and scope:
+
+- [HPA*](https://webdocs.cs.ualberta.ca/~mmueller/ps/2004/hpastar.pdf) supplies region entrance transfers and hierarchical reuse.
+- [LazySP](https://www.ri.cmu.edu/pub_files/2016/3/paper-lazysp.pdf) and [GLS](https://personalrobotics.cs.washington.edu/publications/mandalika2019gls.pdf) defer expensive validation to selected paths.
+- [ALT](https://www.microsoft.com/en-us/research/publication/computing-the-shortest-path-a-search-meets-graph-theory/) can strengthen directed graph search after topology and costs stabilize.
+- [Polyanya](https://www.ijcai.org/proceedings/2017/70) and [Theta*](https://idm-lab.org/bib/abstracts/papers/aaai07a.pdf) inform local geometric routing. Their planar/grid guarantees do not establish movement feasibility across stacked supports or devices.
+- [JPS](https://pathfinding.ai/pdf/harabor-grastien-aaai11.pdf) relies on grid symmetry that resource-dependent directed actions do not generally preserve.
+
+The map02 acceptance pair uses real teleport anchors 25000000462 (south,
+lv006) and 37900000014 (north, lv010). Initial topology contains 611,335 polygons
+and 1,372,164 directed edges. Exact endpoint projection succeeds, while the
+south forward-reachable set initially contains only 581 polygons. A locally
+validated physical transfer connects polygons 162861966/1/26 and /1/46 through
+walk/jump/walk motion. This local result does not yet satisfy whole-route
+acceptance. Full south-to-north validation and the 02gcZm4 ordinary-entry route
+remain pending.
+
+Compare short flat paths, short layered paths, device combinations, medium
+corridors and the extreme pair. Record topology preparation, candidate counts,
+physical validations, maximum resident details, first feasible time and total
+time. Select partition and validation-window sizes from this combined set.
