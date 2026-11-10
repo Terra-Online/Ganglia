@@ -4,6 +4,9 @@
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
 # User-specific files
+# Local dependency checkouts, game data, downloads and private configuration
+/.local/
+
 *.rsuser
 *.suo
 *.user
