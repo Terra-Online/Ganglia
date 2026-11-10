@@ -21,7 +21,7 @@ and generated camera candidates. Atlos called Ganglia through the packed depende
   the same exclusions.
 - Route playback sampled the 3D polyline by arc length to preserve its checked geometry.
   Teleport overhead was represented separately from the movement polyline.
-- The ESM package included TypeScript declarations and the existing AGPL license. It could be
+- The ESM package included TypeScript declarations and a license notice. It could be
   installed from npm pack output. Registry publication was still pending.
 
 ## Initial data investigation and limitations
