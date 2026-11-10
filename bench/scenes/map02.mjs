@@ -4,19 +4,25 @@ import { isDeepStrictEqual } from 'node:util';
 import { resolve } from 'node:path';
 import { jumpDuration } from '../../src/jumps.mjs';
 
-// Fixed supported points from the retained map02_lv004 walking traces.
-const points = [
+// Five supported upper-area starts and two collision-checked ground goals.
+// Selection probes found no ground-only route; accepted full routes must cross
+// disconnected support through discovered motion edges. No airborne objectives.
+const starts = [
   [-1366.8111572265625, 298.30939069046434, -1651.3255615234375],
   [-1365.0442435400341, 298.32390252428604, -1646.809563397809],
   [-1362.2372548454707, 298.408589740935, -1639.6352708559834],
   [-1361.2443348025865, 298.2999877929687, -1637.0974983056026],
   [-1352.2129972090786, 300.08994098893265, -1640.6660232553477],
-  [-1332.5409449892861, 298.3029295480361, -1627.3871537766443],
-  [-1328.6625579833985, 294.8500061035156, -1612.9499877929688],
 ];
-const pairs = [[0, 3], [3, 0], [0, 2], [2, 0], [1, 3], [3, 1], [4, 5], [5, 6], [5, 4], [6, 5]];
-export const cases = pairs.map(([a, b], i) => ({ id: `ground-${i + 1}`,
-  query: { starts: [{ id: 'player', position: points[a], state: 'available', cost: 0 }], goal: points[b] } }));
+const goals = [
+  [-1353.8500162760417, 255.5918888481963, -1595.5567172037229],
+  [-1368.8500162760417, 285.5652965570961, -1586.199951171875],
+];
+export const cases = starts.flatMap((position, start) => goals.map((goal, target) => ({
+  id: `ground-jump-${start + 1}-${target + 1}`,
+  horizontalDistance: Math.hypot(goal[0] - position[0], goal[2] - position[2]),
+  query: { starts: [{ id: 'player', position, state: 'available', cost: 0 }], goal },
+})));
 
 /** Import this retained physical fixture without depending on Atlos or its CLI.
  * Data stays local; hashes bind the exact input bytes and workload definition. */
@@ -73,10 +79,11 @@ export async function loadMap02(dataRoot) {
   const options = { ...ground.options, walls: [...ground.options.walls, ...request.walls],
     locomotion: movement.sustainedSprint, model, runAirSpeed: field('_inAirMaxHorizontalSpeedRun'),
     maxSlope: field('_slopeLimit'), maxDrop, maxHorizontalDistance,
-    sampleSpacing: 1, maxCandidates: 128, maxShortcutCandidates: 0, maxLinks: 64 };
+    sampleSpacing: 1, maxCandidates: 512, maxShortcutCandidates: 0, maxLinks: 64 };
   return { input: { surfaces: ground.surfaces, collision: { positions, indices }, collisionOptions: { bounds }, options },
     metadata: { scene: ground.scene, source: ground.source, generator: ground.generator,
       coverage: ground.build.bounds, inputSha256: hashes, surfaces: ground.surfaces.length,
-      triangles: indices.length / 3, limits: { maxCandidates: 128, maxShortcutCandidates: 0, maxLinks: 64 },
+      workload: 'map02-ground-jumps-v1',
+      triangles: indices.length / 3, limits: { maxCandidates: 512, maxShortcutCandidates: 0, maxLinks: 64 },
       scope: 'Fixed map02_lv004 physical window; daytime, fully-enabled snapshot; no devices, boosts, goal refinement or Atlos scheduling.' } };
 }

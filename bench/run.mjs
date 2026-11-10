@@ -5,6 +5,9 @@ import { createHash } from 'node:crypto';
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const outcome = result => ({ route: result.route, connections: result.connections });
 const summarize = result => ({ status: result.route.status, cost: result.route.cost ?? null,
+  length: result.route.length ?? null,
+  jumps: result.route.segments?.filter(segment => segment.mode === 'jump').length ?? 0,
+  drops: result.route.segments?.filter(segment => segment.mode === 'drop').length ?? 0,
   truncated: result.diagnostics.truncated, outcomeSha256: digest(outcome(result)) });
 
 /** The runner only knows the solver interface. In particular, it must submit

@@ -270,3 +270,42 @@ The actual npm `--json` run is retained in
 These timings belong to the ground-only workload and must not be interpreted as
 an algorithm speedup against the earlier mixed-objective measurements. Earlier
 records and outputs are preserved.
+
+### Longer ground goals requiring discovered jumps (2026-11-11)
+
+Replaced the short walking workload with `map02-ground-jumps-v1`: five supported
+upper-area starts paired with two lower goals checked for collision support and
+standing clearance. All ten pairs have mapped endpoints, 42–65 m horizontal
+separation and `no-verified-route` in ground-only selection probes. These probes
+are retained in `.local/research/ground-jump-selection.json`. Six exploratory
+target regions were tried under 512 candidates: two yielded complete routes;
+four remained unavailable and truncated. This is intentional successful-case
+selection, not a reachability survey or unbiased scene-wide throughput estimate.
+
+The measured full workload completed all ten requests: five with one jump and five
+with two jumps, 85–115 m route length. All ten retained `truncated`; candidate
+coverage remains incomplete. Batch and singles matched complete route/connection
+outcomes and truncation. `bench/run.mjs` now records route length and jump/drop
+counts alongside cost. No solver algorithm or adapter state contract changed.
+
+Actual npm JSON output: `.local/research/solver-benchmark-ground-jumps.json`,
+Node v24.22.0, base `fc412932d37ad139f7d6eb71d5a8869e9a945c76`, source/workload digest
+`a8cdc87ff9a909c1e80933e707608044725ef9993941ca3af698209fd3326c9e`.
+
+| Measurement | Observation |
+| --- | ---: |
+| Ten single-query calls, summed | 2077.683 ms |
+| Single median / P95 across distinct requests | 178.603 / 552.419 ms |
+| Batch wall time | 2024.040 ms |
+| Batch throughput | 4.941 requests/s |
+| Excluded single / batch preparation | 1006.413 / 922.327 ms |
+
+Budget changed from 128 to 512 candidates to exercise action discovery; 64 links
+and zero optional shortcuts are unchanged. New request geometry and budget make
+these timings incomparable as an algorithm-speedup claim against short walking
+results. Explicit preparation is excluded; lazy discovery indices remain inside
+the first affected query. This single observation retains the earlier JIT/GC,
+OS-cache and two-target-region limitations. The companion handoff and benchmark
+guide have been updated to the resulting workload.
+
+All 275 SDK/benchmark tests passed after the workload and result-summary changes.

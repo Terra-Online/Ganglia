@@ -182,10 +182,16 @@ output comparison from query timing. Discovery indices remain lazy and their fir
 use is charged to a query. Separate prepared instances isolate the two passes;
 process JIT/GC and OS pages are not controlled. See [the guide](../../bench/README.md).
 
-The current workload uses ten ground-to-ground requests only, including reverse
-directions from retained walking traces. The two original airborne objectives were
-removed at the user's request. All ten requests completed without truncation in
-the ground-only run; batch route/connection outcomes and truncation flags matched
-single-query results. This bounded SDK workload does not replace the heavy-action
-controls or establish a performance improvement. The historical optimization target
-and outstanding modeling gaps remain unchanged.
+The current `map02-ground-jumps-v1` workload pairs five upper-area starts with
+two collision-checked lower ground goals, with 42–65 m horizontal separation.
+Selection probes map both endpoints but find no ground-only route for any pair.
+All ten full requests completed: five with one jump and five with two jumps;
+route lengths were 85–115 m. All retained `truncated`, so completion establishes a
+feasible result within finite discovery, not exhaustive coverage. Batch route/
+connection outcomes and truncation matched single-query results. The workload
+uses 512 candidates, 64 links and zero optional shortcut budget. Five starts share
+one upper region and two target regions; this is not ten independent terrain
+layouts. Devices, boosts, goal refinement and Atlos scheduling remain excluded.
+Earlier short walking and airborne-objective records remain historical evidence.
+This workload does not replace heavy-action controls or establish an algorithm
+speedup. The historical target and outstanding modeling gaps remain unchanged.

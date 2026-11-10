@@ -43,7 +43,7 @@ if (values.help) {
       console.log(`${metadata.scene}: ${cases.length} queries; surface-action adapter (serial batch)`);
       console.log(`Preparation (single / batch): ${preparationMs.map(ms => ms.toFixed(1)).join(' / ')} ms; excluded`);
       console.table(report.single.results.map(r => ({ query: r.id, ms: +r.wallMs.toFixed(2),
-        status: r.status, cost: r.cost, truncated: r.truncated })));
+        status: r.status, cost: r.cost, jumps: r.jumps, drops: r.drops, truncated: r.truncated })));
       console.log(`Single: total ${report.single.totalWallMs.toFixed(2)} ms, median ${report.single.medianMs.toFixed(2)} ms, P95 ${report.single.p95Ms.toFixed(2)} ms`);
       console.log(`Batch: ${report.batch.wallMs.toFixed(2)} ms, ${report.batch.queriesPerSecond.toFixed(2)} queries/s`);
       console.log(`Same outcomes: ${report.batch.results.filter(r => r.sameOutcomeAsSingle && r.sameTruncationAsSingle).length}/${cases.length}`);
