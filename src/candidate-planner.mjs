@@ -1,7 +1,8 @@
-import { surfaceGraph } from './surfaces.mjs';
+import { surfaceGraph, surfacePortals } from './surfaces.mjs';
 import { closestOnSurface } from './goals.mjs';
 import { groundComponents } from './connectivity.mjs';
 import { createMinHeap } from './heap.mjs';
+import { createGroundStraightener } from './straighten.mjs';
 
 const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
 
@@ -13,11 +14,13 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
   if (![radius, verticalRange, transferPenalty, ascentPenalty, endpointRadius].every(v => Number.isFinite(v) && v > 0)) {
     throw new Error('Invalid candidate search options');
   }
-  const graph = surfaceGraph(data.surfaces, data.options);
+  const portals = surfacePortals(data.surfaces);
+  const graph = surfaceGraph(data.surfaces, data.options, portals);
   const topology = groundComponents(graph);
   const ids = topology.ids;
   const adjacency = graph.nodes.map(() => []);
   const edges = graph.edges;
+  const groundEdgeCount = edges.length;
   for (let index = 0; index < edges.length; index++) adjacency[ids.get(edges[index].from)].push(index);
   const grid = new Map(), proposals = new Map();
   const key = (x, z) => `${x},${z}`;
@@ -57,7 +60,8 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
     edges.push({ ...connection, unresolved: true,
       length: connection.points.slice(1).reduce((sum, point, index) => sum + distance(connection.points[index], point), 0) });
   }
-  const endpoints = new Map();
+  const endpoints = new Map(), endpointComponents = new Map();
+  const componentOf = node => topology.components[node] ?? endpointComponents.get(node);
   const endpoint = (position, direction) => {
     const key = `${direction}/${JSON.stringify(position)}`;
     if (endpoints.has(key)) return endpoints.get(key);
@@ -74,17 +78,75 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
     }
     const node = graph.nodes.length, id = `@candidate-endpoint/${node}`;
     graph.nodes.push({ id, position }); ids.set(id, node); adjacency.push([]);
+    const nearest = [...supports.values()].sort((a, b) => a.distance - b.distance)[0];
+    if (nearest && nearest.distance <= data.options.maxVertical) {
+      endpointComponents.set(node, topology.components[ids.get(nearest.surface)]);
+    }
     for (const support of supports.values()) {
       const other = ids.get(support.surface);
       const points = [position, support.position, graph.nodes[other].position];
       const from = direction === 'start' ? node : other, to = direction === 'start' ? other : node;
       adjacency[from].push(edges.length);
       edges.push({ from: graph.nodes[from].id, to: graph.nodes[to].id,
-        points: direction === 'start' ? points : points.reverse(), unresolved: true,
+        points: direction === 'start' ? points : points.reverse(),
+        unresolved: Math.hypot(position[0] - support.position[0], position[2] - support.position[2]) > 1e-6 ||
+          Math.abs(position[1] - support.position[1]) > data.options.maxVertical,
         length: support.distance + distance(support.position, graph.nodes[other].position) });
     }
     endpoints.set(key, node);
     return node;
+  };
+  const append = (points, point) => {
+    if (!points.length || distance(points.at(-1), point) > 1e-6) points.push(point);
+  };
+  const groundPoints = (arrival, path, goal) => {
+    const points = [], run = [], selected = new Set();
+    const include = id => {
+      const node = ids.get(id);
+      if (node < data.surfaces.length) selected.add(node);
+    };
+    const flush = () => {
+      if (!run.length) return;
+      let output = run;
+      if (run.length > 2 && selected.size) {
+        // Prepare only the selected corridor and one ring of known neighbours.
+        // The global portals remain authoritative: recomputing a subset could
+        // reopen a boundary that was ambiguous in the complete scene.
+        const local = new Set(selected);
+        for (const node of selected) for (const index of adjacency[node]) {
+          if (index < groundEdgeCount) local.add(ids.get(edges[index].to));
+        }
+        const surfaces = [...local].map(node => data.surfaces[node]);
+        const shared = portals.filter(portal => local.has(ids.get(portal.from)) && local.has(ids.get(portal.to)));
+        const imported = (data.options.portals ?? []).filter(portal =>
+          local.has(ids.get(portal.from)) && local.has(ids.get(portal.to)));
+        const straighten = createGroundStraightener(surfaces, {
+          walls: data.options.walls ?? [], profile: data.options.profile ?? { radius: 0, height: 1 }, portals: imported,
+        }, shared);
+        output = straighten(run);
+      }
+      for (const point of output) append(points, point);
+      run.length = 0; selected.clear();
+    };
+    append(run, arrival.position);
+    for (const edge of path) {
+      include(edge.from);
+      if (edge.unresolved || edge.mode || edge.device) {
+        // The in-face approach can straighten, but the transfer itself is a
+        // hard boundary. Its authored trajectory and endpoints stay intact.
+        append(run, edge.points[0]); flush();
+        for (const point of edge.points) append(points, point);
+        append(run, edge.points.at(-1)); include(edge.to);
+      } else {
+        include(edge.to);
+        for (const point of edge.points) append(run, point);
+      }
+    }
+    append(run, goal); flush();
+    // Projection roundoff must not replace the caller's actual destination.
+    if (points.length === 1 && distance(points[0], goal) > 0) points.push(goal);
+    else points[points.length - 1] = goal;
+    return points;
   };
   const rejected = new Set();
   return {
@@ -94,10 +156,18 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
         rejected.add(index);
       }
     },
-    plan(arrivals, goal, { excludedEdges = [] } = {}) {
+    plan(arrivals, goal, { excludedEdges = [], excludedTransfers = [] } = {}) {
       const excluded = new Set(excludedEdges);
       const end = endpoint(goal, 'goal');
       const starts = arrivals.filter(arrival => arrival.state === 'available').map(arrival => ({ arrival, node: endpoint(arrival.position, 'start') }));
+      const regions = excludedTransfers.map(region => {
+        if (!ids.has(region.from) || !ids.has(region.to) || !Array.isArray(region.min) || !Array.isArray(region.max) ||
+            region.min.length !== 3 || region.max.length !== 3 || region.min.some((value, axis) =>
+              !Number.isFinite(value) || !Number.isFinite(region.max[axis]) || value > region.max[axis])) {
+          throw new Error('Invalid excluded transfer region');
+        }
+        return { ...region, fromComponent: componentOf(ids.get(region.from)), toComponent: componentOf(ids.get(region.to)) };
+      });
       const scores = new Float64Array(graph.nodes.length).fill(Infinity);
       const previous = new Int32Array(graph.nodes.length).fill(-1), origins = new Map(), heap = createMinHeap();
       for (const { arrival, node } of starts) {
@@ -112,6 +182,10 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
         for (const index of adjacency[current.node]) {
           if (rejected.has(index) || excluded.has(index)) continue;
           const edge = edges[index], to = ids.get(edge.to);
+          if (edge.unresolved && regions.some(region =>
+              region.fromComponent === componentOf(current.node) &&
+              region.toComponent === componentOf(to) &&
+              edge.points.every(point => point.every((value, axis) => value >= region.min[axis] && value <= region.max[axis])))) continue;
           const ascent = edge.points.at(-1)[1] - edge.points[0][1];
           const penalty = edge.unresolved ? (ascent > 2.1 && !edge.mode ? ascentPenalty : transferPenalty) : 0;
           const score = current.cost + penalty + (edge.length ?? edge.cost);
@@ -130,11 +204,7 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
         node = ids.get(edge.from);
       }
       path.reverse();
-      const arrival = origins.get(end), points = [arrival.position];
-      for (const edge of path) for (const point of edge.points) {
-        if (distance(points.at(-1), point) > 1e-6) points.push(point);
-      }
-      if (distance(points.at(-1), goal) > 1e-6) points.push(goal);
+      const arrival = origins.get(end), points = groundPoints(arrival, path, goal);
       return { status: 'candidate', arrival, points, path,
         unresolved: path.filter(edge => edge.unresolved), score: scores[end] };
     },

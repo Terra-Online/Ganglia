@@ -100,6 +100,12 @@ export function createGroundPlanner(surfaces: Surface[], options: GroundOptions)
  */
 export function retimeGroundRoute(route: Route, options: LocomotionOptions): Route;
 
+/** Replace unnecessary action excursions with cheaper physically supported walking.
+ * Preserves route endpoints and rechecks the complete resource schedule. */
+export function pruneGroundDetours(route: Route, planner: ReturnType<typeof createGroundPlanner>,
+  locomotion: LocomotionOptions, options?: { maxQueries?: number }):
+  { route: Route; replacements: number; queries: number };
+
 /** Explicit source-derived interaction volume. No per-game defaults are supplied. */
 /** Airborne collection goals finish at the first in-flight hit. */
 export interface InteractionGoal { airborne?: boolean; radius: number; maxVertical?: number; facing?: Vec3; halfAngle?: number }
@@ -269,7 +275,7 @@ export function createCandidatePlanner(data: {
   connections?: { from: string; to: string; points: Vec3[]; mode?: string; device?: string }[];
 }): {
   reject(indices: number[]): void;
-  plan(arrivals: GroundArrival[], goal: Vec3, query?: { excludedEdges?: number[] }): {
+  plan(arrivals: GroundArrival[], goal: Vec3, query?: { excludedEdges?: number[]; excludedTransfers?: { from: string; to: string; min: Vec3; max: Vec3 }[] }): {
     status: 'candidate';
     arrival: GroundArrival;
     points: Vec3[];
