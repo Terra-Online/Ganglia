@@ -192,3 +192,48 @@ node --max-old-space-size=4096 talos/scripts/profile-route-stages.mjs \
 ```
 
 `retained-args.json` is the original extractor CLI argument array of strings. The harness redirects result outputs and records input identities. It **always executes cold then warm in the same process**; `player-route` shares its `RouteCache` between those two trials. `--baseline` disables function insertion hooks. CPU sampling is off unless `--cpu` is added; use that option for attribution and label its overhead. Module import/parse/transform setup is reported separately. The script also supports `player-ground` and `candidate-worker`, with different argument/cache semantics visible in its source. Do not launch the template as an automatic prerequisite for every documentation or small implementation change.
+
+## Prepared-query benchmark entry (2026-11-11)
+
+Implemented the additive prepared solver interface, existing surface-action adapter
+and a replaceable-adapter benchmark runner. No candidate generation, search budget
+accounting or physical validation algorithm was changed. The current adapter is
+serial; batch scheduling is not prescribed by the interface.
+
+Initial retained-input measurement: base revision `c8cc213cdf261274c0b3fd43009c158e49193582`, Node
+`v26.13.0`, source/workload digest `a3ef83220ba35c69194e193bc66af98993ca70715a29cf6a20d6b618ffd1830b`.
+Exact input hashes, fixed requests, limits, runtime arguments, route/connection
+hashes and individual outcomes are retained locally in
+`.local/research/solver-benchmark.json`. The source digest binds actual `src/` and
+`bench/` implementation/type bytes, including uncommitted additions at measurement
+time. Documentation and tests are outside that digest.
+
+| Measurement | Initial observation |
+| --- | ---: |
+| Preparation before single queries, excluded | 921.937 ms |
+| Sum of ten new-query calls | 1319.617 ms |
+| Median / nearest-rank P95 across different requests | 2.184 / 804.569 ms |
+| Preparation before batch, excluded | 761.436 ms |
+| One ten-request batch call | 1191.981 ms |
+| Batch throughput, including unavailable outcomes | 8.389 requests/s |
+
+Eight ground requests completed. Two airborne requests were unmapped and truncated
+under 128 candidates, 64 links and zero optional shortcut budget. No devices, boosts,
+goal refinement or Atlos scheduling were included. All ten batch outcomes (complete
+route and connections) and truncation flags matched singles. The two passes used
+separate prepared instances in the same process, singles first, with no explicit
+warmup. Lazy discovery preparation is inside the first affected query. These are
+single observations, not a controlled speedup comparison, latency distribution for
+one repeated request, or evidence toward the historical heavy-query 20% target.
+
+Focused seam tests cover two-jump adapter equivalence, intervening goals, per-request
+budget isolation, mixed outcomes in input order, closing, whole-batch submission
+with asynchronous completion, and cleanup on failure. The companion handoff has
+been checked against this additive scope; existing model and optimization status
+remain unchanged.
+
+Validation for this addition: all 275 SDK/benchmark tests passed on Node v26.13.0;
+the new declarations passed strict TypeScript 5.8.3 checking. The package's solver
+entry resolved successfully, the npm benchmark command exposed its help, and the
+actual ten-request run emitted parseable JSON. No Atlos tests or historical heavy
+action corpus were rerun because the adapter leaves their algorithm unchanged.

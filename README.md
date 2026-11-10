@@ -3,6 +3,10 @@
 See the [contribution and development guide](docs/contributing.md) for the Atlos/noclip
 setup and the local 5199, 5173 detail and 5176 World workflow.
 
+For prepared single-query and same-scene batch solving, see the
+[solver interface and benchmark guide](bench/README.md). Run `npm run benchmark`
+with the retained local map02 inputs, or add `-- --json` for structured output.
+
 **License notice:** current project-owned releases use the custom [Ganglia Source-Available
 License](LICENSE), which excludes zmdmap.com, fz.wiki and the related operators and projects
 defined there. For eligible recipients, it incorporates AGPL 3.0 copyleft obligations,

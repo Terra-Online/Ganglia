@@ -15,6 +15,10 @@
     "./collision": {
       "types": "./src/collision.d.ts",
       "import": "./src/collision.mjs"
+    },
+    "./solver": {
+      "types": "./src/solver/index.d.ts",
+      "import": "./src/solver/index.mjs"
     }
   },
   "files": [
@@ -24,6 +28,7 @@
     "LICENSE-AGPL-3.0"
   ],
   "scripts": {
+    "benchmark": "node bench/cli.mjs",
     "test": "node --test test/*.test.mjs",
     "prepack": "npm test"
   },

@@ -163,3 +163,28 @@ The next agent should concentrate on these outstanding boundaries.
 5. Complete moving-controller bindings, multi-box handling, source-bound map coverage, ordinary entry acceptance and the full south-to-north physical connection. Earlier base-collision prefixes and independent tails retain their original coverage scope.
 
 Older [architecture](../architecture.md), [roadmap](../roadmap.md), [ground topology](../ground-topology.md), [solver performance](../solver-performance.md) and [prebuilt navigation](../prebuilt-navigation.md) documents retain useful assumptions and historical acceptance definitions. Their alpha.21/alpha.58 milestones and earlier ordering need to be read alongside this current handoff and [history](history.md). Persistent regional transfers, shared validated action assets, state-preserving contraction, complete release manifests, robust recommended-route evaluation and the original time-reduction goal remain open.
+
+## Prepared solver and benchmark seams (2026-11-11)
+
+The additive `@opendfieldmap/ganglia/solver` entry defines new-query `solve` and
+whole-workload `solveBatch` on one prepared physical snapshot. Its surface-action
+adapter prepares collision and ground once, then calls the existing `planJumpRoute`
+with fresh request-local search state. Geometry-dependent proofs may be reused;
+completed routes, action pools and cursors are not shared between requests. The
+adapter currently executes batches serially. The interface leaves scheduling and
+parallel execution to replacement implementations and preserves input/result order.
+It does not change the existing solver algorithms or the Atlos request pipeline.
+
+`bench/cli.mjs`, available as `npm run benchmark -- --json`, measures ten fixed
+map02_lv004 requests individually and as one same-scene batch. The runner accepts
+a solver factory, submits the batch once and excludes input I/O, preparation and
+output comparison from query timing. Discovery indices remain lazy and their first
+use is charged to a query. Separate prepared instances isolate the two passes;
+process JIT/GC and OS pages are not controlled. See [the guide](../../bench/README.md).
+
+The initial local run completed eight ground requests; two airborne requests were
+unmapped with truncated discovery under the fixed 128-candidate budget, without
+devices, boosts or target refinement. All ten batch route/connection outcomes and
+truncation flags matched their single-query counterparts. This bounded SDK workload
+does not replace the heavy-action controls or establish a performance improvement.
+The historical optimization target and outstanding modeling gaps remain unchanged.
