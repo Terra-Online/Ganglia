@@ -1,7 +1,9 @@
 # Contributing to Ganglia
 
 Read the custom [license](../LICENSE) before using or contributing. It excludes
-the named services and related operators/projects defined there. Contributions
+the named services and related operators/projects defined there. Eligible recipients
+must comply with the incorporated AGPL 3.0 obligations, including distribution and
+modified-version network source requirements. Contributions
 must be yours to license and submitted under the current project license;
 third-party material must retain its own notices.
 

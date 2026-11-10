@@ -5,7 +5,8 @@ setup and the local 5199, 5173 detail and 5176 World workflow.
 
 **License notice:** current project-owned releases use the custom [Ganglia Source-Available
 License](LICENSE), which excludes zmdmap.com, fz.wiki and the related operators and projects
-defined there. Read the license before using or distributing the algorithm.
+defined there. For eligible recipients, it incorporates AGPL 3.0 copyleft obligations,
+including the modified-version network source offer. Read the complete license before use.
 
 `@opendfieldmap/ganglia` is an experimental ESM ground-routing package for OEM,
 with TypeScript declarations. It runs in Node and browsers. Camera rules belong to
