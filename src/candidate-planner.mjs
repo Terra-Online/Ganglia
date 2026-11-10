@@ -3,6 +3,8 @@ import { closestOnSurface } from './goals.mjs';
 import { groundComponents } from './connectivity.mjs';
 import { createMinHeap } from './heap.mjs';
 import { createGroundStraightener } from './straighten.mjs';
+import { createBoundsIndex } from './bounds.mjs';
+import { createTransferQuery } from './candidate-transfers.mjs';
 
 const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
 
@@ -22,54 +24,47 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
   const edges = graph.edges;
   const groundEdgeCount = edges.length;
   for (let index = 0; index < edges.length; index++) adjacency[ids.get(edges[index].from)].push(index);
-  const grid = new Map(), proposals = new Map();
-  const key = (x, z) => `${x},${z}`;
-  for (const surface of data.surfaces) {
-    const node = ids.get(surface.id), component = topology.components[node];
-    for (const position of surface.vertices) {
-      const x = Math.floor(position[0] / radius), z = Math.floor(position[2] / radius);
-      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-        for (const other of grid.get(key(x + dx, z + dz)) ?? []) {
-          if (component === other.component || Math.abs(position[1] - other.position[1]) > verticalRange ||
-              Math.hypot(position[0] - other.position[0], position[2] - other.position[2]) > radius) continue;
-          const pair = [Math.min(component, other.component), Math.max(component, other.component),
-            ...position.map(Math.floor)].join('/');
-          const length = distance(position, other.position);
-          if ((proposals.get(pair)?.length ?? Infinity) <= length) continue;
-          proposals.set(pair, { from: surface.id, to: graph.nodes[other.node].id,
-            points: [position, other.position], length, unresolved: true });
-        }
-      }
-      const cell = key(x, z), entries = grid.get(cell) ?? [];
-      if (!entries.some(other => other.component === component && distance(position, other.position) < 0.001)) {
-        entries.push({ node, component, position });
-        grid.set(cell, entries);
+  const transfers = createTransferQuery(data.surfaces, topology, radius, verticalRange);
+  const expanded = new Set(), materialized = new Set(), dirty = new Set();
+  const expand = component => {
+    if (component === undefined || expanded.has(component)) return;
+    expanded.add(component);
+    for (const proposal of transfers(component)) {
+      if (materialized.has(proposal.key)) continue;
+      materialized.add(proposal.key);
+      const { key, rank, first, ...forward } = proposal;
+      for (const edge of [forward,
+        { ...forward, from: forward.to, to: forward.from, points: [...forward.points].reverse() }]) {
+        adjacency[ids.get(edge.from)].push(edges.length);
+        dirty.add(ids.get(edge.from));
+        edges.push({ ...edge, order: first, reverse: edge !== forward,
+          key: JSON.stringify(['transfer', key, edge.from, edge.to]) });
       }
     }
-  }
-  for (const proposal of proposals.values()) for (const edge of [proposal,
-    { ...proposal, from: proposal.to, to: proposal.from, points: [...proposal.points].reverse() }]) {
-    adjacency[ids.get(edge.from)].push(edges.length);
-    edges.push(edge);
-  }
-  for (const connection of connections) {
+  };
+  for (const [connectionIndex, connection] of connections.entries()) {
     if (!ids.has(connection.from) || !ids.has(connection.to) || !Array.isArray(connection.points) || connection.points.length < 2) {
       throw new Error('Invalid candidate connection');
     }
     adjacency[ids.get(connection.from)].push(edges.length);
-    edges.push({ ...connection, unresolved: true,
+    edges.push({ ...connection, connectionIndex, key: JSON.stringify(['connection', connectionIndex, connection]), unresolved: true,
       length: connection.points.slice(1).reduce((sum, point, index) => sum + distance(connection.points[index], point), 0) });
   }
+  const surfaceBounds = data.surfaces.map((surface, order) => ({ surface, order,
+    min: [0, 1, 2].map(axis => Math.min(...surface.vertices.map(point => point[axis]))),
+    max: [0, 1, 2].map(axis => Math.max(...surface.vertices.map(point => point[axis]))),
+  }));
+  const endpointIndex = createBoundsIndex(surfaceBounds);
   const endpoints = new Map(), endpointComponents = new Map();
   const componentOf = node => topology.components[node] ?? endpointComponents.get(node);
   const endpoint = (position, direction) => {
     const key = `${direction}/${JSON.stringify(position)}`;
     if (endpoints.has(key)) return endpoints.get(key);
     const supports = new Map();
-    for (const surface of data.surfaces) {
-      // Bounds rejection also works when a polygon spans the whole local window.
-      if ([0, 1, 2].some(axis => Math.min(...surface.vertices.map(p => p[axis])) > position[axis] + endpointRadius ||
-          Math.max(...surface.vertices.map(p => p[axis])) < position[axis] - endpointRadius)) continue;
+    const bounds = { min: position.map(value => value - endpointRadius), max: position.map(value => value + endpointRadius) };
+    // Restore input order so ties retain their established support witness.
+    const nearby = [...endpointIndex(bounds, position, endpointRadius)].sort((a, b) => a.order - b.order);
+    for (const { surface } of nearby) {
       const support = closestOnSurface(surface, position);
       if (!support || support.distance > endpointRadius) continue;
       const node = ids.get(surface.id), component = topology.components[node];
@@ -86,8 +81,9 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
       const other = ids.get(support.surface);
       const points = [position, support.position, graph.nodes[other].position];
       const from = direction === 'start' ? node : other, to = direction === 'start' ? other : node;
-      adjacency[from].push(edges.length);
-      edges.push({ from: graph.nodes[from].id, to: graph.nodes[to].id,
+      adjacency[from].push(edges.length); dirty.add(from);
+      edges.push({ key: JSON.stringify(['endpoint', direction, position, support.surface, support.position]),
+        from: graph.nodes[from].id, to: graph.nodes[to].id,
         points: direction === 'start' ? points : points.reverse(),
         unresolved: Math.hypot(position[0] - support.position[0], position[2] - support.position[2]) > 1e-6 ||
           Math.abs(position[1] - support.position[1]) > data.options.maxVertical,
@@ -148,16 +144,33 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
     else points[points.length - 1] = goal;
     return points;
   };
+  // Lazy materialization must not let an earlier query reorder equal-cost choices.
+  const compareEdges = (a, b) => {
+    const left = edges[a], right = edges[b];
+    const category = (edge, index) => index < groundEdgeCount ? 0 : edge.order ? 1 : edge.connectionIndex !== undefined ? 2 : 3;
+    const difference = category(left, a) - category(right, b);
+    if (difference) return difference;
+    if (left.order && right.order) {
+      for (let axis = 0; axis < left.order.length; axis++) {
+        const delta = left.order[axis] - right.order[axis];
+        if (delta) return delta;
+      }
+      return Number(left.reverse) - Number(right.reverse);
+    }
+    return a - b;
+  };
+  const edgeKey = (edge, index) => edge.key ?? JSON.stringify(['ground', index]);
   const rejected = new Set();
   return {
     reject(indices) {
       for (const index of indices) {
-        if (!Number.isInteger(index) || index < 0 || index >= edges.length) throw new Error('Invalid candidate edge');
+        if (typeof index !== 'string' && (!Number.isInteger(index) || index < 0 || index >= edges.length)) throw new Error('Invalid candidate edge');
         rejected.add(index);
       }
     },
     plan(arrivals, goal, { excludedEdges = [], excludedTransfers = [] } = {}) {
       const excluded = new Set(excludedEdges);
+      const hasKeys = [...excluded, ...rejected].some(value => typeof value === 'string');
       const end = endpoint(goal, 'goal');
       const starts = arrivals.filter(arrival => arrival.state === 'available').map(arrival => ({ arrival, node: endpoint(arrival.position, 'start') }));
       const regions = excludedTransfers.map(region => {
@@ -179,9 +192,12 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
         const current = heap.pop();
         if (current.cost !== scores[current.node]) continue;
         if (current.node === end) break;
+        expand(topology.components[current.node]);
+        if (dirty.delete(current.node)) adjacency[current.node].sort(compareEdges);
         for (const index of adjacency[current.node]) {
-          if (rejected.has(index) || excluded.has(index)) continue;
           const edge = edges[index], to = ids.get(edge.to);
+          if (rejected.has(index) || excluded.has(index) ||
+              hasKeys && (rejected.has(edgeKey(edge, index)) || excluded.has(edgeKey(edge, index)))) continue;
           if (edge.unresolved && regions.some(region =>
               region.fromComponent === componentOf(current.node) &&
               region.toComponent === componentOf(to) &&
@@ -198,7 +214,7 @@ export function createCandidatePlanner(data, { radius = 16, verticalRange = 50,
       const path = [];
       for (let node = end; previous[node] !== -1;) {
         const index = previous[node], edge = edges[index];
-        path.push({ index, from: edge.from, to: edge.to, points: edge.points,
+        path.push({ index, key: edgeKey(edge, index), from: edge.from, to: edge.to, points: edge.points,
           unresolved: Boolean(edge.unresolved),
           ...(edge.mode ? { mode: edge.mode } : {}), ...(edge.device ? { device: edge.device } : {}) });
         node = ids.get(edge.from);

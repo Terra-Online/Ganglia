@@ -67,9 +67,13 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
     }
     const batches = [Math.min(128, remaining), Math.min(128, remaining)], spent = [0, 0];
     const exhausted = new Set();
-    const cache = { standing: shared.standing ?? new Map(), motions: shared.motions ?? new Map(),
-      exits: shared.exits ?? new Map(), approaches: shared.approaches ?? new Map(),
-      geometry: shared.geometry, visibility: shared.visibility, traces: shared.traces, distanceFields: shared.distanceFields };
+    // The cache owns one current endpoint/model binding. Sharing the owner also
+    // preserves cursor invalidations when nested direction or entry queries change it.
+    const cache = shared;
+    cache.standing ??= new Map();
+    cache.motions ??= new Map();
+    cache.exits ??= new Map();
+    cache.approaches ??= new Map();
     while (incumbent.status !== 'complete' && remaining > 0) {
       const maxLinks = options.maxLinks - connections.length + (options.connections?.length ?? 0);
       if (maxLinks <= 0) { diagnostics.truncated = true; break; }
@@ -101,7 +105,6 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
       connections.push(...additions);
       incumbent = planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections });
     }
-    for (const key of ['standing', 'motions', 'exits', 'approaches', 'geometry', 'visibility', 'traces', 'distanceFields']) shared[key] = cache[key];
     if (incumbent.status !== 'complete') {
       partialConnections.push(...connections.slice(options.connections?.length ?? 0));
       continue;

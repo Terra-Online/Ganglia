@@ -177,6 +177,7 @@ export interface ShortcutDiagnostics { reason: string; baselineCost: number; bou
     rejected: { support: number; projection: number; clearance: number; range: number; motion: number; groundDominated: number };
     limits: { seedChecks: number; neighbourChecks: number; endpointChecks: number; arcAttempts: number; maxLinks: number };
     distanceFields?: { approach: FieldWork; departure: FieldWork };
+    cursor?: { resumed: boolean; pending: number; seedExhausted: boolean; landingQueries: number };
 }
 interface FrontierDiagnostics extends Omit<ShortcutDiagnostics, 'baselineCost'> { baselineCost: null }
 export function findJumpShortcuts(surfaces: Surface[], world: CollisionWorld,
@@ -256,6 +257,8 @@ export interface CandidateEdge {
   mode?: string;
   device?: string;
   index: number;
+  /** Stable within immutable input geometry, independent of lazy expansion order. */
+  key?: string;
   from: string;
   to: string;
   points: Vec3[];
@@ -274,8 +277,8 @@ export function createCandidatePlanner(data: {
   endpointRadius?: number;
   connections?: { from: string; to: string; points: Vec3[]; mode?: string; device?: string }[];
 }): {
-  reject(indices: number[]): void;
-  plan(arrivals: GroundArrival[], goal: Vec3, query?: { excludedEdges?: number[]; excludedTransfers?: { from: string; to: string; min: Vec3; max: Vec3 }[] }): {
+  reject(indices: (number | string)[]): void;
+  plan(arrivals: GroundArrival[], goal: Vec3, query?: { excludedEdges?: (number | string)[]; excludedTransfers?: { from: string; to: string; min: Vec3; max: Vec3 }[] }): {
     status: 'candidate';
     arrival: GroundArrival;
     points: Vec3[];

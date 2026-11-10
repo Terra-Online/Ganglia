@@ -119,3 +119,29 @@ test('candidate straightening reconstructs directed height transitions and never
   assert.deepEqual(result.points, [start,[1,0,0.5],[1,0.3,0.5],goal]);
   assert.equal(planner.plan(startAt(goal), start).status, 'no-candidate');
 });
+
+test('stable edge exclusions survive a different lazy expansion and endpoint history', () => {
+  const data = {surfaces:[square('a',0,0),square('b',4,0),square('c',2,4)],options:{speed:5,maxVertical:1}};
+  const options = {radius:5,endpointRadius:0.2};
+  const first = createCandidatePlanner(data,options);
+  const start = startAt([1,0,1]), goal = [5,0,1];
+  const route = first.plan(start,goal);
+  const keys = route.unresolved.map(edge => edge.key);
+  assert.ok(keys.length);
+  const second = createCandidatePlanner(data,options);
+  second.plan(startAt([3,0,5]),[5,0,1]);
+  const alternative = second.plan(start,goal,{excludedEdges:keys});
+  assert.equal(alternative.status,'candidate');
+  assert.ok(alternative.path.every(edge => !keys.includes(edge.key)));
+  first.reject(keys);
+  assert.deepEqual(first.plan(start,goal).points,alternative.points);
+});
+
+test('endpoint index retains a large face whose centre is outside the query sphere', () => {
+  const data = {surfaces:[{id:'wide',vertices:[[-100,0,-100],[100,0,-100],[100,0,100],[-100,0,100]]}],
+    options:{speed:5,maxVertical:1}};
+  const planner = createCandidatePlanner(data,{endpointRadius:0.1});
+  const result = planner.plan(startAt([-90,0,-90]),[-89,0,-89]);
+  assert.equal(result.status,'candidate');
+  assert.equal(result.unresolved.length,0);
+});

@@ -192,7 +192,13 @@ a productive multi-hop chain to continue while the opposite side needs refinemen
 Each accepted landing expands directed ground reachability before the next pass.
 Static topology, standing support, ledge approaches and motion checks are reused
 across frontier passes. Spatial hierarchies are built once. Eligibility views prune
-branches for each frontier without sorting the same geometry again.
+branches for each frontier without sorting the same geometry again. Analytic
+flight envelopes reject entire spatial subtrees before landing witnesses are built.
+These envelopes preserve the existing candidate span/height contract, including its
+supported run-off allowance. Exact support and swept trajectories remain authoritative.
+Within an unchanged action graph, frontier batches resume their seed, landing and
+motion-variant cursors. Geometry/model changes invalidate physical caches, and
+endpoint or authored-action changes invalidate the affected candidate cursors.
 Supported continuous ground approaches can also join
 overlapping patches without a shared navigation edge. Landing witnesses include
 boundary pullbacks and surface intersections with the optimistic flight envelope.
@@ -404,3 +410,9 @@ ties by lower remaining energy. Ground dash ends at turns or air transitions,
 while cooldown and recovery continue across actions. Results retain dash count,
 model parameters and label-limit truncation. The speed input is a declared model,
 and needs independent game-motion validation.
+
+`createCandidatePlanner` indexes endpoint support and materializes unresolved transfers
+when their ground component is expanded. Transfer witnesses retain the eager
+input-order bucket selection. Returned candidate edges include a stable `key` for
+`reject` and `excludedEdges` across query/expansion histories on the same immutable
+input. Numeric `index` exclusions remain available within a prepared planner.
