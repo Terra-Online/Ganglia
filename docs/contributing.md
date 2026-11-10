@@ -134,11 +134,16 @@ these assets or prove that a real detail page works.
 
 ```sh
 cd "$NOCLIP"
-pnpm extract init --game "$CLIENT" \
+node packages/extractor/src/cli.ts init --game "$CLIENT" \
   --keys-from /absolute/path/Endfield-map-extractor \
   --keys-from /absolute/path/AnimeStudio \
   --config "$GAME_CONFIG"
 ```
+
+Run the generated CLI directly with Node as above. Invoking `pnpm` inside
+`$NOCLIP` can select upstream's nested workspace and package-manager settings,
+perform an independent install and rewrite its lockfile. Atlos then correctly
+rejects that edited cache. Keep installation and workspace commands in `$TALOS`.
 
 `init` derives supported keys from the client, imports the remaining material
 from those local source checkouts, and validates it before saving the private
@@ -154,10 +159,10 @@ the full OEM catalog. Do not pass `--level`, `--bounds` or `--no-assets` here.
 ```sh
 cd "$NOCLIP"
 for scene in map01 map02 indie_dg005 indie_dg007 indie_dg016 base01_lv001 dung01_wrdg001; do
-  pnpm extract pack "$scene" --config "$GAME_CONFIG" \
+  node packages/extractor/src/cli.ts pack "$scene" --config "$GAME_CONFIG" \
     -o "$DATA/packages/$scene" || break
 done
-pnpm extract oem --config "$GAME_CONFIG" --atlos "$TALOS" \
+node packages/extractor/src/cli.ts oem --config "$GAME_CONFIG" --atlos "$TALOS" \
   --packages "$DATA/packages" -o "$DATA/releases"
 ```
 
@@ -167,7 +172,7 @@ directory name, then verify it:
 
 ```sh
 export RELEASE_ID=REPLACE_WITH_EXPORTED_RELEASE_ID
-pnpm extract oem-check "$DATA/releases/$RELEASE_ID"
+node packages/extractor/src/cli.ts oem-check "$DATA/releases/$RELEASE_ID"
 ```
 
 For preview alone, that verified release is enough. Route planning additionally
@@ -184,13 +189,13 @@ For each scene under investigation, export source inputs, then import the
 selected navigation state:
 
 ```sh
-pnpm extract travel-points --config "$GAME_CONFIG" -o "$DATA/routing/travel-points.json"
-pnpm extract movement-settings --config "$GAME_CONFIG" -o "$DATA/routing/movement-settings-current.json"
+node packages/extractor/src/cli.ts travel-points --config "$GAME_CONFIG" -o "$DATA/routing/travel-points.json"
+node packages/extractor/src/cli.ts movement-settings --config "$GAME_CONFIG" -o "$DATA/routing/movement-settings-current.json"
 export SCENE=map02
-pnpm extract navmesh "$SCENE" --config "$GAME_CONFIG" -o "$DATA/routing/$SCENE-navigation.json"
-pnpm extract air-walls "$SCENE" --config "$GAME_CONFIG" -o "$DATA/routing/$SCENE-walls.json"
-pnpm extract interaction-points "$SCENE" --config "$GAME_CONFIG" -o "$DATA/routing/$SCENE-interaction-points.json"
-pnpm extract walk-routes --navigation "$DATA/routing/$SCENE-navigation.json" \
+node packages/extractor/src/cli.ts navmesh "$SCENE" --config "$GAME_CONFIG" -o "$DATA/routing/$SCENE-navigation.json"
+node packages/extractor/src/cli.ts air-walls "$SCENE" --config "$GAME_CONFIG" -o "$DATA/routing/$SCENE-walls.json"
+node packages/extractor/src/cli.ts interaction-points "$SCENE" --config "$GAME_CONFIG" -o "$DATA/routing/$SCENE-interaction-points.json"
+node packages/extractor/src/cli.ts walk-routes --navigation "$DATA/routing/$SCENE-navigation.json" \
   --walls "$DATA/routing/$SCENE-walls.json" \
   --travel-points "$DATA/routing/travel-points.json" \
   --movement-settings "$DATA/routing/movement-settings-current.json" \
