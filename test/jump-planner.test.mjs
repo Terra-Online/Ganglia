@@ -37,6 +37,20 @@ test('jointly selects multiple jumps through surfaces missing from the ground-on
   assert.equal(result.diagnostics.groundStatus, 'no-verified-route');
 });
 
+test('shares discovered actions with a cheaper later arrival in the same solve', () => {
+  const surfaces = [floor('start', 0, 4, 0), floor('goal', 7, 11, 0)];
+  const world = createCollisionWorld(geometry(surfaces)), goal = [9, 0, 0];
+  const expensive = { id: 'expensive', position: [2, 0, 0], state: 'available', cost: 5 };
+  const cheap = { ...expensive, id: 'cheap', cost: 0 };
+  const settings = { ...options, maxCandidates: 16, maxShortcutCandidates: 0 };
+  const combined = planJumpRoute(surfaces, world, [expensive, cheap], goal, settings);
+  const alone = planJumpRoute(surfaces, world, [cheap], goal, settings);
+  assert.equal(alone.route.status, 'complete');
+  assert.equal(combined.route.status, 'complete');
+  assert.equal(combined.route.start, 'cheap');
+  assert.ok(Math.abs(combined.route.cost - alone.route.cost) < 1e-7);
+});
+
 test('optimizes a successful ground route by combining jumps across an isolated intermediate top', () => {
   const surfaces = [floor('left', 0, 4, 0), floor('middle', 7, 11, 0), floor('right', 14, 18, 0),
     floor('left-detour', 0, 4, 0, 2, 24), floor('back', 4, 14, 0, 20, 24),

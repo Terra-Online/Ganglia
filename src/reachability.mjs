@@ -30,7 +30,14 @@ function flightEnvelope(model, maxDrop, endpointTolerance) {
   const table = Number.isSafeInteger(count) && count > 0 && count <= 4096
     ? Float64Array.from({ length: count }, (_, index) => analyticReach((minimumBin + index) * heightResolution))
     : null;
-  const result = { model: snapshot, maxDrop, endpointTolerance,
+  const result = { model: snapshot, maxDrop, endpointTolerance, initial,
+    duration(drop, mode = vertical.mode) {
+      return jumpDuration(0, -drop, mode === vertical.mode ? vertical : { ...snapshot, mode });
+    },
+    travel(initialSpeed, time) {
+      return Number.isFinite(snapshot.airOverspeedDeceleration) && snapshot.airOverspeedDeceleration > 0
+        ? jumpTravel(initialSpeed, time, snapshot) : initialSpeed * time;
+    },
     reach(drop) {
       const index = Math.ceil(drop / heightResolution) - minimumBin;
       return table && index >= 0 && index < table.length ? table[index] : analyticReach(drop);
@@ -90,4 +97,92 @@ export function createJumpEnvelope(anchor, { model, maxDrop, maxHorizontalDistan
     const reach = flight.reach(drop);
     return !Number.isFinite(reach) || span <= reach + epsilon;
   };
+}
+
+/** Necessary predecessor and control intervals for an entire target region.
+ * Source/target padding encloses nominal witnesses offset from indexed geometry.
+ * Ordinary goal projection keeps XZ fixed and changes only height, so an inset
+ * boundary source needs XZ padding for its largest inset and Y padding for the
+ * projection allowance. endpointTolerance separately covers supported-foot height
+ * correction. All boxes and intervals retain double precision.
+ *
+ * The predicate tests two AABBs before seed projection or spatial enumeration.
+ * domain(sourceBox) returns null when impossible, otherwise necessary nominal
+ * height, ballistic-time and scalar launch-speed intervals for local generation.
+ * These enclose the existing discovery contract and its jump/drop controls.
+ * They do not establish collision clearance or include arbitrary supported
+ * approaches outside that contract. Expiry is ignored for an optimistic bound.
+ */
+export function createJumpPredecessor(targetBox, { model, maxDrop, maxHorizontalDistance,
+  endpointTolerance = 0, sourcePadding = [0, 0, 0], targetPadding = [0, 0, 0] }) {
+  const validPadding = value => Array.isArray(value) && value.length === 3 &&
+    value.every(component => Number.isFinite(component) && component >= 0);
+  if (!targetBox || !Array.isArray(targetBox.min) || !Array.isArray(targetBox.max) ||
+      targetBox.min.length !== 3 || targetBox.max.length !== 3 ||
+      ![...targetBox.min, ...targetBox.max].every(Number.isFinite) ||
+      targetBox.min.some((value, axis) => value > targetBox.max[axis]) ||
+      !validPadding(sourcePadding) || !validPadding(targetPadding)) {
+    throw new Error('Invalid jump predecessor region');
+  }
+  // Keep one validation contract for the scalar movement and discovery settings.
+  createJumpEnvelope(targetBox.min, { model, maxDrop, maxHorizontalDistance, endpointTolerance });
+  const flight = flightEnvelope(model, maxDrop, endpointTolerance);
+  const [sx, sy, sz] = sourcePadding;
+  const tx0 = targetBox.min[0] - targetPadding[0], tx1 = targetBox.max[0] + targetPadding[0];
+  const ty0 = targetBox.min[1] - targetPadding[1], ty1 = targetBox.max[1] + targetPadding[1];
+  const tz0 = targetBox.min[2] - targetPadding[2], tz1 = targetBox.max[2] + targetPadding[2];
+  const rise = flight.model.maxJumpHeight + 2 * endpointTolerance;
+  const fall = maxDrop + 2 * endpointTolerance;
+  const targetScale = Math.max(1, Math.abs(tx0), Math.abs(tx1), Math.abs(ty0), Math.abs(ty1),
+    Math.abs(tz0), Math.abs(tz1), maxHorizontalDistance, rise, fall);
+  const test = (box, details) => {
+    const x0 = box.min[0] - sx, x1 = box.max[0] + sx;
+    const y0 = box.min[1] - sy, y1 = box.max[1] + sy;
+    const z0 = box.min[2] - sz, z1 = box.max[2] + sz;
+    const epsilon = 32 * Number.EPSILON * Math.max(targetScale,
+      Math.abs(x0), Math.abs(x1), Math.abs(y0), Math.abs(y1), Math.abs(z0), Math.abs(z1));
+    const dx = Math.max(tx0 - x1, x0 - tx1, 0), dz = Math.max(tz0 - z1, z0 - tz1, 0);
+    const span = Math.hypot(dx, dz);
+    const finite = Number.isFinite(epsilon);
+    if (finite && (span > maxHorizontalDistance + epsilon ||
+        y1 < ty0 - rise - epsilon || y0 > ty1 + fall + epsilon)) return details ? null : false;
+    const maximumDrop = Math.min(y1 - ty0, fall) + 2 * endpointTolerance + epsilon;
+    const reach = finite && Number.isFinite(maximumDrop) ? flight.reach(maximumDrop) : Infinity;
+    if (Number.isFinite(reach) && span > reach + epsilon) return details ? null : false;
+    if (!details) return true;
+    const slack = finite ? epsilon : Infinity;
+    const maxTime = Number.isFinite(maximumDrop) ? flight.duration(maximumDrop) ?? Infinity : Infinity;
+    const minimumDrop = y0 - ty1 - 2 * endpointTolerance - slack;
+    let minTime = 0;
+    if (maximumDrop < 0 && flight.model.maxJumpHeight > 0) {
+      minTime = flight.duration(Math.max(-flight.model.maxJumpHeight, minimumDrop)) ?? 0;
+    } else if (minimumDrop > 0) minTime = flight.duration(minimumDrop, 'drop') ?? 0;
+    // Only a span beyond sustained-speed travel requires a launch impulse. With
+    // the longest possible flight, binary search returns an optimistic lower
+    // launch speed. The lower bracket is retained to keep boundary cases eligible.
+    let initialLow = 0;
+    if (Number.isFinite(maxTime) && span > flight.model.maxHorizontalSpeed * maxTime + slack) {
+      let low = flight.model.maxHorizontalSpeed, high = flight.initial;
+      for (let index = 0; index < 40; index++) {
+        const middle = (low + high) / 2;
+        if (flight.travel(middle, maxTime) + slack >= span) high = middle;
+        else low = middle;
+      }
+      initialLow = low;
+    }
+    return {
+      sourceHeight: [Math.max(y0, ty0 - rise - slack), Math.min(y1, ty1 + fall + slack)],
+      targetHeight: [Math.max(ty0, y0 - fall - slack), Math.min(ty1, y1 + rise + slack)],
+      flightTime: [Math.max(0, minTime - slack), maxTime + slack],
+      initialSpeed: [initialLow, flight.initial],
+      horizontal: {
+        x: [tx0 - x1 - slack, tx1 - x0 + slack],
+        z: [tz0 - z1 - slack, tz1 - z0 + slack],
+        distance: [Math.max(0, span - slack), Math.min(maxHorizontalDistance, reach) + slack],
+      },
+    };
+  };
+  const predecessor = box => test(box, false);
+  predecessor.domain = box => test(box, true);
+  return predecessor;
 }

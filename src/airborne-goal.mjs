@@ -4,6 +4,7 @@ import { standingFoot, validateDiscovery } from './traversal.mjs';
 import { createWallChecker } from './walls.mjs';
 import { retimeGroundRoute } from './locomotion.mjs';
 import { movementGeometry } from './movement-geometry.mjs';
+import { mayReachGoal } from './flight-steering.mjs';
 import { boundaryLanding } from './landings.mjs';
 
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
@@ -108,6 +109,8 @@ export function findGoalFlights(surfaces, world, starts, goal, options) {
         Math.hypot(start.position[0] - end.position[0], start.position[2] - end.position[2]) > options.maxHorizontalDistance) return;
     if (diagnostics.attempted >= maxCandidates) { diagnostics.truncated = true; return; }
     diagnostics.attempted++;
+    if (!mayReachGoal(start.position, end.position, goal,
+      interaction.radius + (refine ? spacing : 0), model, control)) return;
     let arc = jumpConnection(start.position, end.position, { ...model, profile, ...control,
       walls: options.walls, wallCheck: () => false, sweep: () => null });
     let collected = false;
@@ -266,12 +269,20 @@ export function planAirborneGoal(surfaces, world, starts, goal, options, approac
     if (best.status === 'complete' && starts.every(start => start.state !== 'available' ||
       start.cost + Math.hypot(start.position[0] - candidate.start.position[0],
         start.position[2] - candidate.start.position[2]) / maxSpeed + candidate.arc.times.at(-1) >= best.cost)) continue;
+    // The authored final flight keeps its duration during resource retiming.
+    // Any improving prefix must therefore fit the incumbent's remaining cost.
+    const maxCost = best.status === 'complete' ? best.cost - candidate.arc.times.at(-1) : Infinity;
     const key = JSON.stringify(candidate.start.position);
-    if (!prefixes.has(key)) {
+    let saved = prefixes.get(key);
+    // Current duration ordering tightens repeated bounds. Preserve correctness
+    // if a later ordering widens one after an incomplete or over-budget solve.
+    if (!saved || (maxCost > saved.maxCost &&
+        (saved.result.route.status !== 'complete' || saved.result.route.cost > saved.maxCost))) {
       diagnostics.approaches++;
-      prefixes.set(key, approach(candidate.start.position));
+      saved = { result: approach(candidate.start.position, maxCost), maxCost };
+      prefixes.set(key, saved);
     }
-    const prefix = prefixes.get(key);
+    const prefix = saved.result;
     if (prefix.route.status !== 'complete') continue;
     let id;
     do { id = `airborne-goal/${serial++}`; } while (ids.has(id));

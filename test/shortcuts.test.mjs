@@ -84,6 +84,21 @@ test('continues a blocked frontier queue with a larger budget without regenerati
   assert.equal(second.diagnostics.truncated, true);
 });
 
+test('a wider cost bound retries frontier candidates excluded by the earlier bound', () => {
+  const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const settings = { ...options, maxCandidates: 1000, from: [2, 0, 0], to: [9, 0, 0], boundGoal: [9, 0, 0] };
+  const cache = {};
+  const tight = findJumpFrontier(surfaces, world, { ...settings, costBound: 0 }, cache);
+  assert.deepEqual(tight.connections, []);
+  assert.equal(tight.diagnostics.cursor.seedExhausted, true);
+  const wider = findJumpFrontier(surfaces, world, { ...settings, costBound: 20 }, cache);
+  const fresh = findJumpFrontier(surfaces, world, { ...settings, costBound: 20 }, {});
+  assert.ok(fresh.connections.length > 0);
+  assert.equal(wider.diagnostics.cursor.resumed, false);
+  assert.deepEqual(wider.connections, fresh.connections);
+});
+
 test('invalidates frontier reachability when an existing action changes under the same id', () => {
   const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
   const world = createCollisionWorld(geometry(surfaces));

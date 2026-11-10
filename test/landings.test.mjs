@@ -24,3 +24,32 @@ test('finds feasible landing interiors when nearest, goal and centre witnesses f
   assert.ok(arcs.slice(0, 3).every(arc => arc === null));
   assert.ok(arcs.slice(3).some(arc => arc !== null));
 });
+
+
+test('static landing metadata preserves witness order and fresh output as the goal changes', () => {
+  const surface = { id: 'floor', vertices: [[-2, 0, -2], [2, 0, -2], [2, 0, 2], [-2, 0, 2]] };
+  const model = { gravity: 10, fallingGravity: 10, maxJumpHeight: 2,
+    maxFallingSpeed: 20, apexTime: .2, maxHorizontalSpeed: 3 };
+  const start = [-4, 0, 0];
+  const query = (surface, start, goal) => landingCandidates(surface, start, goal, model, .3);
+  const expected = [
+    { surface: 'floor', position: [-2, 0, 0], distance: 2 },
+    { surface: 'floor', position: [2, 0, 1], distance: 2 },
+    { surface: 'floor', position: [0, 0, 0], distance: 0 },
+    { surface: 'floor', position: [-.15568513614953483, 0, -1.925244022804756] },
+    { surface: 'floor', position: [-.21909860045131624, 0, -1.8510398591663662] },
+    { surface: 'floor', position: [-.15568513614953505, 0, 1.925244022804756] },
+    { surface: 'floor', position: [-.21909860045131624, 0, 1.8510398591663662] },
+  ];
+  assert.deepEqual([...landingCandidates(surface, start, [4, 0, 1], model, .3)], expected);
+  assert.deepEqual([...query(surface, start, [4, 0, 1])], expected);
+  const changed = expected.map((witness, index) => index === 1
+    ? { surface: 'floor', position: [0, 0, 2], distance: Math.sqrt(2) } : witness);
+  assert.deepEqual([...query(surface, start, [0, 1, 3])], changed);
+  assert.deepEqual([...query(surface, start, [4, 0, 1])], expected);
+  const first = [...query(surface, start, [4, 0, 1])];
+  first[0].position[0] = -100;
+  first[2].position[1] = -100;
+  first.at(-1).surface = 'changed';
+  assert.deepEqual([...query(surface, start, [4, 0, 1])], expected);
+});

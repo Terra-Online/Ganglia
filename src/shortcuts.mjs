@@ -1,5 +1,6 @@
 import { movementGeometry } from './movement-geometry.mjs';
-import { createJumpEnvelope } from './reachability.mjs';
+import { createJumpEnvelope, createJumpPredecessor } from './reachability.mjs';
+import { createMotionBounds } from './motion-bounds.mjs';
 import { advanceDistanceField } from './distance-field.mjs';
 import { boundaryTree, boundaryOrder } from './boundary-order.mjs';
 import { landingCandidates, boundaryLanding } from './landings.mjs';
@@ -80,7 +81,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       for (const key of Object.keys(cache)) delete cache[key];
     }
     cache.binding = { surfaces, world, signature };
-    const query = JSON.stringify([options.from, options.to, options.interaction, options.speed]);
+    const query = JSON.stringify([options.from, options.to, options.interaction, options.speed, options.costBound, options.boundGoal]);
     if (cache.query !== query) {
       for (const key of ['source', 'goals', 'ordering', 'distanceFields', 'forwardCursor', 'reverseCursor']) delete cache[key];
       cache.query = query;
@@ -117,7 +118,10 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   };
   const approaches = cache?.approaches ?? new Map(), exits = cache?.exits ?? new Map();
   if (cache) { cache.approaches = approaches; cache.exits = exits; }
-  const motionVariants = createMotionVariants(model, world, profile, exits, approaches);
+  const motionBounds = Number.isFinite(options.costBound) ? createMotionBounds(model) : null;
+  const motionVariants = createMotionVariants(model, world, profile, exits, approaches,
+    motionBounds ? (start, end) => withinCostBound(start, end,
+      motionBounds.jump({ min: start, max: start }, { min: end, max: end })) : undefined);
   const edges = [];
   const source = cache?.source ?? project(from, { maxVertical })[0];
   const goals = cache?.goals ?? project(to, { maxVertical, interaction });
@@ -164,6 +168,17 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   const lowerBound = (start, end, airTime) =>
     (horizontal(from, start) + Math.max(0, horizontal(end, to) - (interaction?.radius ?? 0))) /
       travelSpeed + airTime;
+  // A completed outer route bounds the useful prefix even when this local
+  // ground corridor is much slower. Retain its actual endpoint through waypoint
+  // and entry subqueries, which are only discovery guides.
+  const costGoal = options.boundGoal ?? to;
+  const costLimit = options.costBound ?? Infinity;
+  const boundSpeed = Math.max(travelSpeed, model.startHorizontalSpeed ?? 0,
+    options.locomotion?.dash?.speed ?? 0);
+  const airSpeed = Math.max(model.maxHorizontalSpeed, model.startHorizontalSpeed ?? 0, Number.EPSILON);
+  const withinCostBound = (start, end, airTime) => !Number.isFinite(costLimit) ||
+    (Math.max(0, horizontal(from, start) - profile.radius) +
+      Math.max(0, horizontal(end, costGoal) - profile.radius)) / boundSpeed + airTime <= costLimit + 1e-9;
   const insets = [...new Set([0, profile.radius, 1, 2, 3, 0.5, 1.5, 2.5, profile.radius * 0.5, profile.radius * 0.25])];
   const regionSize = Math.max(sampleSpacing, diversity, maxHorizontalDistance / 2);
   const regionOf = (position, size = regionSize) => [Math.floor(position[0] / size),
@@ -217,6 +232,11 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       }
     }
     const goalCenter = goalBounds.min.map((value, axis) => (value + goalBounds.max[axis]) / 2);
+    const predecessor = frontier && reverse ? createJumpPredecessor(goalBounds, {
+      model, maxDrop, maxHorizontalDistance, endpointTolerance,
+      sourcePadding: [Math.max(...insets) + profile.radius / 2, maxVertical, Math.max(...insets) + profile.radius / 2],
+      targetPadding: [profile.radius / 2, maxVertical, profile.radius / 2],
+    }) : null;
     // Visit coarse spatial regions before refining body-scale offsets. A distant
     // opening must compete with nearby ledges even on a densely triangulated floor.
     const seedLimit = diagnostics.limits.seedChecks;
@@ -236,6 +256,9 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     const orderedEdges = frontier ? interleave([sourceEdges, visibleEdges].filter(edges => edges.length), boundaries.length) :
       interleave([sourceEdges, goalEdges, otherEdges].filter(edges => edges.length), boundaries.length * 3);
     const seedStream = function* (boundary) {
+      // Preserve the original budgeted seed prefix. Proven empty regions still
+      // consume their old slots, without projection or spatial-query work.
+      const excluded = predecessor && !predecessor(boundary);
       const samples = Math.max(1, Math.ceil(boundary.length / Math.min(sampleSpacing, profile.radius / 4)));
       const dx = boundary.b[0] - boundary.a[0], dz = boundary.b[2] - boundary.a[2];
       const nearest = reference => Math.max(0, Math.min(1,
@@ -250,6 +273,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
         const fresh = [...fractions].filter(fraction => !emitted.has(fraction));
         for (const fraction of fresh) emitted.add(fraction);
         for (const inset of insets) for (const fraction of fresh) {
+          if (excluded) { yield { excluded: true }; continue; }
           const seed = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
           seed[0] += boundary.inward[0] * inset; seed[2] += boundary.inward[1] * inset;
           yield { seed, exit: [seed[0] - boundary.inward[0] * (inset + profile.radius * 3),
@@ -290,8 +314,10 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     const next = seedIterator.next();
     if (next.done) { if (cursor) cursor.seedDone = true; break; }
     diagnostics.seedChecks++;
+    if (next.value.excluded) continue;
     const nav = project(next.value.seed, { maxVertical })[0];
-    if (!nav || lowerBound(nav.position, nav.position, 0) >= durationLimit) continue;
+    if (!nav || lowerBound(nav.position, nav.position, 0) >= durationLimit ||
+        !withinCostBound(nav.position, nav.position, 0)) continue;
     const key = JSON.stringify(nav.position);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -330,11 +356,21 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
         start.position[2] + maxHorizontalDistance],
     };
     const heights = new Set([start.position[1], Math.min(bounds.max[1], Math.max(bounds.min[1], to[1]))]);
-    for (const height of heights) for (const { query, boundary } of landingQueries) {
-      active.push({ start, boundary,
-        iterator: query.nearest(bounds, [start.position[0], height, start.position[2]],
-          createJumpEnvelope(start.position, { model, maxDrop, maxHorizontalDistance, endpointTolerance,
-            padding: boundary ? [profile.radius / 2, maxVertical, profile.radius / 2] : [0, 0, 0] })) });
+    for (const { query, boundary } of landingQueries) {
+      const envelope = createJumpEnvelope(start.position, { model, maxDrop, maxHorizontalDistance, endpointTolerance,
+        padding: boundary ? [profile.radius / 2, maxVertical, profile.radius / 2] : [0, 0, 0] });
+      const approachTime = Math.max(0, horizontal(from, start.position) - profile.radius) / boundSpeed;
+      const inset = boundary ? profile.radius / 2 : 0;
+      const intersects = Number.isFinite(costLimit) ? box => {
+        const dx = Math.max(box.min[0] - inset - start.position[0], 0, start.position[0] - box.max[0] - inset);
+        const dz = Math.max(box.min[2] - inset - start.position[2], 0, start.position[2] - box.max[2] - inset);
+        const gx = Math.max(box.min[0] - inset - costGoal[0], 0, costGoal[0] - box.max[0] - inset);
+        const gz = Math.max(box.min[2] - inset - costGoal[2], 0, costGoal[2] - box.max[2] - inset);
+        return approachTime + Math.max(0, Math.hypot(dx, dz) - 2 * profile.radius) / airSpeed +
+          Math.max(0, Math.hypot(gx, gz) - profile.radius) / boundSpeed <= costLimit + 1e-9 && envelope(box);
+      } : envelope;
+      for (const height of heights) active.push({ start, boundary,
+        iterator: query.nearest(bounds, [start.position[0], height, start.position[2]], intersects) });
     }
   }
   let queryIndex = 0, activeQueries = active.length;
@@ -359,6 +395,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       const duration = jumpDuration(start.position[1] + endpointTolerance, end.position[1] - endpointTolerance,
         { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
       if (duration === null || span > duration * model.maxHorizontalSpeed ||
+          !withinCostBound(start.position, end.position, Math.max(0, span - 2 * profile.radius) / airSpeed) ||
           lowerBound(start.position, end.position, span / Math.max(Number.EPSILON, model.maxHorizontalSpeed)) >= durationLimit) continue;
       const nominal = jumpDuration(start.position[1], end.position[1],
         { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
@@ -491,6 +528,14 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       if (duration === null || horizontal(start.position, end.position) > duration * model.maxHorizontalSpeed ||
           lowerBound(start.position, end.position, duration) >= durationLimit) continue;
       if (groundTime <= duration) { diagnostics.rejected.groundDominated++; continue; }
+      if (mode === 'drop' && motionBounds) {
+        const prefix = variant.exit ? approaches.get(JSON.stringify([start.position, variant.exit])) : undefined;
+        const minimum = motionBounds.runOff({ min: start.position, max: start.position },
+          { min: end.position, max: end.position }, prefix ? {
+            launch: prefix.launch, distance: prefix.distances.at(-1),
+          } : undefined);
+        if (!withinCostBound(start.position, end.position, minimum)) continue;
+      }
       const motion = { ...model, profile, walls, wallCheck: blocked, ...variant,
         sweep: (from, to, body) => world.sweepCapsule(from, to, body) };
       const motionKey = JSON.stringify([start.position, end.position, variant]);
@@ -503,6 +548,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
         motions.set(motionKey, arc);
       }
       if (!arc) { diagnostics.rejected.motion++; continue; }
+      if (!withinCostBound(start.position, end.position, arc.times.at(-1))) continue;
       let id;
       do { id = `shortcut/${serial++}`; } while (ids.has(id));
       ids.add(id);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createJumpEnvelope } from '../src/reachability.mjs';
+import { createJumpEnvelope, createJumpPredecessor } from '../src/reachability.mjs';
 import { jumpDuration, jumpTravel } from '../src/jumps.mjs';
 import { createBoundsIndex } from '../src/bounds.mjs';
 
@@ -87,4 +87,54 @@ test('rounded shared flight tables enclose analytic limits and track model chang
   movement.startHorizontalSpeed = .1;
   assert.equal(createJumpEnvelope(anchor, settings)(near), false);
   assert.equal(forward(near), true);
+});
+
+test('region predecessors enclose padded boundary witnesses and reject remote or upward-impossible clusters', () => {
+  const target = pointBox([10, 0, 0]);
+  const predecessor = createJumpPredecessor(target, { ...options,
+    sourcePadding: [3.15, .5, 3.15], targetPadding: [.15, .5, .15] });
+  const edge = pointBox([2, 0, 0]);
+  assert.equal(createJumpPredecessor(target, options)(edge), false);
+  assert.equal(predecessor(edge), true);
+  assert.ok(predecessor.domain(edge));
+  assert.equal(predecessor(pointBox([-100, 0, 0])), false);
+  assert.equal(predecessor.domain(pointBox([-100, 0, 0])), null);
+  assert.equal(createJumpPredecessor(pointBox([0, 10, 0]), options)(pointBox([0, 0, 0])), false);
+  assert.equal(createJumpPredecessor(pointBox([20, -69, 0]), options)(pointBox([0, 0, 0])), true);
+  // A region box may contain unrelated corners. It must retain any actual
+  // feasible source/target pair instead of testing just its centre or corners.
+  assert.equal(createJumpPredecessor({ min: [3, -70, -100], max: [100, 10, 100] }, options)(edge), true);
+});
+
+test('predecessor height, time and launch-speed intervals contain analytically feasible control witnesses', () => {
+  for (const height of [0, 2]) for (const impulse of [false, true]) {
+    const movement = { ...model, maxJumpHeight: height,
+      ...(impulse ? { startHorizontalSpeed: 9, airOverspeedDeceleration: 5 } : {}) };
+    const settings = { ...options, model: movement };
+    for (const drop of [-height, 0, 1, 10, 69]) {
+      const mode = height > 0 ? 'jump' : 'drop';
+      const duration = jumpDuration(.25, -drop - .25, { ...movement, mode });
+      if (duration === null) continue;
+      const initial = impulse ? 9 : model.maxHorizontalSpeed;
+      const reach = impulse ? jumpTravel(initial, duration, movement) : initial * duration;
+      for (const fraction of [.25, .75, 1]) {
+        const source = [0, 0, 0], target = [Math.min(options.maxHorizontalDistance, reach) * fraction, -drop, 0];
+        const region = { min: target.map(value => value - .1), max: target.map(value => value + .1) };
+        const predecessor = createJumpPredecessor(region, settings);
+        const sourceRegion = { min: [-.2, -.2, -.2], max: [.2, .2, .2] };
+        assert.equal(predecessor(sourceRegion), true);
+        const domain = predecessor.domain(sourceRegion);
+        assert.ok(domain);
+        assert.ok(domain.sourceHeight[0] <= source[1] && domain.sourceHeight[1] >= source[1]);
+        assert.ok(domain.targetHeight[0] <= target[1] && domain.targetHeight[1] >= target[1]);
+        assert.ok(domain.flightTime[0] <= duration && domain.flightTime[1] >= duration);
+        assert.ok(domain.initialSpeed[0] <= initial && domain.initialSpeed[1] >= initial);
+        assert.ok(domain.horizontal.distance[0] <= target[0] && domain.horizontal.distance[1] >= target[0]);
+      }
+    }
+  }
+  const domain = createJumpPredecessor(pointBox([10, 0, 0]), { ...options,
+    endpointTolerance: 0, model: { ...model, startHorizontalSpeed: 9, airOverspeedDeceleration: 1 } }).domain(pointBox([0, 0, 0]));
+  assert.ok(domain.initialSpeed[0] > model.maxHorizontalSpeed);
+  assert.ok(domain.initialSpeed[1] <= 9);
 });

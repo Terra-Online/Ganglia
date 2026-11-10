@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { planAirborneGoal, findGoalFlights } from '../src/airborne-goal.mjs';
+import { retimeGroundRoute } from '../src/locomotion.mjs';
 import { planJumpRoute } from '../src/index.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
 import { findGoalHit } from '../src/goals.mjs';
@@ -66,4 +68,36 @@ test('reports sphere entry when a sampled segment ends inside the trigger', () =
   assert.ok(hit);
   assert.ok(Math.abs(Math.hypot(...hit.position) - 1) < 1e-9);
   assert.ok(Math.abs(hit.position[0] + Math.sqrt(.75)) < 1e-9);
+});
+
+
+test('bounds later airborne approaches by the incumbent less the fixed terminal flight', () => {
+  const arrivals = [{ ...starts[0], cost: 7 }], goal = [5.5, 2, 0];
+  const candidates = findGoalFlights(scene, world, arrivals, goal, options).candidates;
+  const distance = point => Math.hypot(...point.map((value, axis) => value - arrivals[0].position[axis]));
+  candidates.sort((a, b) => distance(a.start.position) - distance(b.start.position) ||
+    a.arc.times.at(-1) - b.arc.times.at(-1));
+  const firstPosition = candidates[0].start.position;
+  const secondIndex = candidates.findIndex(candidate =>
+    candidate.start.position.some((value, axis) => value !== firstPosition[axis]));
+  assert.ok(secondIndex > 0);
+  const calls = [];
+  const prefixCost = arrivals[0].cost + 100;
+  const result = planAirborneGoal(scene, world, arrivals, goal, options, (position, maxCost) => {
+    calls.push({ position, maxCost });
+    return { connections: [], route: { status: 'complete', start: 'player', arrivalCost: arrivals[0].cost,
+      cost: prefixCost, length: distance(position), points: [arrivals[0].position, position],
+      segments: [{ mode: 'rope', points: [arrivals[0].position, position], times: [0, 100] }] } };
+  });
+  assert.equal(result.route.status, 'complete');
+  assert.equal(calls[0].maxCost, Infinity);
+  assert.deepEqual(calls[1].position, candidates[secondIndex].start.position);
+  const earliestFlight = Math.min(...candidates.slice(0, secondIndex).map(candidate => candidate.arc.times.at(-1)));
+  assert.ok(Math.abs(calls[1].maxCost -
+    (prefixCost + earliestFlight - candidates[secondIndex].arc.times.at(-1))) < 1e-12);
+  const retimed = retimeGroundRoute(result.route, { speed: 6, sprintSpeed: 7, sprintAcceleration: 10 });
+  assert.equal(retimed.status, 'complete');
+  assert.deepEqual(retimed.segments.filter(segment => segment.mode !== 'walk').map(segment => segment.times),
+    result.route.segments.filter(segment => segment.mode !== 'walk').map(segment => segment.times));
+  assert.equal(retimed.goalHit.time, result.route.goalHit.time);
 });

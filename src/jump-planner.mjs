@@ -27,11 +27,12 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
   const diagnostics = { strategy: 'surface-action-graph', groundStatus: 'unmapped',
     baselineCost: null, selectedCost: null, truncated: false, searches: [] };
   let best = initial ?? planner.plan(starts, goal, { interaction, endpointTolerance: options.endpointTolerance, connections: options.connections ?? [] }), bestConnections = options.connections ?? [];
-  const partialConnections = [...bestConnections];
+  const partialConnections = new Map(bestConnections.map(edge => [edge.id, edge]));
   diagnostics.groundStatus = best.status;
   if (best.status === 'complete') diagnostics.baselineCost = best.cost;
   const ids = new Set(bestConnections.map(connection => connection.id));
   let serial = 0;
+  const actions = new Map();
   const withGait = connection => {
     let velocity = connection.peakHorizontalSpeed ?? 0;
     for (let index = 1; index < connection.points.length; index++) {
@@ -47,13 +48,28 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
   const search = discovery => {
     diagnostics.searches.push(discovery.diagnostics);
     diagnostics.truncated ||= discovery.diagnostics.truncated;
-    return discovery.connections.map(withGait);
+    const additions = [];
+    for (const connection of discovery.connections) {
+      const { id, ...motion } = withGait(connection);
+      const key = JSON.stringify(motion);
+      if (actions.has(key)) continue;
+      const action = { id, ...motion };
+      actions.set(key, action);
+      additions.push(action);
+    }
+    return additions;
   };
   for (const arrival of starts) {
     if (arrival.state !== 'available' || (best.status === 'complete' && arrival.cost >= best.cost)) continue;
-    let connections = [...(options.connections ?? [])];
-    let incumbent = starts.length === 1 ? best : planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections: options.connections ?? [] });
-    const discoveryOptions = { ...options, groundPlanner: planner, from: arrival.position, to: goal };
+    const known = new Map((options.connections ?? []).map(edge => [edge.id, edge]));
+    for (const action of actions.values()) known.set(action.id, action);
+    let connections = [...known.values()];
+    const initialConnections = connections.length;
+    for (const connection of connections) ids.add(connection.id);
+    let incumbent = starts.length === 1 && connections.length === (options.connections?.length ?? 0)
+      ? best : planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections });
+    const discoveryOptions = { ...options, groundPlanner: planner, from: arrival.position, to: goal,
+      ...(Number.isFinite(options.costBound) ? { costBound: options.costBound - arrival.cost } : {}) };
     let remaining = options.maxCandidates;
     // Cheap region-chain proposals cover simple transfers before broad frontiers.
     // The same bounded stage runs for every unresolved query.
@@ -75,7 +91,7 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
     cache.exits ??= new Map();
     cache.approaches ??= new Map();
     while (incumbent.status !== 'complete' && remaining > 0) {
-      const maxLinks = options.maxLinks - connections.length + (options.connections?.length ?? 0);
+      const maxLinks = options.maxLinks - connections.length + initialConnections;
       if (maxLinks <= 0) { diagnostics.truncated = true; break; }
       const side = exhausted.has(false) ? 1 : exhausted.has(true) ? 0 : Number(spent[1] < spent[0]);
       const reverse = side === 1;
@@ -106,7 +122,7 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
       incumbent = planner.plan([arrival], goal, { interaction, endpointTolerance: options.endpointTolerance, connections });
     }
     if (incumbent.status !== 'complete') {
-      partialConnections.push(...connections.slice(options.connections?.length ?? 0));
+      for (const connection of connections) partialConnections.set(connection.id, connection);
       continue;
     }
     if (best.status !== 'complete' || incumbent.cost < best.cost) {
@@ -145,7 +161,7 @@ function solveJumpRoute(surfaces, world, starts, goal, options, shared, stage, i
     }
   }
   if (best.status === 'complete') diagnostics.selectedCost = best.cost;
-  return { route: best, connections: best.status === 'complete' ? bestConnections : partialConnections, diagnostics };
+  return { route: best, connections: best.status === 'complete' ? bestConnections : [...partialConnections.values()], diagnostics };
 }
 
 /** Coarse waypoints guide bounded action discovery; they never grant passage or
@@ -238,10 +254,11 @@ function planBaseRoute(surfaces, world, starts, goal, options) {
     : planDirectedRoute(surfaces, world, starts, goal, { ...options, groundPlanner: goalPlanner }, shared, 'final');
   if (options.interaction?.airborne && result.route.status !== 'complete') {
     const planner = goalPlanner;
-    const airborne = planAirborneGoal(surfaces, world, starts, goal, { ...options, groundPlanner: planner }, position =>
+    const airborne = planAirborneGoal(surfaces, world, starts, goal, { ...options, groundPlanner: planner }, (position, maxCost) =>
       planDirectedRoute(surfaces, world, starts, position, { ...options, groundPlanner: planner,
         interaction: undefined, endpointTolerance: Math.min(options.maxVertical, options.profile.radius),
-        connections: result.connections, maxShortcutCandidates: options.activeBoost ? options.maxCandidates : 0 }, shared, 'entry'));
+        connections: result.connections, maxShortcutCandidates: options.activeBoost ? options.maxCandidates : 0,
+        ...(Number.isFinite(maxCost) ? { costBound: maxCost, boundGoal: position } : {}) }, shared, 'entry'));
     result.diagnostics.airborne = airborne.diagnostics;
     result.diagnostics.truncated ||= airborne.diagnostics.truncated;
     if (airborne.route.status === 'complete') return { ...result, route: airborne.route, connections: airborne.connections,

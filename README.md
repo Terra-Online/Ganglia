@@ -416,3 +416,14 @@ when their ground component is expanded. Transfer witnesses retain the eager
 input-order bucket selection. Returned candidate edges include a stable `key` for
 `reject` and `excludedEdges` across query/expansion histories on the same immutable
 input. Numeric `index` exclusions remain available within a prepared planner.
+
+Airborne approach queries carry the current complete-route cost minus their fixed
+terminal-flight duration into action discovery. This bound keeps its true endpoint
+through direction and entry subqueries. Spatial subtrees and complete jump controls
+are rejected only when their optimistic total time cannot improve that route.
+Reverse frontiers also use a region predecessor envelope with height, flight-time
+and launch-speed domains. Direct constant-horizontal goal flights solve the inverse
+horizontal hit-time interval before constructing a full sampled arc. Curvature
+padding preserves hits on the existing sampled chords, and supported run-off uses
+its separate motion bound. Verified nonterminal actions remain available to other
+origins in the same query, without spending their independent discovery quotas.

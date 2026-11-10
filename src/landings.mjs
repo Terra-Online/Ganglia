@@ -1,25 +1,35 @@
 import { closestOnSurface } from './goals.mjs';
 import { jumpDuration } from './jumps.mjs';
 
-/** Sample a continuous landing region, including its intersection with the
- * optimistic horizontal flight envelope. Every witness still needs corrected
- * support, actual flight timing and a complete swept-body collision check.
- */
-export function* landingCandidates(surface, start, goal, model, radius) {
-  const center = [0, 1, 2].map(axis =>
-    surface.vertices.reduce((sum, point) => sum + point[axis], 0) / surface.vertices.length);
-  for (const reference of [start, goal, center]) {
-    const point = closestOnSurface(surface, reference);
-    if (point) yield point;
+const metadata = new WeakMap();
+
+// Surface snapshots are immutable for the lifetime of a prepared scene.
+const metadataFor = surface => {
+  let entry = metadata.get(surface);
+  if (!entry) {
+    const center = [0, 1, 2].map(axis =>
+      surface.vertices.reduce((sum, point) => sum + point[axis], 0) / surface.vertices.length);
+    const edges = surface.vertices.map((a, index) => {
+      const b = surface.vertices[(index + 1) % surface.vertices.length];
+      const dx = b[0] - a[0], dz = b[2] - a[2];
+      return { a, b, dx, dz, squared: dx * dx + dz * dz };
+    });
+    entry = { center, edges, centerWitness: closestOnSurface(surface, center),
+      height: Math.min(...surface.vertices.map(point => point[1])) };
+    metadata.set(surface, entry);
   }
-  const height = Math.min(...surface.vertices.map(point => point[1]));
+  return entry;
+};
+
+const copyWitness = witness => ({ ...witness, position: [...witness.position] });
+
+function* reachWitnesses(surface, start, model, radius) {
+  const { center, height, edges } = metadataFor(surface);
   const duration = jumpDuration(start[1], height, { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
   if (duration === null) return;
   const reach = duration * model.maxHorizontalSpeed;
-  for (let edge = 0; edge < surface.vertices.length; edge++) {
-    const a = surface.vertices[edge], b = surface.vertices[(edge + 1) % surface.vertices.length];
-    const dx = b[0] - a[0], dz = b[2] - a[2], x = a[0] - start[0], z = a[2] - start[2];
-    const squared = dx * dx + dz * dz;
+  for (const { a, b, dx, dz, squared } of edges) {
+    const x = a[0] - start[0], z = a[2] - start[2];
     if (squared === 0) continue;
     const linear = 2 * (x * dx + z * dz);
     const discriminant = linear * linear - 4 * squared * (x * x + z * z - reach * reach);
@@ -41,6 +51,20 @@ export function* landingCandidates(surface, start, goal, model, radius) {
       }
     }
   }
+}
+
+/** Sample a continuous landing region, including its intersection with the
+ * optimistic horizontal flight envelope. Every witness still needs corrected
+ * support, actual flight timing and a complete swept-body collision check.
+ */
+export function* landingCandidates(surface, start, goal, model, radius) {
+  for (const reference of [start, goal]) {
+    const point = closestOnSurface(surface, reference);
+    if (point) yield point;
+  }
+  const center = metadataFor(surface).centerWitness;
+  if (center) yield copyWitness(center);
+  yield* reachWitnesses(surface, start, model, radius);
 }
 
 /** A body-scale inward witness on an exposed landing boundary. */

@@ -36,10 +36,11 @@ export const jumpTravel = (initial, time, model) => {
 // Bounded control primitives share the same vertical model and collision proof.
 // A split moves partway early, brakes, then completes the motion late. This can
 // clear a railing, descend through an opening and move under an overhang.
-export function createMotionVariants(model, world, profile, exits = new Map(), approaches = new Map()) {
+export function createMotionVariants(model, world, profile, exits = new Map(), approaches = new Map(), allowJump) {
   return function* (start, end, exit) {
+    const jumping = !allowJump || allowJump(start, end);
     yield { mode: 'drop' };
-    yield { mode: 'jump' };
+    if (jumping) yield { mode: 'jump' };
     if (exit && model.airAcceleration !== undefined) {
       const key = JSON.stringify([start, exit]);
       steering: for (const speedFraction of [0.5, 0.25, 1, 0.125]) {
@@ -49,7 +50,7 @@ export function createMotionVariants(model, world, profile, exits = new Map(), a
         }
       }
     }
-    if (model.airAcceleration === undefined || model.airDeceleration === undefined) return;
+    if (!jumping || model.airAcceleration === undefined || model.airDeceleration === undefined) return;
     const duration = jumpDuration(start[1], end[1], { ...model, mode: 'jump' });
     if (duration === null) return;
     const fits = point => {
@@ -163,6 +164,30 @@ const jumpPhases = (startHeight, endHeight, options) => {
  */
 export function jumpDuration(startHeight, endHeight, options) {
   return verticalDuration(startHeight, endHeight, options);
+}
+
+// Internal goal broadphase uses the same phase boundaries and vertical physics
+// as the sampled trajectory, including apex holds and terminal-speed descent.
+export function jumpVerticalRange(startHeight, endHeight, options, fromTime, toTime) {
+  const trajectory = jumpPhases(startHeight, endHeight, options);
+  if (!trajectory) return null;
+  const lower = Math.max(0, fromTime), upper = Math.min(trajectory.duration, toTime);
+  if (lower > upper) return null;
+  let min = Infinity, max = -Infinity, elapsed = 0;
+  const include = (phase, time) => {
+    const height = phase.y + phase.velocity * time + phase.acceleration * time * time / 2;
+    min = Math.min(min, height); max = Math.max(max, height);
+  };
+  for (const phase of trajectory.phases) {
+    const low = Math.max(0, lower - elapsed), high = Math.min(phase.duration, upper - elapsed);
+    if (low <= high) {
+      include(phase, low); include(phase, high);
+      const turning = -phase.velocity / phase.acceleration;
+      if (turning > low && turning < high) include(phase, turning);
+    }
+    elapsed += phase.duration;
+  }
+  return { min, max };
 }
 
 /** Construct one directed, model-based jump or drop between caller-supported feet.
