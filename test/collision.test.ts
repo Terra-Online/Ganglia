@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { CollisionOptions } from '../src/collision-types.js';
 import { createCollisionWorld } from '../src/collision.js';
+import type { Vec3 } from '../src/index-types.js';
 const profile = { radius: 0.35, height: 1.66 };
-const world = (faces) =>
+const world = (faces: Vec3[][]) =>
   createCollisionWorld({
     positions: faces.flat(2),
     indices: Array.from({ length: faces.length * 3 }, (_, i) => i),
   });
-const wall = [
+const wall: Vec3[][] = [
   [
     [0, -10, -10],
     [0, 10, -10],
@@ -92,7 +94,7 @@ test('BVH retains distant thin faces, input snapshots and original triangle iden
   const query = createCollisionWorld(geometry);
   geometry.positions.fill(999);
   geometry.indices.fill(0);
-  assert.equal(query.sweepCapsule([394, 0, 0], [396, 0, 0], profile).triangle, 79);
+  assert.equal(query.sweepCapsule([394, 0, 0], [396, 0, 0], profile)!.triangle, 79);
   assert.equal(query.sweepCapsule([396, 0, 0], [399, 0, 0], profile), null);
 });
 
@@ -137,18 +139,18 @@ test('swept capsule agrees with analytic distance to an axis-aligned swept recta
     return seed / 2 ** 32;
   };
   for (let i = 0; i < 120; i++) {
-    const p = [next() * 6 - 3, next() * 3 - 0.5, next() * 2 - 1];
+    const p: Vec3 = [next() * 6 - 3, next() * 3 - 0.5, next() * 2 - 1];
     const dx = Math.max(0, -1 - p[0], p[0] - 1),
       dy = Math.max(0, 0.35 - p[1], p[1] - 1.31);
     const expected = dx * dx + dy * dy + p[2] * p[2] <= 0.35 ** 2;
     assert.equal(
-      world([[p, p, p]]).sweepCapsule([-1, 0, 0], [1, 0, 0], profile) !== null,
+      world([[p, p, p] as Vec3[]]).sweepCapsule([-1, 0, 0], [1, 0, 0], profile) !== null,
       expected,
     );
   }
 });
 
-const supportFloor = (height) => [
+const supportFloor = (height: number): Vec3[] => [
   [-5, height, -5],
   [0, height, 5],
   [5, height, -5],
@@ -162,11 +164,11 @@ test('vertical support chooses the closest stacked floor within independent heig
     triangle: 0,
     normal: [0, 1, 0],
   });
-  assert.equal(query.groundAt([0, 2, 0], { maxUp: 3, maxDown: 3, maxSlope: 46 }).position[1], 4);
-  assert.equal(query.groundAt([0, 2, 0], { maxUp: 1, maxDown: 3, maxSlope: 46 }).position[1], 0);
-  assert.equal(query.groundAt([0, 2, 0], { maxUp: 3, maxDown: 1, maxSlope: 46 }).position[1], 4);
+  assert.equal(query.groundAt([0, 2, 0], { maxUp: 3, maxDown: 3, maxSlope: 46 })!.position[1], 4);
+  assert.equal(query.groundAt([0, 2, 0], { maxUp: 1, maxDown: 3, maxSlope: 46 })!.position[1], 0);
+  assert.equal(query.groundAt([0, 2, 0], { maxUp: 3, maxDown: 1, maxSlope: 46 })!.position[1], 4);
   assert.equal(query.groundAt([0, 2, 0], supportOptions), null);
-  assert.equal(query.groundAt([0, 0, 0], { maxUp: 0, maxDown: 0, maxSlope: 46 }).position[1], 0);
+  assert.equal(query.groundAt([0, 0, 0], { maxUp: 0, maxDown: 0, maxSlope: 46 })!.position[1], 0);
 });
 
 test('vertical support rejects gaps, downward faces, vertical faces and degenerate triangles', () => {
@@ -198,6 +200,7 @@ test('vertical support retains exact sloping height and rejects slopes above the
     ],
   ]);
   const hit = query.groundAt([0.5, 1, 0], { maxUp: 0, maxDown: 1, maxSlope: 46 });
+  assert.ok(hit);
   assert.deepEqual(hit.position, [0.5, 0.5, 0]);
   assert.ok(Math.abs(hit.normal[0] + Math.SQRT1_2) < 1e-12);
   assert.ok(Math.abs(hit.normal[1] - Math.SQRT1_2) < 1e-12);
@@ -217,8 +220,8 @@ test('vertical support reuses distant BVH leaves and owns its geometry snapshot'
   const query = createCollisionWorld(geometry);
   geometry.positions.fill(0);
   geometry.indices.fill(0);
-  assert.equal(query.groundAt([790, 0.2, 0], supportOptions).triangle, 79);
-  assert.deepEqual(query.groundAt([790, 0.2, 0], supportOptions).position, [790, 0, 0]);
+  assert.equal(query.groundAt([790, 0.2, 0], supportOptions)!.triangle, 79);
+  assert.deepEqual(query.groundAt([790, 0.2, 0], supportOptions)!.position, [790, 0, 0]);
   assert.equal(query.groundAt([795, 0.2, 0], supportOptions), null);
 });
 
@@ -255,17 +258,17 @@ test('bounded indexing retains crossing floors and headroom with original source
     positions: faces.flat(2),
     indices: Array.from({ length: 9 }, (_, index) => index),
   };
-  const requested = { bounds: { min: [-1, -1], max: [1, 1] } };
+  const requested: CollisionOptions | undefined = { bounds: { min: [-1, -1], max: [1, 1] } };
   const query = createCollisionWorld(geometry, requested);
   // Every floor vertex is outside the rectangle, while its interior crosses it.
-  assert.equal(query.groundAt([0, 0.1, 0], supportOptions).triangle, 1);
-  assert.equal(query.sweepCapsule([-0.5, 0.01, 0], [0.5, 0.01, 0], profile).triangle, 2);
-  requested.bounds.min.fill(500);
-  requested.bounds.max.fill(600);
+  assert.equal(query.groundAt([0, 0.1, 0], supportOptions)!.triangle, 1);
+  assert.equal(query.sweepCapsule([-0.5, 0.01, 0], [0.5, 0.01, 0], profile)!.triangle, 2);
+  requested.bounds!.min.fill(500);
+  requested.bounds!.max.fill(600);
   geometry.positions.fill(999);
   geometry.indices.fill(0);
-  assert.equal(query.groundAt([0, 0.1, 0], supportOptions).triangle, 1);
-  assert.equal(query.sweepCapsule([-0.5, 0.01, 0], [0.5, 0.01, 0], profile).triangle, 2);
+  assert.equal(query.groundAt([0, 0.1, 0], supportOptions)!.triangle, 1);
+  assert.equal(query.sweepCapsule([-0.5, 0.01, 0], [0.5, 0.01, 0], profile)!.triangle, 2);
 });
 
 test('bottom-sphere support covers ledges and corners without bridging a gap', () => {
@@ -294,7 +297,7 @@ test('bottom-sphere support covers ledges and corners without bridging a gap', (
         support.position[1] - (5 - profile.radius + Math.sqrt(profile.radius ** 2 - distance ** 2)),
       ) < 1e-10,
     );
-    const clear = [x, support.position[1] + 0.005, z];
+    const clear: Vec3 = [x, support.position[1] + 0.005, z];
     assert.equal(query.sweepCapsule(clear, clear, profile), null);
   }
   assert.equal(query.groundAt([4.2, 5, 0], supportOptions), null);
@@ -341,16 +344,25 @@ test('crop bounds are finite and malformed excluded source geometry still fails'
     { min: [0, Number.NaN], max: [1, 1] },
   ])
     assert.throws(
-      () => createCollisionWorld({ positions: [], indices: [] }, { bounds }),
+      () =>
+        createCollisionWorld({ positions: [], indices: [] }, { bounds } as unknown as Parameters<
+          typeof createCollisionWorld
+        >[1]),
       /collision XZ bounds/,
     );
   const bounds = { min: [-1, -1], max: [1, 1] };
   assert.throws(
-    () => createCollisionWorld({ positions: [100, NaN, 100], indices: [0, 0, 0] }, { bounds }),
+    () =>
+      createCollisionWorld({ positions: [100, NaN, 100], indices: [0, 0, 0] }, {
+        bounds,
+      } as unknown as Parameters<typeof createCollisionWorld>[1]),
     /finite/,
   );
   assert.throws(
-    () => createCollisionWorld({ positions: [100, 0, 100], indices: [0, 1, 0] }, { bounds }),
+    () =>
+      createCollisionWorld({ positions: [100, 0, 100], indices: [0, 1, 0] }, {
+        bounds,
+      } as unknown as Parameters<typeof createCollisionWorld>[1]),
     /index/,
   );
 });

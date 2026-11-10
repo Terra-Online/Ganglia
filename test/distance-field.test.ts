@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { WeightedEdge } from '../src/distance-field.js';
 import { advanceDistanceField } from '../src/distance-field.js';
 
-const adjacency = (edges) => {
-  const forward = new Map(),
-    reverse = new Map();
+const adjacency = (edges: { from: string; to: string; cost: number }[]) => {
+  const forward = new Map<string, WeightedEdge[]>(),
+    reverse = new Map<string, WeightedEdge[]>();
   for (const edge of edges)
     for (const [map, key] of [
       [forward, edge.from],
       [reverse, edge.to],
-    ]) {
+    ] as const) {
       const outgoing = map.get(key) ?? [];
       outgoing.push(edge);
       map.set(key, outgoing);
@@ -20,8 +21,13 @@ const adjacency = (edges) => {
 
 // Bellman-Ford is independent of the incremental queue and accepts zero-cost
 // cycles. Only finite graph labels, rather than incidental map order, are compared.
-const reference = (base, actions, roots, reverse) => {
-  const costs = new Map();
+const reference = (
+  base: { cost: number; from: string; to: string }[],
+  actions: { from: string; to: string; cost: number }[],
+  roots: { id: string; cost: number }[],
+  reverse: boolean,
+) => {
+  const costs = new Map<string, number>();
   for (const root of roots) costs.set(root.id, Math.min(costs.get(root.id) ?? Infinity, root.cost));
   const edges = [...base, ...actions];
   for (let iteration = 0; iteration <= edges.length; iteration++) {
@@ -50,7 +56,7 @@ test('incremental action insertion preserves full distance fields in both direct
       cost: Math.floor(random() * 25) / (trial % 3 ? 7 : 4),
     });
     const base = Array.from({ length: 38 }, edge),
-      actions = [];
+      actions: WeightedEdge[] = [];
     const maps = adjacency(base);
     for (const reverse of [false, true]) {
       let state;

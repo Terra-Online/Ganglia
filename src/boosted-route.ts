@@ -1,7 +1,17 @@
+import type { CollisionWorld } from './collision-types.js';
 import { findGoalHit, trimGoalFlight } from './goals.js';
+import type {
+  Vec3,
+  Surface,
+  GroundArrival,
+  Route,
+  SpeedBoost,
+  JumpDiagnostics,
+} from './index-types.js';
+import type { PlannerOptions, JumpResult } from './jump-planner.js';
 import { jumpConnection } from './jumps.js';
 import { retimeGroundRoute } from './locomotion.js';
-const findPickup = (route: any, boost: any): any => {
+const findPickup = (route: Extract<Route, { status: 'complete' }>, boost: SpeedBoost) => {
   if (!route.segments.length) {
     const hit = findGoalHit([route.points[0], route.points[0]], boost.position, boost.interaction);
     return hit ? { time: 0, position: hit.position } : null;
@@ -17,7 +27,7 @@ const findPickup = (route: any, boost: any): any => {
           segment.times[hit.index - 1] +
           hit.fraction * (segment.times[hit.index] - segment.times[hit.index - 1]),
       };
-    elapsed += segment.times.at(-1);
+    elapsed += segment.times.at(-1)!;
   }
   return null;
 };
@@ -26,17 +36,23 @@ const findPickup = (route: any, boost: any): any => {
  * the joined route is resource-scheduled again without resetting stamina.
  */
 export function planBoostedRoute(
-  surfaces: any,
-  world: any,
-  starts: any,
-  goal: any,
-  options: any,
-  incumbent: any,
-  plan: any,
-): any {
+  surfaces: Surface[],
+  world: CollisionWorld,
+  starts: GroundArrival[],
+  goal: Vec3,
+  options: PlannerOptions,
+  incumbent: JumpResult,
+  plan: (
+    surfaces: Surface[],
+    world: CollisionWorld,
+    starts: GroundArrival[],
+    goal: Vec3,
+    options: PlannerOptions,
+  ) => JumpResult,
+): JumpResult {
   const diagnostics = [];
   let best = incumbent;
-  const ids = new Set<any>();
+  const ids = new Set<string>();
   for (const boost of options.boosts ?? []) {
     if (
       typeof boost.id !== 'string' ||
@@ -81,7 +97,7 @@ export function planBoostedRoute(
       stage: string;
       duration: number;
       multiplier: number;
-      airborne?: any;
+      airborne?: JumpDiagnostics['airborne'];
       truncated?: boolean;
       elapsed?: number;
     } = {
@@ -118,7 +134,7 @@ export function planBoostedRoute(
     const tail = plan(
       surfaces,
       world,
-      [{ id: '@boost', position: prefix.points.at(-1), cost: 0, state: 'available' }],
+      [{ id: '@boost', position: prefix.points.at(-1)!, cost: 0, state: 'available' }],
       goal,
       {
         ...ordinary,
@@ -144,16 +160,16 @@ export function planBoostedRoute(
     evidence.truncated = tail.diagnostics.truncated;
     if (tail.route.status !== 'complete') continue;
     const annotation = { id: boost.id, multiplier, duration: boost.duration - pickupElapsed };
-    const known = new Set<any>(approach.connections.map((edge: any): any => edge.id));
-    const references = new Map<any, any>(
-      tail.connections.map((edge: any): any => [
+    const known = new Set<string>(approach.connections.map((edge) => edge.id));
+    const references = new Map<string, string>(
+      tail.connections.map((edge) => [
         edge.id,
         known.has(edge.id) ? edge.id : `boost/${boost.id}/${edge.id}`,
       ]),
     );
     const segments = [
       ...prefix.segments,
-      ...tail.route.segments.map((segment: any): any => ({
+      ...tail.route.segments.map((segment) => ({
         ...segment,
         boost: annotation,
         ...(segment.connection
@@ -161,7 +177,7 @@ export function planBoostedRoute(
           : {}),
       })),
     ];
-    let route = {
+    let route: Route = {
       ...prefix,
       goalHit: undefined,
       segments,
@@ -182,8 +198,8 @@ export function planBoostedRoute(
     let elapsed = route.cost - route.arrivalCost - beforePickup.time;
     evidence.elapsed = elapsed;
     if (elapsed > boost.duration + 1e-7) {
-      const last = route.segments.at(-1);
-      const flightStart = route.cost - route.arrivalCost - last.times.at(-1);
+      const last = route.segments.at(-1)!;
+      const flightStart = route.cost - route.arrivalCost - last.times.at(-1)!;
       const remaining = beforePickup.time + boost.duration - flightStart;
       if (
         last.mode !== 'jump' ||
@@ -195,7 +211,7 @@ export function planBoostedRoute(
       }
       // Only the final jump may cross expiry in this bounded model. Re-solve
       // its launch control, sweep the full changed curve and keep the same endpoint.
-      let arc = jumpConnection(last.points[0], last.points.at(-1), {
+      let arc = jumpConnection(last.points[0], last.points.at(-1)!, {
         ...options.model,
         maxHorizontalSpeed: options.model.maxHorizontalSpeed * multiplier,
         startHorizontalSpeed:
@@ -218,28 +234,33 @@ export function planBoostedRoute(
           ...last,
           ...arc,
           boostExpiry: remaining,
-          ...(arc.peakHorizontalSpeed > options.runAirSpeed * multiplier
+          ...(arc.peakHorizontalSpeed! > options.runAirSpeed * multiplier
             ? { requiredGait: 'sprint' }
             : {}),
         },
       ];
       route.points = [
         route.segments[0].points[0],
-        ...route.segments.flatMap((segment: any): any => segment.points.slice(1)),
+        ...route.segments.flatMap((segment) => segment.points.slice(1)),
       ];
       route.length = route.points
         .slice(1)
         .reduce(
-          (sum: any, point: any, index: any): any =>
+          (sum, point, index) =>
             sum +
-            Math.hypot(...point.map((value: any, axis: any) => value - route.points[index][axis])),
+            Math.hypot(
+              ...point.map(
+                (value, axis) =>
+                  value - (route as Extract<Route, { status: 'complete' }>).points[index][axis],
+              ),
+            ),
           0,
         );
       if (options.locomotion) route = retimeGroundRoute(route, options.locomotion);
       if (
         route.status !== 'complete' ||
         Math.abs(
-          route.cost - route.arrivalCost - route.segments.at(-1).times.at(-1) - flightStart,
+          route.cost - route.arrivalCost - route.segments.at(-1)!.times.at(-1)! - flightStart,
         ) > 1e-7 ||
         Math.abs((findPickup(route, boost)?.time ?? Infinity) - beforePickup.time) > 1e-7
       ) {
@@ -275,11 +296,11 @@ export function planBoostedRoute(
     const connections = [
       ...approach.connections,
       ...tail.connections
-        .filter((edge: any) => !known.has(edge.id))
-        .map((edge: any): any => {
-          const id = references.get(edge.id);
+        .filter((edge) => !known.has(edge.id))
+        .map((edge) => {
+          const id = references.get(edge.id)!;
           const replay = route.segments.find(
-            (segment: any) => segment.connection === id && segment.boostExpiry !== undefined,
+            (segment) => segment.connection === id && segment.boostExpiry !== undefined,
           );
           return {
             ...edge,
@@ -308,7 +329,7 @@ export function planBoostedRoute(
     diagnostics: {
       ...best.diagnostics,
       boosts: diagnostics,
-      truncated: best.diagnostics.truncated || diagnostics.some((entry): any => entry.truncated),
+      truncated: best.diagnostics.truncated || diagnostics.some((entry) => entry.truncated),
     },
   };
 }

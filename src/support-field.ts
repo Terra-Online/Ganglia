@@ -30,6 +30,8 @@ import {
   freePolyMesh,
   freePolyMeshDetail,
 } from '@recast-navigation/core';
+
+import type { Vec3, Surface } from './index-types.js';
 /** Offline support topology. Each compact-span connection checks local climb and
  * shared headroom. Radius erosion then removes space next to missing connections.
  * Recast's optional ledge filter also limits the total height range of several
@@ -37,19 +39,19 @@ import {
  * controller, so ground connectivity is defined by the local connections here.
  */
 export function buildSupportField(
-  positions: any,
-  bounds: any,
-  options: any,
-  triangleAreas?: any,
-): any {
+  positions: number[],
+  bounds: [Vec3, Vec3],
+  options: Parameters<typeof createRcConfig>[0],
+  triangleAreas?: number[],
+): Surface[] {
   const context = new RecastBuildContext();
   const vertices = new VerticesArray(),
     indices = new TrianglesArray(),
     areas = new TriangleAreasArray();
   let config, field, compact, contours, mesh, detail;
-  const check = (success: any, stage: any) => {
+  const check = (success: boolean, stage: string) => {
     if (success) return;
-    const logs = context.logs.map((entry: any): any => entry.msg).join('; ');
+    const logs = context.logs.map((entry) => entry.msg).join('; ');
     throw new Error(`Ground build failed: ${stage}${logs ? ` (${logs})` : ''}`);
   };
   try {
@@ -130,13 +132,13 @@ export function buildSupportField(
       buildPolyMeshDetail(context, mesh, compact, config.cs, config.ch, detail),
       'support heights',
     );
-    const surfaces = [];
+    const surfaces: Surface[] = [];
     for (let region = 0; region < detail.nmeshes(); region++) {
       const vertexBase = detail.meshes(region * 4),
         triangleBase = detail.meshes(region * 4 + 2);
       const triangleCount = detail.meshes(region * 4 + 3);
       for (let triangle = 0; triangle < triangleCount; triangle++) {
-        const points = [];
+        const points: Vec3[] = [];
         for (let corner = 0; corner < 3; corner++) {
           const vertex = vertexBase + detail.tris((triangleBase + triangle) * 4 + corner);
           points.push([

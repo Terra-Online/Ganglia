@@ -3,8 +3,16 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { Vec3 } from '../../src/index-types.js';
+import type { CollisionGeometry } from '../../src/build-types.js';
+import type {
+  Vec3,
+  Surface,
+  GroundOptions,
+  LocomotionOptions,
+  Wall,
+} from '../../src/index-types.js';
 import { jumpDuration } from '../../src/jumps.js';
+import type { SceneInput } from '../../src/solver/index-types.js';
 import type { RouteQuery } from '../../src/solver/index-types.js';
 // Use separated ground regions to exercise motion discovery rather than only
 // tracing a continuous walking corridor.
@@ -40,24 +48,49 @@ const goals: Vec3[] = [
   [-1368.8500162760417, 285.5652965570961, -1586.199951171875],
 ];
 export const cases: { id: string; horizontalDistance: number; query: RouteQuery }[] =
-  starts.flatMap((position, start): any =>
-    goals.map((goal, target): any => ({
+  starts.flatMap((position, start) =>
+    goals.map((goal, target) => ({
       id: `ground-jump-${start + 1}-${target + 1}`,
       horizontalDistance: Math.hypot(goal[0] - position[0], goal[2] - position[2]),
       query: { starts: [{ id: 'player', position, state: 'available', cost: 0 }], goal },
     })),
   );
-export async function loadMap02(dataRoot: any): Promise<any> {
-  const hashes: any = {};
-  const load = async (path: any): Promise<any> => {
+export async function loadMap02(dataRoot: string) {
+  const hashes: Record<string, string> = {};
+  const load = async <T>(path: string): Promise<T> => {
     const bytes = await readFile(resolve(dataRoot, path));
     hashes[path] = createHash('sha256').update(bytes).digest('hex');
-    return JSON.parse(bytes.toString());
+    return JSON.parse(bytes.toString()) as T;
   };
-  const ground = await load('validation-map02/ground.json');
-  const collision = await load('validation-map02/collision.json');
-  const movement = await load('routing/movement-settings-current.json');
-  const request = await load('validation-map02/walk-request.json');
+  const ground = await load<{
+    scene: string;
+    source: unknown;
+    selection: unknown;
+    generator: unknown;
+    surfaces: Surface[];
+    options: GroundOptions;
+    build: { bounds: { min: [number, number]; max: [number, number] } };
+  }>('validation-map02/ground.json');
+  const collision = await load<
+    CollisionGeometry & {
+      positions: number[];
+      indices: number[];
+      scene: string;
+      source: unknown;
+      selection: unknown;
+      options: { profile: GroundOptions['profile'] };
+      records: { walkable: boolean; first: number; count: number }[];
+    }
+  >('validation-map02/collision.json');
+  const movement = await load<{
+    source: unknown;
+    defaultProfile: GroundOptions['profile'];
+    assets: { path: string; settings: Record<string, number> }[];
+    sustainedSprint: LocomotionOptions;
+  }>('routing/movement-settings-current.json');
+  const request = await load<{ scene: string; source: unknown; walls: Wall[] }>(
+    'validation-map02/walk-request.json',
+  );
   if (
     ground.scene !== 'map02' ||
     collision.scene !== ground.scene ||
@@ -70,12 +103,13 @@ export async function loadMap02(dataRoot: any): Promise<any> {
   ) {
     throw new Error('map02 inputs must share scene, build, selection and body profile');
   }
-  const settings = movement.assets.find((a: any): any =>
+  const settings = movement.assets.find((a) =>
     a.path.endsWith('/MovementSetting_Default.asset'),
   )?.settings;
-  const field = (key: any): any => {
+  const field = (key: string) => {
     const value = settings?.[key];
-    if (!Number.isFinite(value)) throw new Error(`Missing movement setting: ${key}`);
+    if (value === undefined || !Number.isFinite(value))
+      throw new Error(`Missing movement setting: ${key}`);
     return value;
   };
   const model = {
@@ -102,7 +136,7 @@ export async function loadMap02(dataRoot: any): Promise<any> {
     }
   const maxDrop = maxY - minY;
   const maxHorizontalDistance =
-    jumpDuration(maxDrop, 0, { ...model, mode: 'jump' }) *
+    jumpDuration(maxDrop, 0, { ...model, mode: 'jump' })! *
     Math.max(model.maxHorizontalSpeed, model.startHorizontalSpeed);
   // Match the exporter's non-walkable records: reverse upward faces so they
   // remain double-sided obstacles without granting standing support.
@@ -130,9 +164,9 @@ export async function loadMap02(dataRoot: any): Promise<any> {
       0.1 ** 2) /
       8 +
     0.01;
-  const bounds = {
-    min: ground.build.bounds.min.map((v: any) => v - padding),
-    max: ground.build.bounds.max.map((v: any): any => v + padding),
+  const bounds: NonNullable<SceneInput['collisionOptions']>['bounds'] = {
+    min: ground.build.bounds.min.map((v) => v - padding) as [number, number],
+    max: ground.build.bounds.max.map((v) => v + padding) as [number, number],
   };
   const options = {
     ...ground.options,

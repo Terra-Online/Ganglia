@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Graph, GroundArrival, GroundConnection, Surface, Vec3 } from '../src/index-types.js';
 import { planGroundRoute, routeFrom, sampleJourney } from '../src/index.js';
-const floor = (y) => ({
+const floor = (y: number): Surface => ({
   id: String(y),
   vertices: [
     [-2, y, -2],
@@ -11,10 +12,12 @@ const floor = (y) => ({
     [-2, y, 2],
   ],
 });
-const surfaces = [floor(0), floor(8)];
+const surfaces: Surface[] = [floor(0), floor(8)];
 const options = { speed: 1, maxVertical: 0.1, profile: { radius: 0.35, height: 1.66 }, walls: [] };
-const player = (position) => [{ id: 'player', position, cost: 0, state: 'available' }];
-const rope = {
+const player = (position: Vec3): GroundArrival[] => [
+  { id: 'player', position, cost: 0, state: 'available' },
+];
+const rope: GroundConnection = {
   id: 'rope-up',
   mode: 'rope',
   state: 'open',
@@ -30,10 +33,10 @@ test('grounded rope links connect floors in the authored direction and participa
     ...options,
     connections: [rope],
   });
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
   assert.equal(result.cost, 5);
   assert.equal(result.arrivalCost, 0);
-  assert.equal(result.segments.find((s) => s.mode === 'rope').connection, 'rope-up');
+  assert.equal(result.segments.find((s) => s.mode === 'rope')!.connection, 'rope-up');
   assert.deepEqual(sampleJourney(result, 2), {
     mode: 'rope',
     position: [0, 4, 0],
@@ -51,6 +54,7 @@ test('grounded rope links connect floors in the authored direction and participa
     [1, 8, 0],
     { ...options, connections: [rope] },
   );
+  assert.ok(teleported.status === 'complete');
   assert.equal(teleported.start, 'camp');
   assert.equal(teleported.cost, 2);
   assert.equal(teleported.arrivalCost, 2);
@@ -67,7 +71,7 @@ test('unknown devices, unsupported endpoints and air walls cannot grant cross-fl
         [0, 8, 0],
       ],
     },
-  ]) {
+  ] satisfies GroundConnection[]) {
     assert.equal(
       planGroundRoute(surfaces, player([0, 0, 0]), [0, 8, 0], {
         ...options,
@@ -95,16 +99,16 @@ test('unknown devices, unsupported endpoints and air walls cannot grant cross-fl
 });
 
 test('variable-speed drop samples preserve timing and do not create the reverse jump', () => {
-  const points = [
+  const points: Vec3[] = [
       [1, 8, 0],
       [1, 6, 0],
       [1, 0, 0],
     ],
     times = [0, 0.5, 1];
-  const graph = {
+  const graph: Graph = {
     nodes: [
       { id: 'top', position: points[0] },
-      { id: 'bottom', position: points.at(-1) },
+      { id: 'bottom', position: points.at(-1)! },
     ],
     edges: [
       {
@@ -124,6 +128,7 @@ test('variable-speed drop samples preserve timing and do not create the reverse 
     [{ id: 'camp', node: 'top', cost: 3, state: 'available' }],
     'bottom',
   );
+  assert.ok(result.status === 'complete');
   assert.equal(result.cost, 4);
   assert.equal(result.arrivalCost, 3);
   assert.deepEqual(sampleJourney(result, 0.75), {
@@ -142,7 +147,7 @@ test('variable-speed drop samples preserve timing and do not create the reverse 
 });
 
 test('explicit collision support tolerance preserves feet without joining different floors', () => {
-  const raised = {
+  const raised: GroundConnection = {
     ...rope,
     points: [
       [0, 0.02, 0],
@@ -158,9 +163,9 @@ test('explicit collision support tolerance preserves feet without joining differ
     ...options,
     connections: [{ ...raised, endpointTolerance: 0.03 }],
   });
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
   assert.deepEqual(
-    result.segments.find((segment) => segment.mode === 'rope').points,
+    result.segments.find((segment) => segment.mode === 'rope')!.points,
     raised.points,
   );
   assert.throws(
@@ -193,11 +198,11 @@ test('explicit collision support tolerance preserves feet without joining differ
     profile: { radius: 0, height: 1.66 },
     connections: [rope],
   });
-  assert.equal(exact.status, 'complete');
+  assert.ok(exact.status === 'complete');
 });
 
 test('required gait survives graph and ground planning and excludes unproved air links', () => {
-  const jump = {
+  const jump: GroundConnection = {
     id: 'sprint-air',
     mode: 'jump',
     state: 'open',
@@ -208,7 +213,7 @@ test('required gait survives graph and ground planning and excludes unproved air
     ],
     times: [0, 1],
   };
-  const graph = {
+  const graph: Graph = {
     nodes: [
       { id: 'a', position: jump.points[0] },
       { id: 'b', position: jump.points[1] },
@@ -216,12 +221,15 @@ test('required gait survives graph and ground planning and excludes unproved air
     edges: [{ ...jump, from: 'a', to: 'b', cost: 1, connection: jump.id }],
   };
   const result = routeFrom(graph, [{ id: 'p', node: 'a', cost: 0, state: 'available' }], 'b');
+  assert.ok(result.status === 'complete');
   assert.equal(result.segments[0].requiredGait, 'sprint');
   for (const requiredGait of ['run', 'fly', null]) {
     assert.throws(
       () =>
         routeFrom(
-          { ...graph, edges: [{ ...graph.edges[0], requiredGait }] },
+          { ...graph, edges: [{ ...graph.edges[0], requiredGait }] } as unknown as Parameters<
+            typeof routeFrom
+          >[0],
           [{ id: 'p', node: 'a', cost: 0, state: 'available' }],
           'b',
         ),
@@ -237,7 +245,7 @@ test('required gait survives graph and ground planning and excludes unproved air
       ),
     /movement segment/,
   );
-  const platforms = [
+  const platforms: Surface[] = [
     {
       id: 'a',
       vertices: [
@@ -284,7 +292,7 @@ test('required gait survives graph and ground planning and excludes unproved air
     [9, 0, 0],
     { ...options, speed: 5, connections: [jump], locomotion },
   );
-  assert.equal(paid.status, 'complete');
+  assert.ok(paid.status === 'complete');
   // Resource search can now leave the nearer arrival, establish a paid sprint
   // on a short supported approach and return to the launch point.
   assert.equal(paid.start, 'no-approach');
@@ -293,10 +301,10 @@ test('required gait survives graph and ground planning and excludes unproved air
   assert.ok(
     paid.segments
       .slice(0, launch)
-      .some((segment) => segment.gait === 'sprint' && segment.times.at(-1) > 0),
+      .some((segment) => segment.gait === 'sprint' && segment.times.at(-1)! > 0),
   );
-  assert.equal(paid.locomotion.initial - paid.locomotion.final, 1);
-  assert.equal(paid.segments.find((segment) => segment.mode === 'jump').requiredGait, 'sprint');
+  assert.equal(paid.locomotion!.initial - paid.locomotion!.final, 1);
+  assert.equal(paid.segments.find((segment) => segment.mode === 'jump')!.requiredGait, 'sprint');
   assert.equal(
     planGroundRoute(platforms, player([-2, 0, 0]), [9, 0, 0], {
       ...options,

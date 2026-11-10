@@ -1,16 +1,31 @@
+import type { GoalProjection } from './goals.js';
 import { closestOnSurface } from './goals.js';
+import type { Vec3, Surface, JumpModel } from './index-types.js';
 import { jumpDuration } from './jumps.js';
-const metadata = new WeakMap<any, any>();
+import type { Boundary } from './traversal.js';
+
+interface Witness {
+  surface: string;
+  position: Vec3;
+  distance?: number;
+}
+interface Metadata {
+  center: Vec3;
+  centerWitness: GoalProjection | null;
+  height: number;
+  edges: { a: Vec3; b: Vec3; dx: number; dz: number; squared: number }[];
+}
+
+const metadata = new WeakMap<Surface, Metadata>();
 // Surface snapshots are immutable for the lifetime of a prepared scene.
-const metadataFor = (surface: any): any => {
+const metadataFor = (surface: Surface): Metadata => {
   let entry = metadata.get(surface);
   if (!entry) {
     const center = [0, 1, 2].map(
       (axis) =>
-        surface.vertices.reduce((sum: any, point: any): any => sum + point[axis], 0) /
-        surface.vertices.length,
-    );
-    const edges = surface.vertices.map((a: any, index: any): any => {
+        surface.vertices.reduce((sum, point) => sum + point[axis], 0) / surface.vertices.length,
+    ) as Vec3;
+    const edges = surface.vertices.map((a, index) => {
       const b = surface.vertices[(index + 1) % surface.vertices.length];
       const dx = b[0] - a[0],
         dz = b[2] - a[2];
@@ -20,21 +35,24 @@ const metadataFor = (surface: any): any => {
       center,
       edges,
       centerWitness: closestOnSurface(surface, center),
-      height: Math.min(...surface.vertices.map((point: any): any => point[1])),
+      height: Math.min(...surface.vertices.map((point) => point[1])),
     };
     metadata.set(surface, entry);
   }
   return entry;
 };
-const copyWitness = (witness: any): any => ({ ...witness, position: [...witness.position] });
+const copyWitness = <T extends Witness>(witness: T): T => ({
+  ...witness,
+  position: [...witness.position],
+});
 /** Reuse only one query goal's nearest witness on each immutable surface.
  * Each result remains caller-owned. A changed goal bypasses this query cache,
  * including a caller mutating its original coordinate array between queries.
  */
-export function createLandingGoalCache(goal: any): any {
-  const target = [...goal],
-    witnesses = new WeakMap<any, any>();
-  return (surface: any, requested = target): any => {
+export function createLandingGoalCache(goal: Vec3) {
+  const target: Vec3 = [...goal],
+    witnesses = new WeakMap<Surface, GoalProjection | null>();
+  return (surface: Surface, requested = target) => {
     if (
       !Object.is(requested[0], target[0]) ||
       !Object.is(requested[1], target[1]) ||
@@ -49,7 +67,12 @@ export function createLandingGoalCache(goal: any): any {
     return witness ? copyWitness(witness) : null;
   };
 }
-function* reachWitnesses(surface: any, start: any, model: any, radius: any): any {
+function* reachWitnesses(
+  surface: Surface,
+  start: Vec3,
+  model: JumpModel,
+  radius: number,
+): Generator<Witness> {
   const { center, height, edges } = metadataFor(surface);
   const duration = jumpDuration(start[1], height, {
     ...model,
@@ -81,13 +104,11 @@ function* reachWitnesses(surface: any, start: any, model: any, radius: any): any
                 Math.min(Math.abs(middle - root), clearance / Math.sqrt(squared)),
           ),
         );
-        const point = a.map((value: any, axis: any): any => value + fraction * (b[axis] - value));
+        const point = a.map((value, axis) => value + fraction * (b[axis] - value));
         // Inset into the convex face as well as inside the reach envelope.
         const span = Math.hypot(center[0] - point[0], center[2] - point[2]);
         const inset = span === 0 ? 0 : Math.min(1, clearance / span);
-        const position = point.map(
-          (value: any, axis: any): any => value + inset * (center[axis] - value),
-        );
+        const position = point.map((value, axis) => value + inset * (center[axis] - value)) as Vec3;
         yield { surface: surface.id, position };
       }
     }
@@ -98,13 +119,13 @@ function* reachWitnesses(surface: any, start: any, model: any, radius: any): any
  * support, actual flight timing and a complete swept-body collision check.
  */
 export function* landingCandidates(
-  surface: any,
-  start: any,
-  goal: any,
-  model: any,
-  radius: any,
-  goalWitness?: any,
-): any {
+  surface: Surface,
+  start: Vec3,
+  goal: Vec3,
+  model: JumpModel,
+  radius: number,
+  goalWitness?: ReturnType<typeof createLandingGoalCache>,
+): Generator<Witness> {
   const source = closestOnSurface(surface, start);
   if (source) yield source;
   const target = goalWitness ? goalWitness(surface, goal) : closestOnSurface(surface, goal);
@@ -114,7 +135,7 @@ export function* landingCandidates(
   yield* reachWitnesses(surface, start, model, radius);
 }
 /** A body-scale inward witness on an exposed landing boundary. */
-export function boundaryLanding(boundary: any, reference: any, inset: any): any {
+export function boundaryLanding(boundary: Boundary, reference: Vec3, inset: number): Vec3 {
   const dx = boundary.b[0] - boundary.a[0],
     dz = boundary.b[2] - boundary.a[2];
   const squared = dx * dx + dz * dz;
@@ -129,8 +150,8 @@ export function boundaryLanding(boundary: any, reference: any, inset: any): any 
           ),
         );
   const point = boundary.a.map(
-    (value: any, axis: any): any => value + fraction * (boundary.b[axis] - value),
-  );
+    (value, axis) => value + fraction * (boundary.b[axis] - value),
+  ) as Vec3;
   point[0] += boundary.inward[0] * inset;
   point[2] += boundary.inward[1] * inset;
   return point;

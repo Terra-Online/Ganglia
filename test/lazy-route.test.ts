@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Arrival, Edge, Node } from '../src/index-types.js';
 import { createLazyRoutePlanner } from '../src/lazy-route.js';
-const nodes = [
+const nodes: Node[] = [
   { id: 'a', position: [0, 0, 0] },
   { id: 'b', position: [1, 0, 0] },
 ];
-const edge = (cost, connection, state = 'unknown') => ({
+const edge = (cost: number, connection: string, state: Edge['state'] = 'unknown'): Edge => ({
   from: 'a',
   to: 'b',
   cost,
@@ -14,13 +15,13 @@ const edge = (cost, connection, state = 'unknown') => ({
   state,
   points: nodes.map((node) => node.position),
 });
-const starts = [{ id: 'start', node: 'a', cost: 0, state: 'available' }];
+const starts: Arrival[] = [{ id: 'start', node: 'a', cost: 0, state: 'available' }];
 test('replans parallel candidates after rejection and increased cost, preserving selected evidence', async () => {
   const planner = createLazyRoutePlanner({
     nodes,
     edges: [edge(1, 'blocked'), edge(2, 'slow'), edge(4, 'ready', 'open')],
   });
-  const seen = [];
+  const seen: (string | undefined)[] = [];
   const result = await planner.plan(starts, 'b', {
     validate: async (e) => {
       seen.push(e.connection);
@@ -28,8 +29,8 @@ test('replans parallel candidates after rejection and increased cost, preserving
     },
   });
   assert.deepEqual(seen, ['blocked', 'slow']);
-  assert.equal(result.route.cost, 4);
-  assert.equal(result.route.segments[0].connection, 'ready');
+  assert.equal(result.route!.cost, 4);
+  assert.equal(result.route!.segments[0].connection, 'ready');
 });
 test('budget exhaustion has no executable route and resumes cached validation', async () => {
   const planner = createLazyRoutePlanner({ nodes, edges: [edge(1, 'first'), edge(2, 'second')] });
@@ -40,9 +41,9 @@ test('budget exhaustion has no executable route and resumes cached validation', 
   const next = await planner.plan(starts, 'b', {
     validate: async (e) => ({ ...e, state: 'open' }),
   });
-  assert.equal(next.status, 'complete');
+  assert.ok(next.status === 'complete');
   assert.equal(next.validation.attempted, 1);
-  assert.equal(next.route.segments[0].connection, 'second');
+  assert.equal(next.route!.segments[0].connection, 'second');
 });
 test('validator errors and cancelled validation remain retryable', async () => {
   const planner = createLazyRoutePlanner({ nodes, edges: [edge(1, 'retry')] });
@@ -71,7 +72,7 @@ test('validator errors and cancelled validation remain retryable', async () => {
   const result = await planner.plan(starts, 'b', {
     validate: async (e) => ({ ...e, state: 'open' }),
   });
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
 });
 test('rejects a validated trajectory disconnected from its graph endpoint and permits retry', async () => {
   const planner = createLazyRoutePlanner({ nodes, edges: [edge(1, 'physical')] });
@@ -91,5 +92,5 @@ test('rejects a validated trajectory disconnected from its graph endpoint and pe
   const result = await planner.plan(starts, 'b', {
     validate: async (e) => ({ ...e, state: 'open' }),
   });
-  assert.deepEqual(result.route.segments[0].points[0], nodes[0].position);
+  assert.deepEqual(result.route!.segments[0].points[0], nodes[0].position);
 });

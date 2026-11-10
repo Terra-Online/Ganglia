@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { clipSurface } from '../src/clip-surface.js';
+import type { Vec3 } from '../src/index-types.js';
 import { projectPoint, surfaceGraph } from '../src/index.js';
 
 test('grid snapping preserves convex support and seam endpoints in clipped slivers', () => {
@@ -12,11 +13,9 @@ test('grid snapping preserves convex support and seam endpoints in clipped slive
         [0.1, 1],
         [0.00005, 0],
       ].map(([x, z]) => [x, 0.2 * x + 0.3 * z, z]);
-      const input = (reverse ? [...vertices].reverse() : vertices).map(([x, y, z]) => [
-        x + offset,
-        y,
-        z + offset,
-      ]);
+      const input: Vec3[] = (reverse ? [...vertices].reverse() : vertices).map(
+        ([x, y, z]: readonly number[]) => [x + offset, y, z + offset],
+      );
       const result = clipSurface(input, {
         min: [offset, offset - 2],
         max: [offset + 2, offset + 2],
@@ -26,7 +25,7 @@ test('grid snapping preserves convex support and seam endpoints in clipped slive
       for (let index = 0; index < result.length; index++) {
         const a = result[index],
           b = result[(index + 1) % result.length];
-        const midpoint = a.map((value, axis) => (value + b[axis]) / 2);
+        const midpoint: Vec3 = a.map((value, axis) => (value + b[axis]) / 2) as Vec3;
         assert.ok(
           projectPoint([surface], midpoint, { maxVertical: 1e-7 }),
           'every boundary must belong to supported ground',

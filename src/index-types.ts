@@ -263,12 +263,16 @@ export declare function createGoalProjector(
   surfaces: Surface[],
 ): (
   target: Vec3,
-  options: { maxVertical: number; interaction?: InteractionGoal },
+  options:
+    | { maxVertical: number; interaction?: InteractionGoal }
+    | { maxVertical?: number; interaction: InteractionGoal },
 ) => { surface: string; position: Vec3; distance: number }[];
 export declare function projectGoal(
   surfaces: Surface[],
   target: Vec3,
-  options: { maxVertical: number; interaction?: InteractionGoal },
+  options:
+    | { maxVertical: number; interaction?: InteractionGoal }
+    | { maxVertical?: number; interaction: InteractionGoal },
 ): { surface: string; position: Vec3; distance: number }[];
 
 export interface JumpModel {

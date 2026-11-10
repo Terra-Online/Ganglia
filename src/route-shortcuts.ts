@@ -1,16 +1,50 @@
 import { createBoundsIndex } from './bounds.js';
+import type { CollisionWorld } from './collision-types.js';
 import { createGoalProjector } from './goals.js';
 import { groundPreparation } from './ground.js';
+import type { Vec3, Route, Surface, GroundConnection, ShortcutDiagnostics } from './index-types.js';
+import type { MotionControl, JumpOptions } from './jumps.js';
 import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.js';
+import type { ShortcutOptions, ShortcutCache } from './shortcuts.js';
 import { standingFoot, validateDiscovery } from './traversal.js';
 import { createWallChecker } from './walls.js';
-const distance = (a: any, b: any) =>
-  Math.hypot(...a.map((value: any, axis: any) => value - b[axis]));
+
+interface Sample {
+  id: number;
+  point: Vec3;
+  time: number;
+  min: Vec3;
+  max: Vec3;
+}
+interface Witness {
+  position: Vec3;
+  surface: string;
+}
+interface Candidate {
+  start: Sample;
+  end: Sample;
+  saving: number;
+}
+interface Entry {
+  candidate: Candidate;
+  start?: Witness;
+  end?: Witness;
+  key?: string;
+  groundTime?: number;
+  variants?: Generator<MotionControl>;
+}
+
+const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((value, axis) => value - b[axis]));
 // The incumbent supplies useful approach and landing neighbourhoods even when
 // unrelated mesh boundaries outnumber its corners by several orders of magnitude.
 // These samples only propose edges: support, body motion and the final gait-aware
 // route comparison remain authoritative.
-export function findRouteShortcuts(surfaces: any, world: any, options: any, cache: any): any {
+export function findRouteShortcuts(
+  surfaces: Surface[],
+  world: CollisionWorld,
+  options: ShortcutOptions & { baseline: Extract<Route, { status: 'complete' }> },
+  cache: ShortcutCache,
+): { connections: GroundConnection[]; diagnostics: ShortcutDiagnostics } {
   validateDiscovery(world, options);
   const {
     baseline,
@@ -26,7 +60,7 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
     walls,
     speed,
   } = options;
-  const diagnostics: any = {
+  const diagnostics: ShortcutDiagnostics = {
     reason: 'route-shortcuts',
     baselineCost: baseline.cost,
     boundaryEdges: 0,
@@ -48,20 +82,17 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
     },
   };
   const length = baseline.segments
-    .filter((segment: any) => segment.mode === 'walk')
+    .filter((segment) => segment.mode === 'walk')
     .reduce(
-      (sum: any, segment: any): any =>
+      (sum, segment) =>
         sum +
         segment.points
           .slice(1)
-          .reduce(
-            (sum: any, point: any, index: any): any => sum + distance(segment.points[index], point),
-            0,
-          ),
+          .reduce((sum, point, index) => sum + distance(segment.points[index], point), 0),
       0,
     );
   const spacing = Math.max(sampleSpacing, length / (maxCandidates * 4));
-  const samples = [];
+  const samples: Sample[] = [];
   let elapsed = 0;
   for (const segment of baseline.segments) {
     if (segment.mode === 'walk') {
@@ -73,7 +104,7 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
         if (span === 0) continue;
         while (untilNext < span) {
           const fraction = untilNext / span;
-          const point = a.map((value: any, axis: any): any => value + fraction * (b[axis] - value));
+          const point = a.map((value, axis) => value + fraction * (b[axis] - value)) as Vec3;
           samples.push({
             id: samples.length,
             point,
@@ -88,16 +119,16 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
         }
         untilNext -= span;
       }
-      const point = segment.points.at(-1);
+      const point = segment.points.at(-1)!;
       samples.push({
         id: samples.length,
         point,
-        time: elapsed + segment.times.at(-1),
+        time: elapsed + segment.times.at(-1)!,
         min: point,
         max: point,
       });
     }
-    elapsed += segment.times.at(-1);
+    elapsed += segment.times.at(-1)!;
   }
   diagnostics.seedChecks = samples.length;
   const query = createBoundsIndex(samples),
@@ -131,10 +162,12 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
       diagnostics.neighbourChecks++;
       if (end.id <= start.id || end.time <= start.time) continue;
       const span = Math.hypot(end.point[0] - start.point[0], end.point[2] - start.point[2]);
-      const durations = (model.maxJumpHeight > 0 ? ['drop', 'jump'] : ['drop'])
-        .map((mode): any => jumpDuration(start.point[1], end.point[1], { ...model, mode }))
+      const durations = (
+        model.maxJumpHeight > 0 ? (['drop', 'jump'] as const) : (['drop'] as const)
+      )
+        .map((mode) => jumpDuration(start.point[1], end.point[1], { ...model, mode }))
         .filter(
-          (duration) =>
+          (duration): duration is number =>
             duration !== null && duration > 0 && span <= duration * model.maxHorizontalSpeed,
         );
       if (!durations.length) continue;
@@ -150,16 +183,16 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
   const project =
     prepared?.surfaces === surfaces ? prepared.projectGoal : createGoalProjector(surfaces);
   const blocked = createWallChecker(walls, profile);
-  const cached = cache.standing,
+  const cached = cache.standing!,
     approaches = cache.approaches;
-  const standing = (sample: any): any => {
+  const standing = (sample: Sample): Witness | null => {
     const nav = project(sample.point, { maxVertical })[0];
     if (!nav) {
       diagnostics.rejected.projection++;
       return null;
     }
     const key = JSON.stringify([nav.position, nav.surface]);
-    if (cached.has(key)) return cached.get(key);
+    if (cached.has(key)) return cached.get(key)!;
     if (diagnostics.endpointChecks >= diagnostics.limits.endpointChecks) {
       diagnostics.truncated = true;
       return null;
@@ -172,9 +205,9 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
     return foot;
   };
   const variants = createMotionVariants(model, world, profile, cache.exits, approaches);
-  const connections = [],
-    accepted = new Set<any>();
-  let pending = candidates.slice(0, maxCandidates).map((candidate): any => ({ candidate }));
+  const connections: GroundConnection[] = [],
+    accepted = new Set<string>();
+  let pending: Entry[] = candidates.slice(0, maxCandidates).map((candidate) => ({ candidate }));
   validation: while (pending.length) {
     const next = [];
     for (const entry of pending) {
@@ -194,12 +227,8 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
         if (accepted.has(key)) continue;
         const ground = prepared?.straighten.trace(start.position, end.position);
         const groundTime = ground
-          ? ground
-              .slice(1)
-              .reduce(
-                (sum: any, point: any, index: any): any => sum + distance(ground[index], point),
-                0,
-              ) / speed
+          ? ground.slice(1).reduce((sum, point, index) => sum + distance(ground[index], point), 0) /
+            speed
           : Infinity;
         Object.assign(entry, {
           start,
@@ -209,13 +238,16 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
           variants: variants(start.position, end.position),
         });
       }
-      const variant = entry.variants.next();
+      const variant = entry.variants!.next();
       if (variant.done) continue;
       if (variant.value.mode === 'jump' && model.maxJumpHeight === 0) {
         next.push(entry);
         continue;
       }
-      const { start, end, key, groundTime } = entry;
+      const start = entry.start!,
+        end = entry.end!,
+        key = entry.key!,
+        groundTime = entry.groundTime!;
       const duration = jumpDuration(start.position[1], end.position[1], {
         ...model,
         mode: variant.value.mode,
@@ -227,13 +259,13 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
         duration < entry.candidate.end.time - entry.candidate.start.time
       ) {
         diagnostics.attempted++;
-        const motion = {
+        const motion: JumpOptions & MotionControl = {
           ...model,
           ...variant.value,
           profile,
           walls,
           wallCheck: blocked,
-          sweep: (a: any, b: any, body: any): any => world.sweepCapsule(a, b, body),
+          sweep: (a, b, body) => world.sweepCapsule(a, b, body),
         };
         const arc =
           variant.value.mode === 'drop'
@@ -244,7 +276,7 @@ export function findRouteShortcuts(surfaces: any, world: any, options: any, cach
                 approaches,
               )
             : jumpConnection(start.position, end.position, motion);
-        if (arc && arc.times.at(-1) < entry.candidate.end.time - entry.candidate.start.time) {
+        if (arc && arc.times.at(-1)! < entry.candidate.end.time - entry.candidate.start.time) {
           connections.push({
             id: `route-shortcut/${connections.length}`,
             ...arc,

@@ -1,15 +1,45 @@
 import { createBoundsTree } from './bounds.js';
+import type { Vec3, Surface, GroundOptions } from './index-types.js';
+import type { SupportTriangle } from './support-snapshot.js';
 import { supportSnapshot, supportTriangles } from './support-snapshot.js';
+import type { SharedPortal } from './surfaces.js';
 import { surfacePortals, directedPortals } from './surfaces.js';
 import { createWallChecker } from './walls.js';
-const pointKey = (point: any): any =>
-  point.map((value: any) => Math.round(value * 10000)).join(',');
-const distance = (a: any, b: any) =>
-  Math.hypot(...a.map((value: any, axis: any) => value - b[axis]));
-const finitePoint = (point: any) =>
+
+interface Triangle extends Pick<SupportTriangle, 'vertices' | 'min' | 'max' | 'determinant'> {
+  id: number;
+  neighbours: { triangle: Triangle; opposite: number; portal?: SharedPortal }[];
+}
+interface Owner {
+  triangle: Triangle;
+  edge: number;
+  from?: string;
+  to?: string;
+}
+interface Entry {
+  triangle: Triangle;
+  fraction: number;
+  previous: Entry | null;
+}
+interface Clip {
+  near: number;
+  far: number;
+  first: Vec3;
+  last: Vec3;
+}
+export interface GroundStraightener {
+  (points: Vec3[]): Vec3[];
+  trace(start: Vec3, end: Vec3): Vec3[] | null;
+  mayConnect(start: Vec3, end: Vec3): boolean;
+}
+
+const pointKey = (point: Vec3) => point.map((value) => Math.round(value * 10000)).join(',');
+const distance = (a: readonly number[], b: readonly number[]) =>
+  Math.hypot(...a.map((value, axis) => value - b[axis]));
+const finitePoint = (point: unknown) =>
   Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
 const tolerance = 1e-7;
-const weightsAt = (triangle: any, point: any): any => {
+const weightsAt = (triangle: Triangle, point: Vec3): Vec3 => {
   const [a, b, c] = triangle.vertices;
   const x = point[0] - a[0],
     z = point[2] - a[2];
@@ -17,12 +47,12 @@ const weightsAt = (triangle: any, point: any): any => {
   const v = ((b[0] - a[0]) * z - (b[2] - a[2]) * x) / triangle.determinant;
   return [1 - u - v, u, v];
 };
-const heightAt = (triangle: any, point: any): any =>
+const heightAt = (triangle: Triangle, point: Vec3) =>
   weightsAt(triangle, point).reduce(
-    (height: any, weight: any, index: any): any => height + weight * triangle.vertices[index][1],
+    (height, weight, index) => height + weight * triangle.vertices[index][1],
     0,
   );
-const clipTriangle = (triangle: any, start: any, end: any): any => {
+const clipTriangle = (triangle: Triangle, start: Vec3, end: Vec3): Clip | null => {
   const first = weightsAt(triangle, start),
     last = weightsAt(triangle, end);
   let near = 0,
@@ -40,30 +70,24 @@ const clipTriangle = (triangle: any, start: any, end: any): any => {
   if (near > far + tolerance || far < 0 || near > 1) return null;
   return { near: Math.max(0, near), far: Math.min(1, far), first, last };
 };
-const simplifyCollinear = (points: any): any => {
-  const result = [];
+const simplifyCollinear = (points: Vec3[]): Vec3[] => {
+  const result: Vec3[] = [];
   for (const point of points) {
-    if (result.length && distance(result.at(-1), point) < 1e-9) continue;
+    if (result.length && distance(result.at(-1)!, point) < 1e-9) continue;
     while (result.length > 1) {
-      const a: any = result.at(-2),
-        b: any = result.at(-1);
-      const lengthSquared = point.reduce(
-        (sum: any, value: any, axis: any): any => sum + (value - a[axis]) ** 2,
-        0,
-      );
+      const a = result.at(-2)!,
+        b = result.at(-1)!;
+      const lengthSquared = point.reduce((sum, value, axis) => sum + (value - a[axis]) ** 2, 0);
       if (lengthSquared === 0) break;
       const fraction =
-        b.reduce(
-          (sum: any, value: any, axis: any): any =>
-            sum + (value - a[axis]) * (point[axis] - a[axis]),
-          0,
-        ) / lengthSquared;
+        b.reduce((sum, value, axis) => sum + (value - a[axis]) * (point[axis] - a[axis]), 0) /
+        lengthSquared;
       if (
         fraction < 0 ||
         fraction > 1 ||
         distance(
           b,
-          a.map((value: any, axis: any): any => value + fraction * (point[axis] - value)),
+          a.map((value, axis) => value + fraction * (point[axis] - value)),
         ) > 1e-7
       )
         break;
@@ -73,24 +97,23 @@ const simplifyCollinear = (points: any): any => {
   }
   return result;
 };
-const makeIndex = (triangles: any): any => {
+const makeIndex = (triangles: Triangle[]) => {
   const root = createBoundsTree(triangles);
-  return (point: any): any => {
-    const result = [],
+  return (point: Vec3): Triangle[] => {
+    const result: Triangle[] = [],
       stack = root ? [root] : [];
     while (stack.length) {
-      const node = stack.pop();
+      const node = stack.pop()!;
       if (
         point.some(
-          (value: any, axis: any) =>
-            value < node.min[axis] - tolerance || value > node.max[axis] + tolerance,
+          (value, axis) => value < node.min[axis] - tolerance || value > node.max[axis] + tolerance,
         )
       )
         continue;
       if (node.entries) {
         for (const triangle of node.entries) {
           if (
-            weightsAt(triangle, point).every((weight: any) => weight >= -tolerance) &&
+            weightsAt(triangle, point).every((weight) => weight >= -tolerance) &&
             Math.abs(heightAt(triangle, point) - point[1]) <= tolerance
           )
             result.push(triangle);
@@ -110,14 +133,14 @@ const makeIndex = (triangles: any): any => {
  * Height changes are reconstructed from triangulated support, never fitted as a spline.
  */
 export function createGroundStraightener(
-  surfaces: any,
-  { walls, profile, portals: imported = [] }: any,
-  sharedPortals?: any,
-): any {
+  surfaces: Surface[],
+  { walls, profile, portals: imported = [] }: Pick<GroundOptions, 'walls' | 'profile' | 'portals'>,
+  sharedPortals?: SharedPortal[],
+): GroundStraightener {
   const blocked = createWallChecker(walls, profile);
   const portals = sharedPortals ?? surfacePortals(surfaces);
-  const triangles: any = [],
-    boundaryOwners = new Map<any, any>();
+  const triangles: Triangle[] = [],
+    boundaryOwners = new Map<string, Owner[]>();
   for (const surface of surfaces) {
     const owned = supportSnapshot(surface);
     if (!owned || boundaryOwners.has(owned.id)) throw new Error('Invalid surface');
@@ -125,17 +148,17 @@ export function createGroundStraightener(
       surface.portals !== undefined &&
       (!Array.isArray(surface.portals) ||
         surface.portals.some(
-          (index: any) => !Number.isInteger(index) || index < 0 || index >= owned.vertices.length,
+          (index) => !Number.isInteger(index) || index < 0 || index >= owned.vertices.length,
         ))
     )
       throw new Error('Invalid surface portals');
     // Polygon boundary edges already have integer ordinals. Avoid a serialized
     // [surface, edge] key per triangle edge; internal fan edges never join faces.
-    const boundary: any = [];
-    let edgeOwners;
+    const boundary: Owner[] = [];
+    let edgeOwners: Map<string, Owner[]> | undefined;
     boundaryOwners.set(owned.id, boundary);
     for (const primitive of supportTriangles(owned)) {
-      const triangle: any = {
+      const triangle: Triangle = {
         id: triangles.length,
         vertices: primitive.vertices,
         neighbours: [],
@@ -157,7 +180,7 @@ export function createGroundStraightener(
         const edgeKey = from < to ? from + '/' + to : to + '/' + from;
         const owners = edgeOwners?.get(edgeKey) ?? [];
         owners.push({ triangle, edge, from, to });
-        (edgeOwners ??= new Map<any, any>()).set(edgeKey, owners);
+        (edgeOwners ??= new Map<string, Owner[]>()).set(edgeKey, owners);
       }
     }
     if (edgeOwners)
@@ -183,47 +206,47 @@ export function createGroundStraightener(
       a.triangle.neighbours.push({ triangle: b.triangle, opposite: (a.edge + 2) % 3, portal });
   }
   const supporting = makeIndex(triangles);
-  let components: any;
-  const endpointComponents = new WeakMap<any, any>();
-  const componentRoot = (index: any): any => {
-    while (components[index] !== index) {
-      components[index] = components[components[index]];
-      index = components[index];
+  let components: Int32Array | undefined;
+  const endpointComponents = new WeakMap<Vec3, { position: Vec3; groups: Set<number> }>();
+  const componentRoot = (index: number): number => {
+    while (components![index] !== index) {
+      components![index] = components![components![index]];
+      index = components![index];
     }
     return index;
   };
-  const groupsAt = (point: any): any => {
+  const groupsAt = (point: Vec3): Set<number> => {
     if (!components) {
-      components = Int32Array.from(triangles, (triangle: any): any => triangle.id);
+      components = Int32Array.from(triangles, (triangle: Triangle) => triangle.id);
       for (const triangle of triangles)
         for (const neighbour of triangle.neighbours) {
-          components[componentRoot(neighbour.triangle.id)] = componentRoot(triangle.id);
+          components![componentRoot(neighbour.triangle.id)] = componentRoot(triangle.id);
         }
     }
     const previous = endpointComponents.get(point);
-    if (previous && previous.position.every((value: any, axis: any) => value === point[axis]))
+    if (previous && previous.position.every((value, axis) => value === point[axis]))
       return previous.groups;
     // A point may lie on several overlapping supports. Keep every component
     // accepted by the same locator that trace uses, including masked faces.
-    const groups = new Set<any>(
-      supporting(point).map((triangle: any): any => componentRoot(triangle.id)),
+    const groups = new Set<number>(
+      supporting(point).map((triangle: Triangle) => componentRoot(triangle.id)),
     );
     endpointComponents.set(point, { position: [...point], groups });
     return groups;
   };
-  const trace = (start: any, end: any, supports: any): any => {
+  const trace = (start: Vec3, end: Vec3, supports: Triangle[]): Vec3[] | null => {
     if (Math.hypot(end[0] - start[0], end[2] - start[2]) < 1e-10) {
       return distance(start, end) < tolerance ? [[...start], [...end]] : null;
     }
-    const interpolate = (fraction: any): any =>
-      start.map((value: any, axis: any): any => value + fraction * (end[axis] - value));
-    const clips = new Map<any, any>();
-    const clipped = (triangle: any): any => {
+    const interpolate = (fraction: number): Vec3 =>
+      start.map((value, axis) => value + fraction * (end[axis] - value)) as Vec3;
+    const clips = new Map<number, Clip | null>();
+    const clipped = (triangle: Triangle) => {
       if (!clips.has(triangle.id)) clips.set(triangle.id, clipTriangle(triangle, start, end));
-      return clips.get(triangle.id);
+      return clips.get(triangle.id)!;
     };
-    const reached = new Map<any, any>(),
-      queue = [];
+    const reached = new Map<number, Entry>(),
+      queue: Entry[] = [];
     for (const triangle of supports) {
       const interval = clipped(triangle);
       if (interval && interval.near <= tolerance) {
@@ -233,15 +256,15 @@ export function createGroundStraightener(
       }
     }
     for (let head = 0; head < queue.length; head++) {
-      const entry: any = queue[head],
-        triangle: any = entry.triangle,
-        interval = clipped(triangle);
+      const entry = queue[head],
+        triangle = entry.triangle,
+        interval = clipped(triangle)!;
       if (reached.get(triangle.id) !== entry) continue;
       if (
         interval.far >= 1 - tolerance &&
         Math.abs(heightAt(triangle, end) - end[1]) <= tolerance
       ) {
-        const crossings = [];
+        const crossings: Vec3[] = [];
         for (let current = entry; current.previous; current = current.previous) {
           const point = interpolate(current.fraction);
           crossings.push(
@@ -250,8 +273,7 @@ export function createGroundStraightener(
           );
         }
         const points = simplifyCollinear([[...start], ...crossings.reverse(), [...end]]);
-        if (points.slice(1).some((point: any, index: any): any => blocked(points[index], point)))
-          return null;
+        if (points.slice(1).some((point, index) => blocked(points[index], point))) return null;
         return points;
       }
       for (const neighbour of triangle.neighbours) {
@@ -293,29 +315,29 @@ export function createGroundStraightener(
         }
         const previous = reached.get(neighbour.triangle.id);
         if (previous && previous.fraction <= fraction + tolerance) continue;
-        const reachedEntry: any = { triangle: neighbour.triangle, fraction, previous: entry };
+        const reachedEntry: Entry = { triangle: neighbour.triangle, fraction, previous: entry };
         reached.set(neighbour.triangle.id, reachedEntry);
         queue.push(reachedEntry);
       }
     }
     return null;
   };
-  const straighten = (points: any): any => {
+  const straighten = (points: Vec3[]): Vec3[] => {
     if (!Array.isArray(points) || !points.length || !points.every(finitePoint))
       throw new Error('Invalid ground path');
-    const output = [[...points[0]]],
-      supportCache = new Map<any, any>(),
+    const output: Vec3[] = [[...points[0]]],
+      supportCache = new Map<number, Triangle[]>(),
       lengths = [0];
     for (let index = 1; index < points.length; index++)
       lengths.push(lengths.at(-1)! + distance(points[index - 1], points[index]));
-    const supports = (index: any): any => {
+    const supports = (index: number) => {
       if (!supportCache.has(index)) supportCache.set(index, supporting(points[index]));
-      return supportCache.get(index);
+      return supportCache.get(index)!;
     };
     let anchor = 0;
     while (anchor + 1 < points.length) {
       let chosen = anchor + 1,
-        shortcut = null;
+        shortcut: Vec3[] | null = null;
       // Search the whole remaining corridor. A detail-dense mesh can place a
       // visible turn beyond 128 vertices even when it is only a few metres away.
       const candidates = [points.length - 1];
@@ -326,10 +348,7 @@ export function createGroundStraightener(
         if (path) {
           const length = path
             .slice(1)
-            .reduce(
-              (sum: any, point: any, index: any): any => sum + distance(path[index], point),
-              0,
-            );
+            .reduce((sum, point, index) => sum + distance(path[index], point), 0);
           if (length > lengths[candidate] - lengths[anchor] + 1e-6) continue;
           chosen = candidate;
           shortcut = path;
@@ -357,7 +376,9 @@ export function createGroundStraightener(
           chosen = corner;
         for (let step = 0; step < 10; step++) {
           const fraction = (low + high) / 2;
-          const point = corner.map((value, axis): any => value + fraction * (middle[axis] - value));
+          const point: Vec3 = corner.map(
+            (value, axis) => value + fraction * (middle[axis] - value),
+          ) as Vec3;
           const left = trace(a, point, supporting(a)),
             right = trace(point, b, supporting(point));
           // A height excursion needs its reconstructed samples and cannot be
@@ -373,14 +394,14 @@ export function createGroundStraightener(
   };
   // Unlike straightening an already verified run, a visibility query can reject
   // its endpoints. The same support and portal tracing serves both contracts.
-  straighten.trace = (start: any, end: any): any => {
+  straighten.trace = (start: Vec3, end: Vec3) => {
     if (!finitePoint(start) || !finitePoint(end))
       throw new Error('Invalid ground visibility endpoints');
     return trace(start, end, supporting(start));
   };
   // Weak connectivity only rules out impossible traces. Passage direction and
   // complete wall clearance are still checked by trace itself.
-  straighten.mayConnect = (start: any, end: any) => {
+  straighten.mayConnect = (start: Vec3, end: Vec3) => {
     if (!finitePoint(start) || !finitePoint(end))
       throw new Error('Invalid ground visibility endpoints');
     const from = groupsAt(start),

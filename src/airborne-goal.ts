@@ -1,27 +1,50 @@
+import type { CollisionWorld } from './collision-types.js';
 import { mayReachGoal } from './flight-steering.js';
 import { createGoalProjector, findGoalHit, trimGoalFlight } from './goals.js';
+import type {
+  Vec3,
+  Surface,
+  GroundArrival,
+  GroundConnection,
+  Route,
+  InteractionGoal,
+} from './index-types.js';
+import type { PlannerOptions, JumpResult } from './jump-planner.js';
+import type { MotionControl, Arc } from './jumps.js';
 import { createMotionVariants, jumpConnection, jumpDuration, runOffConnection } from './jumps.js';
 import { boundaryLanding } from './landings.js';
 import { retimeGroundRoute } from './locomotion.js';
 import { movementGeometry } from './movement-geometry.js';
 import { standingFoot, validateDiscovery } from './traversal.js';
 import { createWallChecker } from './walls.js';
-const distance = (a: any, b: any) =>
-  Math.hypot(...a.map((value: any, axis: any) => value - b[axis]));
+
+type Options = PlannerOptions & { interaction: InteractionGoal };
+interface Witness {
+  position: Vec3;
+  surface?: string;
+  exit?: [number, number];
+}
+interface Candidate {
+  start: Witness;
+  end: Witness;
+  arc: Arc & { requiredGait?: 'sprint' };
+}
+
+const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((value, axis) => value - b[axis]));
 /** Search supported takeoffs and flight controls around an airborne interaction volume.
  * A collectible completes at its first hit. Only its prefix must clear collision.
  * Pair sampling is bounded and failure leaves reachability unresolved.
  */
 export function findGoalFlights(
-  surfaces: any,
-  world: any,
-  starts: any,
-  goal: any,
-  options: any,
-): any {
+  surfaces: Surface[],
+  world: CollisionWorld,
+  starts: GroundArrival[],
+  goal: Vec3,
+  options: Options,
+) {
   const { profile, model, interaction, maxCandidates, maxLinks } = options;
   const diagnostics = { attempted: 0, nominalHits: 0, hits: 0, approaches: 0, truncated: false };
-  const first = starts.find((start: any) => start.state === 'available');
+  const first = starts.find((start) => start.state === 'available');
   if (!first) return { candidates: [], diagnostics };
   validateDiscovery(world, { ...options, from: first.position, to: goal });
   const project = options.groundPlanner?.project ?? createGoalProjector(surfaces);
@@ -31,9 +54,9 @@ export function findGoalFlights(
     options.maxDrop + model.maxJumpHeight + interaction.radius,
   );
   const nearby = project(goal, { maxVertical: options.maxVertical, interaction: { radius } });
-  const feet = [],
-    cells = new Set<any>(),
-    layers = new Map<any, any>();
+  const feet: Witness[] = [],
+    cells = new Set<string>(),
+    layers = new Map<number, number>();
   const spacing = Math.max(profile.radius, options.sampleSpacing);
   for (const nav of nearby) {
     const p = nav.position;
@@ -44,7 +67,7 @@ export function findGoalFlights(
       p[1] > goal[1] + options.maxDrop + interaction.radius
     )
       continue;
-    const key = p.map((value: any) => Math.round(value / spacing)).join(',');
+    const key = p.map((value) => Math.round(value / spacing)).join(',');
     if (cells.has(key)) continue;
     cells.add(key);
     const layer = Math.floor(p[1] / profile.height);
@@ -61,27 +84,28 @@ export function findGoalFlights(
   const geometry = movementGeometry(surfaces, options);
   const sourceSurface = geometry.projectSupport(first.position, options.maxVertical)?.surface;
   const topology = geometry.topology;
-  const sourceRegion = topology.components[topology.ids.get(sourceSurface)];
-  const sameRegion = (surface: any) =>
-    sourceRegion !== undefined && topology.components[topology.ids.get(surface)] === sourceRegion;
+  const sourceRegion =
+    sourceSurface === undefined ? undefined : topology.components[topology.ids.get(sourceSurface)!];
+  const sameRegion = (surface: string | undefined) =>
+    sourceRegion !== undefined && topology.components[topology.ids.get(surface!)!] === sourceRegion;
   const ledges = geometry.boundaries
     .filter(
-      (boundary: any) =>
+      (boundary) =>
         boundary.midpoint[1] > goal[1] + profile.height &&
         distance(boundary.midpoint, goal) <= options.maxDrop + options.maxHorizontalDistance,
     )
     .sort(
-      (a: any, b: any) =>
+      (a, b) =>
         Number(sameRegion(b.surface)) - Number(sameRegion(a.surface)) ||
         distance(a.midpoint, goal) - distance(b.midpoint, goal),
     );
-  const takeoffs = [],
-    ledgeCells = new Set<any>();
+  const takeoffs: Witness[] = [],
+    ledgeCells = new Set<string>();
   const span = Math.hypot(goal[0] - first.position[0], goal[2] - first.position[2]);
   const samples = Math.min(64, Math.ceil(span / spacing));
   for (let index = 0; index <= samples; index++) {
     const fraction = samples ? index / samples : 0;
-    const point = [
+    const point: Vec3 = [
       first.position[0] + fraction * (goal[0] - first.position[0]),
       first.position[1],
       first.position[2] + fraction * (goal[2] - first.position[2]),
@@ -91,26 +115,26 @@ export function findGoalFlights(
     const foot = standingFoot(nav, world, { ...options, blocked, project });
     if (foot.reason) continue;
     takeoffs.push(foot);
-    ledgeCells.add(nav.position.map((value: any) => Math.round(value / spacing)).join(','));
+    ledgeCells.add(nav.position.map((value) => Math.round(value / spacing)).join(','));
   }
   // Include the departure roof even when closer, lower faces fill the goal's
   // landing samples. Airborne collection depends on where the flight passes.
   const sourceFaces = nearby
-    .filter((nav: any) => nav.position[1] + model.maxJumpHeight + interaction.radius >= goal[1])
-    .sort(
-      (a: any, b: any) =>
-        distance(a.position, first.position) - distance(b.position, first.position),
-    );
-  const corridorScore = (nav: any) =>
+    .filter(
+      (nav: { position: Vec3; surface: string }) =>
+        nav.position[1] + model.maxJumpHeight + interaction.radius >= goal[1],
+    )
+    .sort((a, b) => distance(a.position, first.position) - distance(b.position, first.position));
+  const corridorScore = (nav: { position: Vec3; surface: string }) =>
     distance(nav.position, first.position) + distance(nav.position, goal);
   const forwardFaces = [...sourceFaces].sort((a, b) => corridorScore(a) - corridorScore(b));
   const regionFaces = sourceFaces
-    .filter((nav: any) => sameRegion(nav.surface))
-    .sort((a: any, b: any) => distance(a.position, goal) - distance(b.position, goal));
+    .filter((nav: { position: Vec3; surface: string }) => sameRegion(nav.surface))
+    .sort((a, b) => distance(a.position, goal) - distance(b.position, goal));
   for (const family of [regionFaces, sourceFaces, forwardFaces]) {
     let retained = 0;
     for (const nav of family) {
-      const key = nav.position.map((value: any) => Math.round(value / spacing)).join(',');
+      const key = nav.position.map((value) => Math.round(value / spacing)).join(',');
       if (ledgeCells.has(key)) continue;
       ledgeCells.add(key);
       const foot = standingFoot(nav, world, { ...options, blocked, project });
@@ -121,7 +145,7 @@ export function findGoalFlights(
   }
   for (const boundary of ledges) {
     const point = boundaryLanding(boundary, goal, profile.radius / 4);
-    const cell = point.map((value: any) => Math.round(value / spacing)).join(',');
+    const cell = point.map((value) => Math.round(value / spacing)).join(',');
     if (ledgeCells.has(cell)) continue;
     ledgeCells.add(cell);
     const nav = project(point, { maxVertical: options.maxVertical })[0];
@@ -138,9 +162,10 @@ export function findGoalFlights(
     if (takeoffs.length >= 192) break;
   }
   const variants = createMotionVariants(model, world, profile);
-  const candidates: any = [],
-    nearMisses: any = [];
-  const attempt = (start: any, end: any, control: any, refine: any) => {
+  const candidates: Candidate[] = [],
+    nearMisses: { start: Witness; end: Witness; mode: MotionControl['mode']; distance: number }[] =
+      [];
+  const attempt = (start: Witness, end: Witness, control: MotionControl, refine: boolean) => {
     const { mode } = control;
     if (
       start.position[1] + model.maxJumpHeight + interaction.radius < goal[1] ||
@@ -171,14 +196,14 @@ export function findGoalFlights(
       ...control,
       walls: options.walls,
       wallCheck: () => false,
-      sweep: (): any => null,
+      sweep: () => null,
     });
     let collected = false;
-    const wallCheck = (from: any, to: any, inflation: any): any =>
+    const wallCheck = (from: Vec3, to: Vec3, inflation = 0) =>
       collected
         ? false
         : blocked(from, findGoalHit([from, to], goal, interaction)?.position ?? to, inflation);
-    const sweep = (from: any, to: any, body: any): any => {
+    const sweep = (from: Vec3, to: Vec3, body: Parameters<CollisionWorld['sweepCapsule']>[2]) => {
       if (collected) return null;
       const hit = findGoalHit([from, to], goal, interaction);
       const collision = world.sweepCapsule(from, hit?.position ?? to, body);
@@ -190,7 +215,6 @@ export function findGoalFlights(
       supportedDrop = runOffConnection(start.position, end.position, {
         ...model,
         profile,
-        mode,
         world,
         maxSlope: options.maxSlope,
         walls: options.walls,
@@ -227,12 +251,12 @@ export function findGoalFlights(
     const clipped = trimGoalFlight(verified, goal, interaction);
     if (!clipped) return;
     const speed =
-      verified.peakHorizontalSpeed ??
+      verified!.peakHorizontalSpeed ??
       Math.hypot(end.position[0] - start.position[0], end.position[2] - start.position[2]) /
-        verified.times.at(-1);
+        verified!.times.at(-1)!;
     candidates.push({
       start,
-      end: { position: clipped.points.at(-1) },
+      end: { position: clipped.points.at(-1)! },
       arc: {
         ...clipped,
         ...(speed > options.runAirSpeed + 1e-7 ? { requiredGait: 'sprint' } : {}),
@@ -251,7 +275,7 @@ export function findGoalFlights(
       goal[2] + inset * (start.position[2] - goal[2]),
     ];
     const heights = [
-      ...new Set<any>([
+      ...new Set<number>([
         goal[1],
         goal[1] - interaction.radius * 0.75,
         Math.min(goal[1], start.position[1] + model.maxJumpHeight),
@@ -259,7 +283,9 @@ export function findGoalFlights(
     ];
     for (const height of heights)
       for (const aim of [goal, near]) {
-        for (const mode of model.maxJumpHeight > 0 ? ['jump', 'drop'] : ['drop']) {
+        for (const mode of model.maxJumpHeight > 0
+          ? (['jump', 'drop'] as const)
+          : (['drop'] as const)) {
           attempt(start, { position: [aim[0], height, aim[2]] }, { mode }, false);
           if (diagnostics.attempted >= maxCandidates / 4 || candidates.length >= maxLinks) {
             diagnostics.truncated = true;
@@ -269,7 +295,7 @@ export function findGoalFlights(
       }
   }
   const coarseBudget = Math.max(1, Math.floor(maxCandidates / 2));
-  const landingScore = (foot: any) =>
+  const landingScore = (foot: Witness) =>
     Math.hypot(foot.position[0] - goal[0], foot.position[2] - goal[2]) +
     0.05 * Math.abs(foot.position[1] - goal[1]);
   const landings = [...feet].sort((a, b) => landingScore(a) - landingScore(b));
@@ -277,14 +303,16 @@ export function findGoalFlights(
   // height. Nearest landing alone can consume the budget on unrelated floors.
   const pairs = [];
   const departures = [
-    ...new Map<any, any>(
-      [...takeoffs, ...feet].map((foot): any => [JSON.stringify(foot.position), foot]),
+    ...new Map<string, Witness>(
+      [...takeoffs, ...feet].map((foot) => [JSON.stringify(foot.position), foot]),
     ).values(),
   ];
   for (const start of departures)
     for (const end of landings) {
       let miss = Infinity;
-      for (const mode of model.maxJumpHeight > 0 ? ['drop', 'jump'] : ['drop']) {
+      for (const mode of model.maxJumpHeight > 0
+        ? (['drop', 'jump'] as const)
+        : (['drop'] as const)) {
         const landing = jumpDuration(start.position[1], end.position[1], { ...model, mode });
         if (!landing) continue;
         const apex = start.position[1] + (mode === 'jump' ? model.maxJumpHeight : 0);
@@ -312,7 +340,9 @@ export function findGoalFlights(
   pairs.sort((a, b) => a.score - b.score);
   pairs: for (const { start, end } of pairs) {
     if (diagnostics.attempted >= coarseBudget) break;
-    for (const mode of model.maxJumpHeight > 0 ? ['drop', 'jump'] : ['drop']) {
+    for (const mode of model.maxJumpHeight > 0
+      ? (['drop', 'jump'] as const)
+      : (['drop'] as const)) {
       attempt(start, end, { mode }, true);
       if (diagnostics.attempted >= coarseBudget || candidates.length >= maxLinks) {
         diagnostics.truncated = true;
@@ -331,15 +361,15 @@ export function findGoalFlights(
   }
   // A nearest point on each face can miss a pickup by centimetres. Refine the
   // nearby flight families on actual support instead of enlarging its trigger.
-  const refinedFeet = new Map<any, any>();
-  const offsets = (foot: any): any => {
+  const refinedFeet = new Map<string, Witness[]>();
+  const offsets = (foot: Witness): Witness[] => {
     const key = JSON.stringify(foot.position);
-    if (refinedFeet.has(key)) return refinedFeet.get(key);
+    if (refinedFeet.has(key)) return refinedFeet.get(key)!;
     const result = [foot];
     for (const x of [-0.5, 0, 0.5])
       for (const z of [-0.5, 0, 0.5]) {
         if (x === 0 && z === 0) continue;
-        const point = [
+        const point: Vec3 = [
           foot.position[0] + x * spacing,
           foot.position[1],
           foot.position[2] + z * spacing,
@@ -352,7 +382,7 @@ export function findGoalFlights(
     refinedFeet.set(key, result);
     return result;
   };
-  nearMisses.sort((a: any, b: any) => a.distance - b.distance);
+  nearMisses.sort((a, b) => a.distance - b.distance);
   refinement: for (const near of nearMisses) {
     if (
       near.mode === 'jump' &&
@@ -374,21 +404,25 @@ export function findGoalFlights(
   return { candidates, diagnostics };
 }
 export function planAirborneGoal(
-  surfaces: any,
-  world: any,
-  starts: any,
-  goal: any,
-  options: any,
-  approach: any,
-): any {
+  surfaces: Surface[],
+  world: CollisionWorld,
+  starts: GroundArrival[],
+  goal: Vec3,
+  options: Options,
+  approach: (position: Vec3, maxCost: number) => Pick<JumpResult, 'route' | 'connections'>,
+): {
+  route: Route;
+  connections: GroundConnection[];
+  diagnostics: ReturnType<typeof findGoalFlights>['diagnostics'];
+} {
   const { candidates, diagnostics } = findGoalFlights(surfaces, world, starts, goal, options);
   const { profile, interaction } = options;
-  const first = starts.find((start: any) => start.state === 'available');
+  const first = starts.find((start) => start.state === 'available');
   if (!first) return { route: { status: 'unmapped' }, connections: [], diagnostics };
   candidates.sort(
-    (a: any, b: any) =>
+    (a, b) =>
       distance(first.position, a.start.position) - distance(first.position, b.start.position) ||
-      a.arc.times.at(-1) - b.arc.times.at(-1),
+      a.arc.times.at(-1)! - b.arc.times.at(-1)!,
   );
   let maxSpeed = Math.max(
     options.speed,
@@ -406,10 +440,13 @@ export function planAirborneGoal(
       if (span > 0)
         maxSpeed = Math.max(maxSpeed, span / (edge.times[index] - edge.times[index - 1]));
     }
-  let best: any = { status: 'no-verified-route' },
-    connections: any = [];
-  const prefixes = new Map<any, any>();
-  const ids = new Set<any>((options.connections ?? []).map((edge: any): any => edge.id));
+  let best: Route = { status: 'no-verified-route' },
+    connections: GroundConnection[] = [];
+  const prefixes = new Map<
+    string,
+    { result: Pick<JumpResult, 'route' | 'connections'>; maxCost: number }
+  >();
+  const ids = new Set<string>((options.connections ?? []).map((edge) => edge.id));
   let serial = 0;
   for (const candidate of candidates) {
     // A known complete result bounds further entry searches. Include supplied
@@ -417,7 +454,7 @@ export function planAirborneGoal(
     if (
       best.status === 'complete' &&
       starts.every(
-        (start: any) =>
+        (start) =>
           start.state !== 'available' ||
           start.cost +
             Math.hypot(
@@ -425,14 +462,15 @@ export function planAirborneGoal(
               start.position[2] - candidate.start.position[2],
             ) /
               maxSpeed +
-            candidate.arc.times.at(-1) >=
-            best.cost,
+            candidate.arc.times.at(-1)! >=
+            (best as Extract<Route, { status: 'complete' }>).cost,
       )
     )
       continue;
     // The authored final flight keeps its duration during resource retiming.
     // Any improving prefix must therefore fit the incumbent's remaining cost.
-    const maxCost = best.status === 'complete' ? best.cost - candidate.arc.times.at(-1) : Infinity;
+    const maxCost: number =
+      best.status === 'complete' ? best.cost - candidate.arc.times.at(-1)! : Infinity;
     const key = JSON.stringify(candidate.start.position);
     let saved = prefixes.get(key);
     // Current duration ordering tightens repeated bounds. Preserve correctness
@@ -446,7 +484,7 @@ export function planAirborneGoal(
       saved = { result: approach(candidate.start.position, maxCost), maxCost };
       prefixes.set(key, saved);
     }
-    const prefix = saved.result;
+    const prefix: Pick<JumpResult, 'route' | 'connections'> = saved.result;
     if (prefix.route.status !== 'complete') continue;
     let id;
     do {
@@ -454,16 +492,14 @@ export function planAirborneGoal(
     } while (ids.has(id));
     ids.add(id);
     const segment = { ...candidate.arc, connection: id };
-    let route = {
+    let route: Route = {
       ...prefix.route,
       segments: [...prefix.route.segments, segment],
       points: [...prefix.route.points, ...segment.points.slice(1)],
-      cost: prefix.route.cost + segment.times.at(-1),
+      cost: prefix.route.cost + segment.times.at(-1)!,
       length:
         prefix.route.length +
-        segment.points
-          .slice(1)
-          .reduce((sum: any, p: any, i: any): any => sum + distance(p, segment.points[i]), 0),
+        segment.points.slice(1).reduce((sum, p, i) => sum + distance(p, segment.points[i]), 0),
     };
     if (options.locomotion) route = retimeGroundRoute(route, options.locomotion);
     if (route.status !== 'complete' || (best.status === 'complete' && route.cost >= best.cost))

@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Capsule, CollisionWorld } from '../src/collision-types.js';
 import { createCollisionWorld } from '../src/collision.js';
 import { createGoalProjector } from '../src/goals.js';
 import { planGroundRoute, createGroundPlanner } from '../src/ground.js';
+import type {
+  DiscoveryOptions,
+  GroundConnection,
+  Surface,
+  Vec3,
+  Wall,
+} from '../src/index-types.js';
 import { jumpConnection } from '../src/jumps.js';
 import { findJumpConnections, exposedBoundaries, standingFoot } from '../src/traversal.js';
 
-const floor = (id, x0, x1, y, z0 = -2, z1 = 2) => ({
+const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
   id,
   vertices: [
     [x0, y, z0],
@@ -16,7 +24,7 @@ const floor = (id, x0, x1, y, z0 = -2, z1 = 2) => ({
     [x0, y, z1],
   ],
 });
-const geometry = (surfaces) => {
+const geometry = (surfaces: Surface[]) => {
   const triangles = surfaces.flatMap((s) => [
     [s.vertices[0], s.vertices[2], s.vertices[1]],
     [s.vertices[0], s.vertices[3], s.vertices[2]],
@@ -26,7 +34,7 @@ const geometry = (surfaces) => {
     indices: Array.from({ length: triangles.length * 3 }, (_, i) => i),
   };
 };
-const options = {
+const options: DiscoveryOptions = {
   profile: { radius: 0.3, height: 1.7 },
   portals: [],
   walls: [],
@@ -50,7 +58,7 @@ const options = {
 };
 
 test('discovers directed model-based jumps between supported separated platforms', () => {
-  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
+  const surfaces: Surface[] = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
   const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), options);
   assert.ok(result.connections.some((c) => c.fromSurface === 'upper' && c.toSurface === 'lower'));
   assert.equal(
@@ -60,14 +68,14 @@ test('discovers directed model-based jumps between supported separated platforms
   for (const connection of result.connections) {
     assert.equal(connection.state, 'open');
     assert.equal(connection.motionValidation, 'model-based');
-    assert.ok(connection.endpointTolerance <= options.profile.radius);
+    assert.ok(connection.endpointTolerance! <= options.profile.radius);
     assert.ok(connection.points[0][1] > 3.99);
   }
 });
 
 test('retains supported narrow landing regions whose navigation already includes body clearance', () => {
-  const upper = floor('upper', 0, 4, 4);
-  const landing = floor('landing', 7, 7.3, 0, -0.1, 0.1);
+  const upper: Surface = floor('upper', 0, 4, 4);
+  const landing: Surface = floor('landing', 7, 7.3, 0, -0.1, 0.1);
   // The collision floor is wider than its baked, body-eroded navigation region.
   const world = createCollisionWorld(
     geometry([upper, floor('physical-landing', 6.6, 7.7, 0, -0.5, 0.5)]),
@@ -78,16 +86,16 @@ test('retains supported narrow landing regions whose navigation already includes
   });
   const connection = result.connections.find((entry) => entry.toSurface === 'landing');
   assert.ok(connection);
-  assert.ok(world.groundAt(connection.points.at(-1), { maxUp: 0.1, maxDown: 0.1, maxSlope: 46 }));
+  assert.ok(world.groundAt(connection.points.at(-1)!, { maxUp: 0.1, maxDown: 0.1, maxSlope: 46 }));
   assert.equal(
-    world.sweepCapsule(connection.points.at(-1), connection.points.at(-1), options.profile),
+    world.sweepCapsule(connection.points.at(-1)!, connection.points.at(-1)!, options.profile),
     null,
   );
   assert.equal(result.diagnostics.targetReached, true);
 });
 
 test('can discover several hops through an intermediate ground component', () => {
-  const surfaces = [floor('a', 0, 4, 0), floor('b', 7, 11, 0), floor('c', 14, 18, 0)];
+  const surfaces: Surface[] = [floor('a', 0, 4, 0), floor('b', 7, 11, 0), floor('c', 14, 18, 0)];
   const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), {
     ...options,
     from: [2, 0, 0],
@@ -112,20 +120,20 @@ test('can discover several hops through an intermediate ground component', () =>
       connections: result.connections,
     },
   );
-  assert.equal(route.status, 'complete');
+  assert.ok(route.status === 'complete');
   assert.equal(route.segments.filter((segment) => segment.mode === 'jump').length, 2);
 });
 
 test('discovers jumps before and after a directed known ride between ground components', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('start', 0, 4, 0),
     floor('boarding', 7, 11, 0),
     floor('exit', 7, 11, 10),
     floor('target', 14, 18, 10),
   ];
   const world = createCollisionWorld(geometry(surfaces));
-  const query = { ...options, from: [2, 0, 0], to: [16, 10, 0] };
-  const ride = {
+  const query: DiscoveryOptions = { ...options, from: [2, 0, 0], to: [16, 10, 0] };
+  const ride: GroundConnection = {
     id: 'lift',
     mode: 'rope',
     state: 'open',
@@ -158,7 +166,7 @@ test('discovers jumps before and after a directed known ride between ground comp
       connections: [ride, ...result.connections],
     },
   );
-  assert.equal(route.status, 'complete');
+  assert.ok(route.status === 'complete');
   assert.deepEqual(
     route.segments.filter((segment) => segment.mode !== 'walk').map((segment) => segment.mode),
     ['jump', 'rope', 'jump'],
@@ -171,7 +179,7 @@ test('discovers jumps before and after a directed known ride between ground comp
       ],
     },
     { connections: [ride], walls: [{ min: [7, 4, -3], max: [11, 6, 3], state: 'active' }] },
-  ]) {
+  ] satisfies Partial<DiscoveryOptions>[]) {
     const rejected = findJumpConnections(surfaces, world, { ...query, ...change });
     assert.equal(rejected.diagnostics.targetReached, false);
     assert.equal(rejected.connections.length, 0);
@@ -179,9 +187,9 @@ test('discovers jumps before and after a directed known ride between ground comp
 });
 
 test('rejects blocking air walls and distant components without inventing a reverse edge', () => {
-  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)],
+  const surfaces: Surface[] = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)],
     world = createCollisionWorld(geometry(surfaces));
-  const wall = { min: [5, -10, -20], max: [6, 20, 20], state: 'unknown' };
+  const wall: Wall = { min: [5, -10, -20], max: [6, 20, 20], state: 'unknown' };
   assert.equal(
     findJumpConnections(surfaces, world, { ...options, walls: [wall] }).connections.length,
     0,
@@ -194,7 +202,7 @@ test('rejects blocking air walls and distant components without inventing a reve
 });
 
 test('returns no jump work when the destination is already ground reachable', () => {
-  const surfaces = [floor('a', 0, 4, 0), floor('b', 4, 8, 0)];
+  const surfaces: Surface[] = [floor('a', 0, 4, 0), floor('b', 4, 8, 0)];
   const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), {
     ...options,
     from: [2, 0, 0],
@@ -205,7 +213,7 @@ test('returns no jump work when the destination is already ground reachable', ()
 });
 
 test('reports sampling truncation and validates explicit motion and search limits', () => {
-  const surfaces = [floor('a', 0, 4, 4), floor('b', 7, 11, 0)],
+  const surfaces: Surface[] = [floor('a', 0, 4, 4), floor('b', 7, 11, 0)],
     world = createCollisionWorld(geometry(surfaces));
   assert.equal(
     findJumpConnections(surfaces, world, { ...options, maxCandidates: 1 }).diagnostics.truncated,
@@ -227,7 +235,7 @@ test('reports sampling truncation and validates explicit motion and search limit
 });
 
 test('moves takeoff behind a thin railing when an edge-near jump intersects it', () => {
-  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)],
+  const surfaces: Surface[] = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)],
     base = geometry(surfaces);
   const railing = [
     [
@@ -265,12 +273,12 @@ test('moves takeoff behind a thin railing when an edge-near jump intersects it',
 });
 
 test('keeps pre-budget grouping work bounded for highly imbalanced components', () => {
-  const surfaces = Array.from({ length: 5000 }, (_, index) =>
+  const surfaces: Surface[] = Array.from({ length: 5000 }, (_, index) =>
     floor(`strip/${index}`, index / 5, (index + 1) / 5, 0, 0, 1),
   );
   for (let index = 0; index < 1000; index++)
     surfaces.push(floor(`island/${index}`, 2000 + index * 3, 2001 + index * 3, 0, 0, 1));
-  const collision = {
+  const collision: CollisionWorld = {
     groundAt(position) {
       return { position: [position[0], 0, position[2]], triangle: 0, normal: [0, 1, 0] };
     },
@@ -309,14 +317,17 @@ test('keeps pre-budget grouping work bounded for highly imbalanced components', 
 });
 
 test('preserves collision-world method receivers during arc sweeps', () => {
-  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
+  const surfaces: Surface[] = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
   const world = {
     collision: createCollisionWorld(geometry(surfaces)),
     sweeps: 0,
-    groundAt(position, query) {
+    groundAt(
+      position: Parameters<CollisionWorld['groundAt']>[0],
+      query: Parameters<CollisionWorld['groundAt']>[1],
+    ) {
       return this.collision.groundAt(position, query);
     },
-    sweepCapsule(start, end, profile) {
+    sweepCapsule(start: Vec3, end: Vec3, profile: Capsule) {
       this.sweeps++;
       return this.collision.sweepCapsule(start, end, profile);
     },
@@ -327,7 +338,7 @@ test('preserves collision-world method receivers during arc sweeps', () => {
 });
 
 test('keeps useful local jumps when sampling is denser and the distant reach bound grows', () => {
-  const surfaces = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
+  const surfaces: Surface[] = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
   const world = createCollisionWorld(geometry(surfaces));
   for (const sampleSpacing of [1, 2])
     for (const maxHorizontalDistance of [15, 1000]) {
@@ -367,12 +378,12 @@ test('retains local routes when connected ground extends beyond the requested ap
       },
     );
     assert.equal(result.diagnostics.targetReached, true);
-    assert.equal(route.status, 'complete');
+    assert.ok(route.status === 'complete');
   }
 });
 
 test('retains endpoint coverage for both requested components under a bounded global sampling budget', () => {
-  const surfaces = [floor('upper', 0, 4, 4, -50, 50), floor('lower', 7, 11, 0, -50, 50)];
+  const surfaces: Surface[] = [floor('upper', 0, 4, 4, -50, 50), floor('lower', 7, 11, 0, -50, 50)];
   for (let index = 0; index < 100; index++) {
     surfaces.push(floor(`distant/${index}`, 1000 + index * 3, 1001 + index * 3, 0));
   }
@@ -382,8 +393,8 @@ test('retains endpoint coverage for both requested components under a bounded gl
   });
   // A single long boundary previously exhausted the budget before reaching the
   // other platform. Lazy validation must reach both and complete the actual link.
-  assert.ok(result.diagnostics.sourceEndpoints > 0);
-  assert.ok(result.diagnostics.targetEndpoints > 0);
+  assert.ok(result.diagnostics.sourceEndpoints! > 0);
+  assert.ok(result.diagnostics.targetEndpoints! > 0);
   assert.ok(result.diagnostics.endpointChecks <= result.diagnostics.limits.endpointChecks);
   assert.equal(result.diagnostics.targetReached, true);
   assert.ok(
@@ -407,12 +418,12 @@ test('finds three short ascending hops through narrow box tops in translated and
     base[3],
   ];
   for (const angle of [0, 0.6, 1.7]) {
-    const transform = ([x, y, z]) => [
+    const transform = ([x, y, z]: readonly number[]): Vec3 => [
       120 + x * Math.cos(angle) - z * Math.sin(angle),
       y + 37,
       -85 + x * Math.sin(angle) + z * Math.cos(angle),
     ];
-    const surfaces = base.map((surface) => ({
+    const surfaces: Surface[] = base.map((surface) => ({
       ...surface,
       vertices: surface.vertices.map(transform),
     }));
@@ -447,13 +458,13 @@ test('finds three short ascending hops through narrow box tops in translated and
         connections: result.connections,
       },
     );
-    assert.equal(route.status, 'complete');
+    assert.ok(route.status === 'complete');
     assert.equal(route.segments.filter((segment) => segment.mode === 'jump').length, 3);
   }
 });
 
 test('searches all interaction faces together and deduplicates their region', () => {
-  const upper = floor('upper', 0, 4, 4),
+  const upper: Surface = floor('upper', 0, 4, 4),
     lower = [];
   for (let index = 0; index < 20; index++)
     lower.push(floor(`lower/${index}`, 7 + index * 0.2, 7.2 + index * 0.2, 0));
@@ -473,7 +484,7 @@ test('searches all interaction faces together and deduplicates their region', ()
 });
 
 test('keeps goal-directed landing coverage on a large subdivided floor under raw-pair truncation', () => {
-  const upper = floor('upper', 0, 4, 4),
+  const upper: Surface = floor('upper', 0, 4, 4),
     lower = [];
   for (let index = 0; index < 200; index++)
     lower.push(floor(`lower/${index}`, 7, 20, 0, -40 + index * 0.4, -40 + (index + 1) * 0.4));
@@ -512,17 +523,17 @@ test('discovers supported interior landings on large floors whose boundaries are
     [Math.PI / 3, 512.8],
     [Math.PI / 2, -1024.8],
   ]) {
-    const transform = ([x, y, z]) => [
+    const transform = ([x, y, z]: readonly number[]): Vec3 => [
       x * Math.cos(angle) - z * Math.sin(angle) + offset,
       y,
       x * Math.sin(angle) + z * Math.cos(angle) + offset,
     ];
-    const surfaces = [floor('upper', 0, 4, 4), floor('lower', -50, 50, 0, -50, 50)].map(
+    const surfaces: Surface[] = [floor('upper', 0, 4, 4), floor('lower', -50, 50, 0, -50, 50)].map(
       (surface) => ({ ...surface, vertices: surface.vertices.map(transform) }),
     );
     const world = createCollisionWorld(geometry(surfaces)),
-      from = transform([2, 4, 0]),
-      to = transform([10, 0, 0]);
+      from: Vec3 = transform([2, 4, 0]),
+      to: Vec3 = transform([10, 0, 0]);
     const result = findJumpConnections(surfaces, world, {
       ...options,
       from,
@@ -543,13 +554,13 @@ test('discovers supported interior landings on large floors whose boundaries are
         connections: result.connections,
       },
     );
-    assert.equal(route.status, 'complete');
+    assert.ok(route.status === 'complete');
     assert.ok(route.segments.some((segment) => segment.mode === 'jump' || segment.mode === 'drop'));
   }
 });
 
 test('partial shared edges retain their exposed ledge interval and perpendicular inward normal', () => {
-  const surfaces = [floor('a', 0, 4, 0), floor('b', 4, 8, 0, -2, 0)];
+  const surfaces: Surface[] = [floor('a', 0, 4, 0), floor('b', 4, 8, 0, -2, 0)];
   const boundaries = exposedBoundaries(surfaces, []);
   const ledge = boundaries.find((boundary) => boundary.surface === 'a' && boundary.edge === 1);
   assert.ok(ledge);
@@ -562,7 +573,7 @@ test('partial shared edges retain their exposed ledge interval and perpendicular
 });
 
 test('corrected standing feet use the closest eligible navigation support', () => {
-  const surfaces = [floor('voxel', 0, 4, 0.1), floor('support', 0, 4, 0)];
+  const surfaces: Surface[] = [floor('voxel', 0, 4, 0.1), floor('support', 0, 4, 0)];
   const world = createCollisionWorld(geometry([floor('physical', 0, 4, 0)]));
   const result = standingFoot({ surface: 'voxel', position: [2, 0.1, 0] }, world, {
     ...options,
@@ -574,11 +585,16 @@ test('corrected standing feet use the closest eligible navigation support', () =
 });
 
 test('shared traversal preparation does not retain an earlier query action overlay', () => {
-  const surfaces = [floor('a', 0, 4, 0), floor('b', 20, 24, 0)];
+  const surfaces: Surface[] = [floor('a', 0, 4, 0), floor('b', 20, 24, 0)];
   const world = createCollisionWorld(geometry(surfaces));
-  const query = { ...options, speed: 7, from: [2, 0, 0], to: [22, 0, 0] };
+  const query: DiscoveryOptions & { speed: number } = {
+    ...options,
+    speed: 7,
+    from: [2, 0, 0],
+    to: [22, 0, 0],
+  };
   const groundPlanner = createGroundPlanner(surfaces, query);
-  const transfer = {
+  const transfer: GroundConnection = {
     id: 'rope',
     mode: 'rope',
     state: 'open',

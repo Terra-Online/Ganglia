@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Portal, Surface, Vec3 } from '../src/index-types.js';
 import { surfaceGraph, projectPoint, route } from '../src/index.js';
+import { expectStatus } from './assertions.js';
 test('joins a shared 3D edge but never an overlapping upper floor', () => {
-  const a = {
+  const a: Surface = {
     id: 'a',
     vertices: [
       [0, 0, 0],
@@ -12,7 +14,7 @@ test('joins a shared 3D edge but never an overlapping upper floor', () => {
       [0, 0, 1],
     ],
   };
-  const b = {
+  const b: Surface = {
     id: 'b',
     vertices: [
       [1, 0, 0],
@@ -21,15 +23,18 @@ test('joins a shared 3D edge but never an overlapping upper floor', () => {
       [1, 0, 1],
     ],
   };
-  const upper = { id: 'upper', vertices: a.vertices.map(([x, y, z]) => [x, y + 5, z]) };
+  const upper: Surface = {
+    id: 'upper',
+    vertices: a.vertices.map(([x, y, z]: readonly number[]) => [x, y + 5, z]),
+  };
   const graph = surfaceGraph([a, b, upper], { speed: 1 });
   assert.equal(route(graph, 'a', 'b').status, 'complete');
   assert.equal(route(graph, 'a', 'upper').status, 'no-verified-route');
-  assert.deepEqual(route(graph, 'a', 'b').points[1], [1, 0, 0.5]);
+  assert.deepEqual(expectStatus(route(graph, 'a', 'b'), 'complete').points[1], [1, 0, 0.5]);
 });
 
 test('projects on the correct stacked floor and refuses points over a gap', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     {
       id: 'lower',
       vertices: [
@@ -49,13 +54,13 @@ test('projects on the correct stacked floor and refuses points over a gap', () =
       ],
     },
   ];
-  assert.equal(projectPoint(surfaces, [1, 5.2, 1], { maxVertical: 0.5 }).surface, 'upper');
+  assert.equal(projectPoint(surfaces, [1, 5.2, 1], { maxVertical: 0.5 })!.surface, 'upper');
   assert.equal(projectPoint(surfaces, [1, 2, 1], { maxVertical: 0.5 }), null);
   assert.equal(projectPoint(surfaces, [3, 0, 1], { maxVertical: 0.5 }), null);
 });
 
 test('coincident geometry does not override an authored closed polygon boundary', () => {
-  const a = {
+  const a: Surface = {
     id: 'a',
     vertices: [
       [0, 0, 0],
@@ -65,7 +70,7 @@ test('coincident geometry does not override an authored closed polygon boundary'
     ],
     portals: [],
   };
-  const b = {
+  const b: Surface = {
     id: 'b',
     vertices: [
       [1, 0, 0],
@@ -83,7 +88,7 @@ test('coincident geometry does not override an authored closed polygon boundary'
 });
 
 test('joins split collinear portals only over their positive shared interval', () => {
-  const a = {
+  const a: Surface = {
     id: 'a',
     vertices: [
       [0, 0, 0],
@@ -93,7 +98,7 @@ test('joins split collinear portals only over their positive shared interval', (
     ],
     portals: [1],
   };
-  const b = {
+  const b: Surface = {
     id: 'b',
     vertices: [
       [1, 0, 0],
@@ -103,7 +108,7 @@ test('joins split collinear portals only over their positive shared interval', (
     ],
     portals: [3],
   };
-  const c = {
+  const c: Surface = {
     id: 'c',
     vertices: [
       [1, 0, 1],
@@ -116,13 +121,16 @@ test('joins split collinear portals only over their positive shared interval', (
   const graph = surfaceGraph([a, b, c], { speed: 1 });
   assert.equal(route(graph, 'a', 'b').status, 'complete');
   assert.equal(route(graph, 'a', 'c').status, 'complete');
-  assert.deepEqual(route(graph, 'a', 'b').points[1], [1, 0, 0.5]);
-  assert.deepEqual(route(graph, 'a', 'c').points[1], [1, 0, 1.5]);
+  assert.deepEqual(expectStatus(route(graph, 'a', 'b'), 'complete').points[1], [1, 0, 0.5]);
+  assert.deepEqual(expectStatus(route(graph, 'a', 'c'), 'complete').points[1], [1, 0, 1.5]);
   assert.equal(
     route(
-      surfaceGraph([a, { ...b, vertices: b.vertices.map(([x, y, z]) => [x, y + 0.01, z]) }], {
-        speed: 1,
-      }),
+      surfaceGraph(
+        [a, { ...b, vertices: b.vertices.map(([x, y, z]: readonly number[]) => [x, y + 0.01, z]) }],
+        {
+          speed: 1,
+        },
+      ),
       'a',
       'b',
     ).status,
@@ -139,7 +147,7 @@ test('joins split collinear portals only over their positive shared interval', (
 });
 
 test('imported vertical seam transfers are directed and retain both ground heights', () => {
-  const a = {
+  const a: Surface = {
     id: 'a',
     vertices: [
       [0, 0, 0],
@@ -149,7 +157,7 @@ test('imported vertical seam transfers are directed and retain both ground heigh
     ],
     portals: [],
   };
-  const b = {
+  const b: Surface = {
     id: 'b',
     vertices: [
       [1, 0.2, 0],
@@ -159,7 +167,7 @@ test('imported vertical seam transfers are directed and retain both ground heigh
     ],
     portals: [],
   };
-  const portal = {
+  const portal: Portal = {
     from: 'a',
     to: 'b',
     points: [
@@ -168,7 +176,7 @@ test('imported vertical seam transfers are directed and retain both ground heigh
     ],
   };
   const graph = surfaceGraph([a, b], { speed: 1, portals: [portal] });
-  assert.deepEqual(route(graph, 'a', 'b').points, [
+  assert.deepEqual(expectStatus(route(graph, 'a', 'b'), 'complete').points, [
     [0.5, 0, 0.5],
     [1, 0, 0.5],
     [1, 0.2, 0.5],
@@ -210,33 +218,36 @@ test('imported vertical seam transfers are directed and retain both ground heigh
 });
 
 test('joins rotated sloping split edges without inventing height or horizontal gaps', () => {
-  const transform = ([x, y, z]) => [
-    (x - z) / Math.sqrt(2),
-    y + x * 0.2 + z * 0.1,
-    (x + z) / Math.sqrt(2),
-  ];
-  const a = {
+  const transform: (value: number[], index: number, array: number[][]) => number[] = ([
+    x,
+    y,
+    z,
+  ]: readonly number[]) => [(x - z) / Math.sqrt(2), y + x * 0.2 + z * 0.1, (x + z) / Math.sqrt(2)];
+  const a: Surface = {
     id: 'a',
     vertices: [
       [0, 0, 0],
       [1, 0, 0],
       [1, 0, 2],
       [0, 0, 2],
-    ].map(transform),
+    ].map(transform) as Vec3[],
     portals: [1],
   };
-  const b = {
+  const b: Surface = {
     id: 'b',
     vertices: [
       [1, 0, 0],
       [2, 0, 0],
       [2, 0, 1],
       [1, 0, 1],
-    ].map(transform),
+    ].map(transform) as Vec3[],
     portals: [3],
   };
   assert.equal(route(surfaceGraph([a, b], { speed: 1 }), 'a', 'b').status, 'complete');
-  const separated = { ...b, vertices: b.vertices.map(([x, y, z]) => [x + 0.001, y, z]) };
+  const separated: Surface = {
+    ...b,
+    vertices: b.vertices.map(([x, y, z]: readonly number[]) => [x + 0.001, y, z]),
+  };
   assert.equal(
     route(surfaceGraph([a, separated], { speed: 1 }), 'a', 'b').status,
     'no-verified-route',
@@ -244,7 +255,7 @@ test('joins rotated sloping split edges without inventing height or horizontal g
 });
 
 test('rejects imported seam endpoints inside a polygon instead of on its boundary', () => {
-  const a = {
+  const a: Surface = {
     id: 'a',
     vertices: [
       [0, 0, 0],
@@ -254,7 +265,7 @@ test('rejects imported seam endpoints inside a polygon instead of on its boundar
     ],
     portals: [],
   };
-  const b = {
+  const b: Surface = {
     id: 'b',
     vertices: [
       [1, 0.2, 0],

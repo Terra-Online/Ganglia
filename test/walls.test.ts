@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Graph, Vec3, Wall } from '../src/index-types.js';
 import { blockedByWalls, createWallChecker, route } from '../src/index.js';
-const wall = { min: [0, 0, -2], max: [0.2, 3, 2], state: 'unknown' };
+const wall: Wall = { min: [0, 0, -2], max: [0.2, 3, 2], state: 'unknown' };
 const profile = { radius: 0.4, height: 2 };
 test('unknown walls reject crossing and radius grazing; inactive walls allow crossing', () => {
   assert.equal(blockedByWalls([-1, 0, 0], [1, 0, 0], [wall], profile), true);
@@ -17,7 +18,7 @@ test('unknown walls reject crossing and radius grazing; inactive walls allow cro
 });
 
 test('indexed curve inflation matches explicit body expansion for boxes and authored rings', () => {
-  const cases = [
+  const cases: Wall[] = [
     wall,
     {
       ...wall,
@@ -37,7 +38,7 @@ test('indexed curve inflation matches explicit body expansion for boxes and auth
       ],
     },
   ];
-  const segments = [
+  const segments: [Vec3, Vec3][] = [
     [
       [-1, 0, 0],
       [1, 0, 0],
@@ -59,7 +60,7 @@ test('indexed curve inflation matches explicit body expansion for boxes and auth
     const check = createWallChecker([record], profile);
     for (const inflation of [0, 0.01, 0.4, 1])
       for (const [start, end] of segments) {
-        const shifted = (point) => [point[0], point[1] - inflation, point[2]];
+        const shifted = (point: number[]): Vec3 => [point[0], point[1] - inflation, point[2]];
         assert.equal(
           check(start, end, inflation),
           blockedByWalls(shifted(start), shifted(end), [record], {
@@ -73,9 +74,9 @@ test('indexed curve inflation matches explicit body expansion for boxes and auth
 });
 
 test('routing cannot bypass the wall test with an explicitly open edge', () => {
-  const a = [-1, 0, 0],
-    b = [1, 0, 0];
-  const graph = {
+  const a: Vec3 = [-1, 0, 0],
+    b: Vec3 = [1, 0, 0];
+  const graph: Graph = {
     nodes: [
       { id: 'a', position: a },
       { id: 'b', position: b },
@@ -86,7 +87,7 @@ test('routing cannot bypass the wall test with an explicitly open edge', () => {
 });
 
 test('bent wall polylines do not fill their whole bounding box or bridge stacked floors', () => {
-  const bent = {
+  const bent: Wall = {
     min: [0, 0, 0],
     max: [5, 3, 5],
     state: 'unknown',
@@ -104,7 +105,7 @@ test('bent wall polylines do not fill their whole bounding box or bridge stacked
 });
 
 test('filled hazard prisms preserve concavities, interior exclusion and rounded clearance', () => {
-  const zone = {
+  const zone: Wall = {
     min: [0, 0, 0],
     max: [4, 4, 4],
     state: 'unknown',
@@ -149,7 +150,7 @@ test('filled hazard prisms preserve concavities, interior exclusion and rounded 
 });
 
 test('prepared exclusions own their bounds, rings, active states and body profile', () => {
-  const zone = {
+  const zone: Wall = {
     min: [0, 0, 0],
     max: [4, 4, 4],
     state: 'unknown',
@@ -169,7 +170,7 @@ test('prepared exclusions own their bounds, rings, active states and body profil
   zone.state = 'inactive';
   zone.min.fill(100);
   zone.max.fill(101);
-  zone.polygon.forEach((point) => point.fill(100));
+  zone.polygon!.forEach((point) => point.fill(100));
   body.radius = 0;
   body.height = 0.1;
   assert.equal(check([0.5, -1, 2], [0.5, -1, 3]), true);
@@ -177,9 +178,9 @@ test('prepared exclusions own their bounds, rings, active states and body profil
 });
 
 test('all records are validated before early hits, including inactive and distant walls', () => {
-  const start = [-1, 0, 0],
-    end = [1, 0, 0];
-  const invalid = { ...wall, min: [100, NaN, 100], max: [101, 2, 101] };
+  const start: Vec3 = [-1, 0, 0],
+    end: Vec3 = [1, 0, 0];
+  const invalid: Wall = { ...wall, min: [100, NaN, 100], max: [101, 2, 101] };
   assert.throws(() => createWallChecker([wall, invalid], profile), /Invalid wall/);
   assert.throws(() => blockedByWalls(start, end, [wall, invalid], profile), /Invalid wall/);
   assert.throws(
@@ -212,7 +213,7 @@ test('all records are validated before early hits, including inactive and distan
 });
 
 test('broad-phase bounds retain tall bodies, padding and ring vertices outside declared bounds', () => {
-  const zone = {
+  const zone: Wall = {
     min: [100, 1, 100],
     max: [101, 2, 101],
     state: 'active',
@@ -240,7 +241,7 @@ test('indexed queries match the single-query checker for deterministic mixed wal
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     return seed / 2 ** 32;
   };
-  const walls = Array.from({ length: 40 }, (_, index) => {
+  const walls: Wall[] = Array.from({ length: 40 }, (_, index) => {
     const x = next() * 50 - 25,
       z = next() * 50 - 25,
       y = next() * 10 - 5,
@@ -250,7 +251,7 @@ test('indexed queries match the single-query checker for deterministic mixed wal
       min: [x, y, z],
       max: [x + size, y + 1 + next() * 3, z + size],
       padding: next() * 0.5,
-      state: ['active', 'unknown', 'inactive'][index % 3],
+      state: (['active', 'unknown', 'inactive'] as const)[index % 3],
       ...(shape === 0
         ? {
             polygon: [
@@ -280,15 +281,15 @@ test('indexed queries match the single-query checker for deterministic mixed wal
   ]) {
     const check = createWallChecker(walls, body);
     for (let index = 0; index < 300; index++) {
-      const a = [next() * 70 - 35, next() * 20 - 10, next() * 70 - 35];
-      const b = [next() * 70 - 35, next() * 20 - 10, next() * 70 - 35];
+      const a: Vec3 = [next() * 70 - 35, next() * 20 - 10, next() * 70 - 35];
+      const b: Vec3 = [next() * 70 - 35, next() * 20 - 10, next() * 70 - 35];
       assert.equal(check(a, b), blockedByWalls(a, b, walls, body));
     }
   }
 });
 
 test('round solid occupancy rejects containment and swept contact without filling AABB corners', () => {
-  const wall = {
+  const wall: Wall = {
     min: [-2, -2, -2],
     max: [2, 2, 2],
     state: 'unknown',
@@ -304,19 +305,19 @@ test('round solid occupancy rejects containment and swept contact without fillin
     [[-4, 3, 0], [4, 3, 0], false],
     [[0, -4, 0], [0, -4, 0], false],
     [[0, -3, 0], [0, -3, 0], true],
-  ]) {
+  ] satisfies [Vec3, Vec3, boolean][]) {
     assert.equal(query(start, end), blocked);
     assert.equal(blockedByWalls(start, end, [wall], profile), blocked);
   }
   assert.equal(query([2.5, 0, 0], [2.5, 0, 0], 0.3), true);
   assert.equal(query([2.5, 0, 0], [2.5, 0, 0]), false);
-  wall.sphere.center[0] = 100;
+  wall.sphere!.center[0] = 100;
   assert.equal(query([0, 0, 0], [0, 0, 0]), true);
   assert.equal(blockedByWalls([0, 0, 0], [0, 0, 0], [wall], profile), false);
 });
 
 test('sphere validation and broad-phase bounds cover the complete solid and padded body', () => {
-  const wall = {
+  const wall: Wall = {
     min: [0, 0, 0],
     max: [0, 0, 0],
     state: 'active',
@@ -333,7 +334,13 @@ test('sphere validation and broad-phase bounds cover the complete solid and padd
     { center: [NaN, 0, 0], radius: 1 },
   ]) {
     assert.throws(
-      () => createWallChecker([{ ...wall, state: 'inactive', sphere }], profile),
+      () =>
+        createWallChecker(
+          [{ ...wall, state: 'inactive', sphere }] as unknown as Parameters<
+            typeof createWallChecker
+          >[0],
+          profile,
+        ),
       /Invalid wall sphere/,
     );
   }

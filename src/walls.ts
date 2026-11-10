@@ -1,5 +1,27 @@
-const segmentDistance = (a: any, b: any, c: any, d: any) => {
-  const cross = (p: any, q: any, r: any) =>
+import type { Bounds } from './bounds.js';
+import type { Vec3, Wall } from './index-types.js';
+type Point2 = readonly number[];
+type Profile = { radius: number; height: number };
+interface Sphere {
+  center: readonly number[];
+  radius: number;
+  margin: number;
+  lower: number;
+  upper: number;
+}
+interface WallRecord extends Bounds {
+  margin: number;
+  sphere?: Sphere;
+  filled: boolean;
+  ring?: Point2[];
+}
+type WallTree = Bounds &
+  (
+    | { entries: WallRecord[]; left?: never; right?: never }
+    | { entries?: never; left: WallTree; right: WallTree }
+  );
+const segmentDistance = (a: Point2, b: Point2, c: Point2, d: Point2) => {
+  const cross = (p: Point2, q: Point2, r: Point2) =>
     (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
   const abC = cross(a, b, c),
     abD = cross(a, b, d),
@@ -10,7 +32,7 @@ const segmentDistance = (a: any, b: any, c: any, d: any) => {
     ((cdA > 0 && cdB < 0) || (cdA < 0 && cdB > 0))
   )
     return 0;
-  const toSegment = (p: any, q: any, r: any) => {
+  const toSegment = (p: Point2, q: Point2, r: Point2) => {
     const x = r[0] - q[0],
       z = r[1] - q[1],
       length = x * x + z * z;
@@ -20,7 +42,7 @@ const segmentDistance = (a: any, b: any, c: any, d: any) => {
   };
   return Math.min(toSegment(a, c, d), toSegment(b, c, d), toSegment(c, a, b), toSegment(d, a, b));
 };
-const insidePolygon = (point: any, ring: any) => {
+const insidePolygon = (point: Point2, ring: Point2[]) => {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const a = ring[i],
@@ -33,9 +55,9 @@ const insidePolygon = (point: any, ring: any) => {
   }
   return inside;
 };
-const finitePoint = (point: any) =>
+const finitePoint = (point: unknown) =>
   Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
-const validateProfile = (profile: any) => {
+const validateProfile = (profile: Profile) => {
   if (
     !profile ||
     !Number.isFinite(profile.radius) ||
@@ -47,9 +69,9 @@ const validateProfile = (profile: any) => {
 };
 // A translating upright capsule sweeps a vertical segment across its feet path.
 // Distance to that swept parallelogram is piecewise quadratic in path time.
-const touchesSphere = (start: any, end: any, sphere: any, inflation: any) => {
-  const delta = end.map((v: any, i: any) => v - start[i]);
-  const relative = sphere.center.map((v: any, i: any) => v - start[i]);
+const touchesSphere = (start: Vec3, end: Vec3, sphere: Sphere, inflation: number) => {
+  const delta = end.map((v, i) => v - start[i]);
+  const relative = sphere.center.map((v, i) => v - start[i]);
   const radius = sphere.radius + sphere.margin + inflation;
   const cuts = [0, 1];
   if (delta[1] !== 0)
@@ -81,12 +103,17 @@ const touchesSphere = (start: any, end: any, sphere: any, inflation: any) => {
   }
   return false;
 };
-const wallRecord = (wall: any, radius: any, height: any, snapshot: any): any => {
+const wallRecord = (
+  wall: Wall,
+  radius: number,
+  height: number,
+  snapshot: boolean,
+): WallRecord | null => {
   if (
     !wall ||
     !finitePoint(wall.min) ||
     !finitePoint(wall.max) ||
-    wall.min.some((v: any, i: any) => v > wall.max[i]) ||
+    wall.min.some((v, i) => v > wall.max[i]) ||
     !['active', 'inactive', 'unknown'].includes(wall.state) ||
     !Number.isFinite(wall.padding ?? 0) ||
     (wall.padding ?? 0) < 0
@@ -96,9 +123,7 @@ const wallRecord = (wall: any, radius: any, height: any, snapshot: any): any => 
     wall.points !== undefined &&
     (!Array.isArray(wall.points) ||
       wall.points.length < 2 ||
-      wall.points.some(
-        (p: any) => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite),
-      ))
+      wall.points.some((p) => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))
   )
     throw new Error('Invalid wall polyline');
   if (
@@ -106,9 +131,7 @@ const wallRecord = (wall: any, radius: any, height: any, snapshot: any): any => 
     (!Array.isArray(wall.polygon) ||
       wall.polygon.length < 3 ||
       wall.points !== undefined ||
-      wall.polygon.some(
-        (p: any) => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite),
-      ))
+      wall.polygon.some((p) => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite)))
   )
     throw new Error('Invalid wall polygon');
   if (
@@ -122,8 +145,8 @@ const wallRecord = (wall: any, radius: any, height: any, snapshot: any): any => 
     throw new Error('Invalid wall sphere');
   if (wall.state === 'inactive') return null;
   const margin = radius + (wall.padding ?? 0);
-  const min = wall.min.map((v: any, i: any) => v - (i === 1 ? height : margin));
-  const max = wall.max.map((v: any, i: any): any => v + (i === 1 ? 0 : margin));
+  const min = wall.min.map((v, i) => v - (i === 1 ? height : margin));
+  const max = wall.max.map((v, i) => v + (i === 1 ? 0 : margin));
   const points = wall.polygon ?? wall.points;
   for (const p of points ?? []) {
     min[0] = Math.min(min[0], p[0] - margin);
@@ -151,10 +174,16 @@ const wallRecord = (wall: any, radius: any, height: any, snapshot: any): any => 
     margin,
     sphere,
     filled: wall.polygon !== undefined,
-    ring: snapshot && points ? points.map((p: any): any => [...p]) : points,
+    ring: snapshot && points ? points.map((p) => [...p]) : points,
   };
 };
-const segmentTouchesBounds = (start: any, end: any, min: any, max: any, inflation = 0) => {
+const segmentTouchesBounds = (
+  start: Vec3,
+  end: Vec3,
+  min: readonly number[],
+  max: readonly number[],
+  inflation = 0,
+) => {
   let near = 0,
     far = 1;
   for (let axis = 0; axis < 3; axis++) {
@@ -172,11 +201,11 @@ const segmentTouchesBounds = (start: any, end: any, min: any, max: any, inflatio
   return near <= far;
 };
 const touchesWall = (
-  start: any,
-  end: any,
-  { min, max, margin, ring, filled, sphere }: any,
+  start: Vec3,
+  end: Vec3,
+  { min, max, margin, ring, filled, sphere }: WallRecord,
   inflation = 0,
-): any => {
+) => {
   if (!segmentTouchesBounds(start, end, min, max, inflation)) return false;
   if (sphere) return touchesSphere(start, end, sphere, inflation);
   if (!ring) return true;
@@ -197,7 +226,7 @@ const touchesWall = (
   for (let i = 1; i < ring.length; i++) {
     if (segmentDistance(a, b, ring[i - 1], ring[i]) <= margin + inflation + 1e-9) return true;
   }
-  return filled && segmentDistance(a, b, ring.at(-1), ring[0]) <= margin + inflation + 1e-9;
+  return filled && segmentDistance(a, b, ring.at(-1)!, ring[0]) <= margin + inflation + 1e-9;
 };
 /** Snapshot and validate exclusions for repeated feet-segment queries with one body.
  * Expanded 3D bounds include padding and all authored polyline/polygon vertices.
@@ -206,14 +235,14 @@ const touchesWall = (
  * including inactive records, is validated before any query can return a hit.
  * Optional query inflation expands the indexed body uniformly for curved sweeps.
  */
-export function createWallChecker(walls: any, profile: any): any {
+export function createWallChecker(walls: Wall[], profile: Profile) {
   validateProfile(profile);
-  const records = [];
+  const records: WallRecord[] = [];
   for (const wall of walls) {
     const record = wallRecord(wall, profile.radius, profile.height, true);
     if (record) records.push(record);
   }
-  const build: any = (entries: any): any => {
+  const build = (entries: WallRecord[]): WallTree => {
     const min = [Infinity, Infinity, Infinity],
       max = [-Infinity, -Infinity, -Infinity];
     for (const entry of entries)
@@ -224,17 +253,17 @@ export function createWallChecker(walls: any, profile: any): any {
     if (entries.length <= 8) return { min, max, entries };
     const spans = max.map((value, axis) => value - min[axis]);
     const axis = spans.indexOf(Math.max(...spans));
-    entries.sort((a: any, b: any) => a.min[axis] + a.max[axis] - b.min[axis] - b.max[axis]);
+    entries.sort((a, b) => a.min[axis] + a.max[axis] - b.min[axis] - b.max[axis]);
     const middle = Math.floor(entries.length / 2);
     return { min, max, left: build(entries.slice(0, middle)), right: build(entries.slice(middle)) };
   };
   const root = records.length ? build(records) : null;
-  return (start: any, end: any, inflation = 0) => {
+  return (start: Vec3, end: Vec3, inflation = 0) => {
     if (!finitePoint(start) || !finitePoint(end) || !Number.isFinite(inflation) || inflation < 0)
       throw new Error('Invalid wall query');
     const stack = root ? [root] : [];
     while (stack.length) {
-      const node = stack.pop();
+      const node = stack.pop()!;
       if (!segmentTouchesBounds(start, end, node.min, node.max, inflation)) continue;
       if (node.entries) {
         for (const record of node.entries)
@@ -249,7 +278,7 @@ export function createWallChecker(walls: any, profile: any): any {
  * Optional XZ polylines narrow the box test. Without them, bounds conservatively block.
  * This test covers vertical air walls, not arbitrary scene collision geometry.
  */
-export function blockedByWalls(start: any, end: any, walls: any, profile: any) {
+export function blockedByWalls(start: Vec3, end: Vec3, walls: Wall[], profile: Profile) {
   validateProfile(profile);
   if (!finitePoint(start) || !finitePoint(end)) throw new Error('Invalid wall query');
   let hit = false;

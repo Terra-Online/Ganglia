@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Surface } from '../src/index-types.js';
+import type { SupportSnapshot } from '../src/support-snapshot.js';
 import { supportSnapshot, supportTriangles } from '../src/support-snapshot.js';
 
 test('reuses owned geometric primitives after a content check without retaining caller vertices', () => {
-  const surface = {
+  const surface: Surface = {
     id: 'floor',
     vertices: [
       [0, 0, 0],
@@ -13,15 +15,16 @@ test('reuses owned geometric primitives after a content check without retaining 
       [0, 0, 2],
     ],
   };
-  const snapshot = supportSnapshot(surface),
+  const snapshot: SupportSnapshot = supportSnapshot(surface)!,
     triangles = supportTriangles(snapshot);
   assert.equal(supportSnapshot(surface), snapshot);
-  assert.equal(supportTriangles(supportSnapshot(surface)), triangles);
+  assert.equal(supportTriangles(supportSnapshot(surface)!), triangles);
   assert.notEqual(snapshot.vertices, surface.vertices);
   assert.notEqual(snapshot.vertices[0], surface.vertices[0]);
   assert.equal(triangles.length, 2);
   surface.vertices[0][0] = -0;
   const signed = supportSnapshot(surface);
+  assert.ok(signed);
   assert.notEqual(signed, snapshot);
   assert.ok(Object.is(signed.vertices[0][0], -0));
   assert.ok(Object.is(snapshot.vertices[0][0], 0));

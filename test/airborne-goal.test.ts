@@ -4,10 +4,11 @@ import { test } from 'node:test';
 import { planAirborneGoal, findGoalFlights } from '../src/airborne-goal.js';
 import { createCollisionWorld } from '../src/collision.js';
 import { findGoalHit } from '../src/goals.js';
+import type { GroundArrival, JumpRouteOptions, Surface, Vec3 } from '../src/index-types.js';
 import { planJumpRoute } from '../src/index.js';
 import { retimeGroundRoute } from '../src/locomotion.js';
 
-const floor = (id, left, right) => ({
+const floor = (id: string, left: number, right: number): Surface => ({
   id,
   vertices: [
     [left, 0, -2],
@@ -16,7 +17,7 @@ const floor = (id, left, right) => ({
     [left, 0, 2],
   ],
 });
-const scene = [floor('left', 0, 4), floor('right', 7, 11)];
+const scene: Surface[] = [floor('left', 0, 4), floor('right', 7, 11)];
 const positions = scene
   .flatMap((s) => [
     s.vertices[0],
@@ -53,16 +54,18 @@ const options = {
     maxHorizontalSpeed: 6,
   },
 };
-const starts = [{ id: 'player', position: [2, 0, 0], state: 'available', cost: 0 }];
+const starts: GroundArrival[] = [
+  { id: 'player', position: [2, 0, 0], state: 'available', cost: 0 },
+];
 
 test('collects a mid-flight target and ends at the first interaction', () => {
   const result = planJumpRoute(scene, world, starts, [5.5, 2, 0], options);
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.ok(result.route.goalHit);
   assert.deepEqual(result.route.points.at(-1), result.route.goalHit.position);
   assert.ok(result.route.goalHit.position[1] > 1.7);
   const segment = result.route.segments[result.route.goalHit.segment];
-  assert.ok(Math.abs(result.route.goalHit.time - segment.times.at(-1)) < 1e-6);
+  assert.ok(Math.abs(result.route.goalHit.time - segment.times.at(-1)!) < 1e-6);
   assert.equal(
     planJumpRoute(scene, world, starts, [5.5, 2, 0], {
       ...options,
@@ -73,7 +76,7 @@ test('collects a mid-flight target and ends at the first interaction', () => {
 });
 
 test('an airborne goal needs clearance through collection and can finish without landing support', () => {
-  const blocked = {
+  const blocked: JumpRouteOptions = {
     ...options,
     walls: [{ min: [4.5, -1, -3], max: [6.5, 10, 3], state: 'active' }],
   };
@@ -86,18 +89,22 @@ test('an airborne goal needs clearance through collection and can finish without
     positions: positions.flat(),
     indices: [0, 2, 1, 0, 3, 2],
   });
-  const after = { ...options, walls: [{ min: [6, -1, -3], max: [8, 10, 3], state: 'active' }] };
+  const after: JumpRouteOptions = {
+    ...options,
+    walls: [{ min: [6, -1, -3], max: [8, 10, 3], state: 'active' }],
+  };
   const collected = planJumpRoute([scene[0]], isolated, starts, [5.5, 2, 0], after);
-  assert.equal(collected.route.status, 'complete');
-  assert.ok(collected.route.points.at(-1)[0] < 6 - options.profile.radius);
+  assert.ok(collected.route.status === 'complete');
+  assert.ok(collected.route.points.at(-1)![0] < 6 - options.profile.radius);
 });
 
 test('trajectory events honor vertical and facing constraints between samples', () => {
-  const points = [
+  const points: Vec3[] = [
     [-2, 0, 0],
     [2, 0, 0],
   ];
   const entry = findGoalHit(points, [0, 0, 0], { radius: 0.2 });
+  assert.ok(entry);
   assert.ok(Math.abs(entry.position[0] + 0.2) < 1e-9);
   assert.ok(
     findGoalHit(
@@ -124,7 +131,7 @@ test('trajectory events honor vertical and facing constraints between samples', 
 });
 
 test('a descending pickup stops in the interaction volume above the floor', () => {
-  const raised = {
+  const raised: Surface = {
     id: 'raised',
     vertices: [
       [0, 10, -2],
@@ -133,8 +140,8 @@ test('a descending pickup stops in the interaction volume above the floor', () =
       [0, 10, 2],
     ],
   };
-  const lower = floor('lower', 5, 16);
-  const surfaces = [raised, lower];
+  const lower: Surface = floor('lower', 5, 16);
+  const surfaces: Surface[] = [raised, lower];
   const positions = surfaces
     .flatMap((s) => [
       s.vertices[0],
@@ -160,10 +167,10 @@ test('a descending pickup stops in the interaction volume above the floor', () =
       interaction: { radius: 0.25, airborne: true },
     },
   );
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.ok(result.route.goalHit);
   assert.ok(
-    Math.hypot(...result.route.points.at(-1).map((value, axis) => value - [7, 6, 0][axis])) <=
+    Math.hypot(...result.route.points.at(-1)!.map((value, axis) => value - [7, 6, 0][axis])) <=
       0.25 + 1e-7,
   );
 });
@@ -183,22 +190,22 @@ test('reports sphere entry when a sampled segment ends inside the trigger', () =
 });
 
 test('bounds later airborne approaches by the incumbent less the fixed terminal flight', () => {
-  const arrivals = [{ ...starts[0], cost: 7 }],
-    goal = [5.5, 2, 0];
+  const arrivals: GroundArrival[] = [{ ...starts[0], cost: 7 }],
+    goal: Vec3 = [5.5, 2, 0];
   const candidates = findGoalFlights(scene, world, arrivals, goal, options).candidates;
-  const distance = (point) =>
+  const distance = (point: Vec3) =>
     Math.hypot(...point.map((value, axis) => value - arrivals[0].position[axis]));
   candidates.sort(
     (a, b) =>
       distance(a.start.position) - distance(b.start.position) ||
-      a.arc.times.at(-1) - b.arc.times.at(-1),
+      a.arc.times.at(-1)! - b.arc.times.at(-1)!,
   );
   const firstPosition = candidates[0].start.position;
   const secondIndex = candidates.findIndex((candidate) =>
     candidate.start.position.some((value, axis) => value !== firstPosition[axis]),
   );
   assert.ok(secondIndex > 0);
-  const calls = [];
+  const calls: { position: Vec3; maxCost: number }[] = [];
   const prefixCost = arrivals[0].cost + 100;
   const result = planAirborneGoal(scene, world, arrivals, goal, options, (position, maxCost) => {
     calls.push({ position, maxCost });
@@ -215,15 +222,15 @@ test('bounds later airborne approaches by the incumbent less the fixed terminal 
       },
     };
   });
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.equal(calls[0].maxCost, Infinity);
   assert.deepEqual(calls[1].position, candidates[secondIndex].start.position);
   const earliestFlight = Math.min(
-    ...candidates.slice(0, secondIndex).map((candidate) => candidate.arc.times.at(-1)),
+    ...candidates.slice(0, secondIndex).map((candidate) => candidate.arc.times.at(-1)!)!,
   );
   assert.ok(
     Math.abs(
-      calls[1].maxCost - (prefixCost + earliestFlight - candidates[secondIndex].arc.times.at(-1)),
+      calls[1].maxCost - (prefixCost + earliestFlight - candidates[secondIndex].arc.times.at(-1)!),
     ) < 1e-12,
   );
   const retimed = retimeGroundRoute(result.route, {
@@ -231,12 +238,12 @@ test('bounds later airborne approaches by the incumbent less the fixed terminal 
     sprintSpeed: 7,
     sprintAcceleration: 10,
   });
-  assert.equal(retimed.status, 'complete');
+  assert.ok(retimed.status === 'complete');
   assert.deepEqual(
     retimed.segments.filter((segment) => segment.mode !== 'walk').map((segment) => segment.times),
     result.route.segments
       .filter((segment) => segment.mode !== 'walk')
       .map((segment) => segment.times),
   );
-  assert.equal(retimed.goalHit.time, result.route.goalHit.time);
+  assert.equal(retimed.goalHit!.time, result.route.goalHit!.time);
 });

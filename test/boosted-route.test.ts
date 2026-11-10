@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.js';
+import type { GroundArrival, Route, SpeedBoost, Surface, Vec3 } from '../src/index-types.js';
 import { planJumpRoute, createGroundPlanner, retimeGroundRoute } from '../src/index.js';
+import { expectStatus } from './assertions.js';
 
-const floor = (id, left, right) => ({
+const floor = (id: string, left: number, right: number): Surface => ({
   id,
   vertices: [
     [left, 0, -2],
@@ -13,7 +15,7 @@ const floor = (id, left, right) => ({
     [left, 0, 2],
   ],
 });
-const surfaces = [floor('left', 0, 4), floor('right', 10, 14)];
+const surfaces: Surface[] = [floor('left', 0, 4), floor('right', 10, 14)];
 const positions = surfaces
   .flatMap((s) => [
     s.vertices[0],
@@ -28,7 +30,7 @@ const world = createCollisionWorld({
   positions,
   indices: Array.from({ length: positions.length / 3 }, (_, i) => i),
 });
-const boost = {
+const boost: SpeedBoost = {
   id: 'vortex',
   position: [2, 0, 0],
   interaction: { radius: 0.2 },
@@ -58,24 +60,28 @@ const options = {
     maxHorizontalSpeed: 3,
   },
 };
-const starts = [{ id: 'player', position: [1, 0, 0], state: 'available', cost: 0 }];
-const goal = [9, 1.8, 0];
+const starts: GroundArrival[] = [
+  { id: 'player', position: [1, 0, 0], state: 'available', cost: 0 },
+];
+const goal: Vec3 = [9, 1.8, 0];
 
 test('picks up a speed boost before a previously unreachable airborne target and ends at collection', () => {
   assert.notEqual(planJumpRoute(surfaces, world, starts, goal, options).route.status, 'complete');
   const result = planJumpRoute(surfaces, world, starts, goal, { ...options, boosts: [boost] });
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.ok(result.route.goalHit);
   assert.ok(
     Math.hypot(
       ...result.route.points
-        .at(-1)
-        .map((value, axis) => value - result.route.goalHit.position[axis]),
+        .at(-1)!
+        .map(
+          (value, axis) => value - expectStatus(result.route, 'complete').goalHit!.position[axis],
+        ),
     ) < 1e-8,
   );
-  assert.equal(result.route.boosts[0].id, 'vortex');
-  assert.ok(Math.abs(result.route.boosts[0].position[0] - 1.8) < 1e-6);
-  assert.ok(result.route.boosts[0].elapsed <= boost.duration);
+  assert.equal(result.route.boosts![0].id, 'vortex');
+  assert.ok(Math.abs(result.route.boosts![0].position[0] - 1.8) < 1e-6);
+  assert.ok(result.route.boosts![0].elapsed <= boost.duration);
   assert.ok(result.route.segments.some((segment) => !segment.boost));
   const edge = result.connections.find((connection) => connection.requiredBoost);
   assert.ok(edge);
@@ -101,7 +107,7 @@ test('expired and inaccessible speed boosts cannot establish reachability', () =
 });
 
 test('boosted ground retiming carries stamina across the pickup', () => {
-  const route = {
+  const route: Route = {
     status: 'complete',
     start: 'player',
     arrivalCost: 0,
@@ -146,8 +152,8 @@ test('boosted ground retiming carries stamina across the pickup', () => {
       reserve: 0,
     },
   });
-  assert.equal(timed.status, 'complete');
-  assert.equal(timed.locomotion.final, 0);
+  assert.ok(timed.status === 'complete');
+  assert.equal(timed.locomotion!.final, 0);
   assert.ok(timed.cost < 2);
 });
 
@@ -158,16 +164,18 @@ test('a final jump can outlast the boost with a revalidated ordinary-speed conti
     model,
     boosts: [{ ...boost, duration: 1 }],
   });
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.ok(result.route.goalHit);
   const flight = result.route.segments.at(-1);
-  assert.ok(flight.boostExpiry > 0 && flight.boostExpiry < flight.times.at(-1));
+  assert.ok(flight!.boostExpiry! > 0 && flight!.boostExpiry! < flight!.times.at(-1)!);
   assert.ok(
     Math.hypot(
       ...result.route.points
-        .at(-1)
-        .map((value, axis) => value - result.route.goalHit.position[axis]),
+        .at(-1)!
+        .map(
+          (value, axis) => value - expectStatus(result.route, 'complete').goalHit!.position[axis],
+        ),
     ) < 1e-8,
   );
-  assert.equal(result.route.boosts[0].elapsed, 1);
+  assert.equal(result.route.boosts![0].elapsed, 1);
 });

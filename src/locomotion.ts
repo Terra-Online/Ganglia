@@ -1,12 +1,34 @@
+import type { Vec3, Segment, LocomotionOptions, Route } from './index-types.js';
 import { validateMotion } from './motion.js';
+
+export interface LocomotionState {
+  energy: number;
+  minimum: number;
+  delay: number;
+  sprinting: boolean;
+  hasActivated: boolean;
+  velocity: number;
+  previousDirection: number[] | null;
+  dashCooldown?: number;
+  dashRemaining?: number;
+  dashCount?: number;
+}
+interface Scheduled {
+  segments: Segment[];
+  state: LocomotionState;
+  duration: number;
+}
+interface Label extends Scheduled {
+  previous: Label | null;
+}
+
 const epsilon = 1e-9;
-const distance = (a: any, b: any) =>
-  Math.hypot(...a.map((value: any, axis: any) => value - b[axis]));
-const finitePoint = (point: any) =>
+const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((value, axis) => value - b[axis]));
+const finitePoint = (point: unknown) =>
   Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
-const interpolate = (a: any, b: any, fraction: any): any =>
-  a.map((value: any, axis: any): any => value + (b[axis] - value) * fraction);
-function validateOptions(options: any) {
+const interpolate = (a: Vec3, b: Vec3, fraction: number): Vec3 =>
+  a.map((value, axis) => value + (b[axis] - value) * fraction) as Vec3;
+function validateOptions(options: LocomotionOptions) {
   const { speed, sprintSpeed, sprintAcceleration, stamina, dash } = options;
   if (
     ![speed, sprintSpeed, sprintAcceleration].every(
@@ -18,7 +40,7 @@ function validateOptions(options: any) {
   if (
     options.sprintThrough !== undefined &&
     (!Array.isArray(options.sprintThrough) ||
-      options.sprintThrough.some((mode: any) => !['jump', 'drop', 'rope', 'launch'].includes(mode)))
+      options.sprintThrough.some((mode) => !['jump', 'drop', 'rope', 'launch'].includes(mode)))
   ) {
     throw new Error('Invalid sprint-through modes');
   }
@@ -63,7 +85,7 @@ function validateOptions(options: any) {
   )
     throw new Error('Invalid locomotion stamina');
 }
-function sprintTime(length: any, speed: any, cap: any, acceleration: any) {
+function sprintTime(length: number, speed: number, cap: number, acceleration: number) {
   const accelerationTime = Math.max(0, (cap - speed) / acceleration);
   const accelerationDistance = ((speed + cap) * accelerationTime) / 2;
   if (length <= accelerationDistance) {
@@ -72,7 +94,7 @@ function sprintTime(length: any, speed: any, cap: any, acceleration: any) {
   }
   return accelerationTime + (length - accelerationDistance) / cap;
 }
-function sprintDistance(seconds: any, speed: any, cap: any, acceleration: any) {
+function sprintDistance(seconds: number, speed: number, cap: number, acceleration: number) {
   const accelerated = Math.min(seconds, Math.max(0, (cap - speed) / acceleration));
   return (
     speed * accelerated +
@@ -81,12 +103,12 @@ function sprintDistance(seconds: any, speed: any, cap: any, acceleration: any) {
   );
 }
 function scheduleBlock(
-  block: any,
-  options: any,
-  state: any,
-  allowSprint: any,
+  block: Segment[],
+  options: LocomotionOptions,
+  state: LocomotionState,
+  allowSprint: boolean,
   allowDash = false,
-): any {
+): Scheduled | null {
   const { sprintAcceleration, stamina, dash } = options;
   const speed = options.speed * (block[0].boost?.multiplier ?? 1);
   const sprintSpeed = options.sprintSpeed * (block[0].boost?.multiplier ?? 1);
@@ -99,57 +121,57 @@ function scheduleBlock(
   let dashCooldown = state.dashCooldown ?? 0,
     dashRemaining = state.dashRemaining ?? 0;
   let dashCount = state.dashCount ?? 0;
-  const advanceClock = (duration: any) => {
+  const advanceClock = (duration: number) => {
     dashCooldown = Math.max(0, dashCooldown - duration);
   };
   if (!allowSprint && dashRemaining > epsilon) return null;
   if (!allowSprint) {
-    if (sprinting && draining) delay = stamina.recoveryDelay;
+    if (sprinting && draining) delay = stamina!.recoveryDelay;
     sprinting = false;
     velocity = speed;
   }
-  const segments = [];
+  const segments: Segment[] = [];
   for (const segment of block) {
     if (segment.mode !== 'walk') {
       // A faster authored air trajectory cannot activate sprint or spend energy
       // retroactively. Only a feasible approach may establish its required gait.
       if (segment.requiredGait === 'sprint' && !sprinting) return null;
-      advanceClock(segment.times.at(-1));
+      advanceClock(segment.times.at(-1)!);
       dashRemaining = 0;
       segments.push({
         ...segment,
-        points: segment.points.map((point: any): any => [...point]),
+        points: segment.points.map((point) => [...point]),
         times: [...segment.times],
       });
       if (stamina?.recoveryDuringNonWalk) {
-        const duration = segment.times.at(-1);
+        const duration = segment.times.at(-1)!;
         const recovering = Math.max(0, duration - delay);
         delay = Math.max(0, delay - duration);
-        energy = Math.min(stamina.capacity, energy + recovering * recoveryRate);
+        energy = Math.min(stamina!.capacity, energy + recovering * recoveryRate);
       }
       sprinting = sprinting && (options.sprintThrough?.includes(segment.mode) ?? false);
       velocity = speed;
       previousDirection = null;
       continue;
     }
-    let output: any = null;
-    const append = (gait: any, point: any, elapsed: any, start: any) => {
+    let output: Segment | null = null;
+    const append = (gait: Segment['gait'], point: Vec3, elapsed: number, start: Vec3) => {
       if (!output || output.gait !== gait) {
         output = { ...segment, gait, points: [[...start]], times: [0] };
         segments.push(output);
       }
       output.points.push([...point]);
-      output.times.push(output.times.at(-1) + elapsed);
+      output.times.push(output.times.at(-1)! + elapsed);
     };
     for (let index = 1; index < segment.points.length; index++) {
       const a = segment.points[index - 1];
       const b = segment.points[index];
       const length = distance(a, b);
       if (length <= epsilon) continue;
-      const direction = b.map((value: any, axis: any) => (value - a[axis]) / length);
+      const direction = b.map((value, axis) => (value - a[axis]) / length);
       if (previousDirection) {
         const alignment = direction.reduce(
-          (sum: any, value: any, axis: any): any => sum + value * previousDirection[axis],
+          (sum, value, axis) => sum + value * previousDirection![axis],
           0,
         );
         if (alignment < Math.cos(Math.PI / 6)) velocity = speed;
@@ -169,7 +191,7 @@ function scheduleBlock(
         ) {
           energy = Math.max(reserve, energy - dash.cost);
           minimum = Math.min(minimum, energy);
-          delay = stamina.recoveryDelay;
+          delay = stamina!.recoveryDelay;
           dashCooldown = dash.cooldown;
           dashRemaining = dash.duration;
           dashCount++;
@@ -178,7 +200,7 @@ function scheduleBlock(
           output = null;
         }
         if (dashRemaining > epsilon) {
-          const dashSpeed = dash.speed * (segment.boost?.multiplier ?? 1);
+          const dashSpeed = dash!.speed * (segment.boost?.multiplier ?? 1);
           const duration = Math.min(dashRemaining, (length - travelled) / dashSpeed);
           const start = interpolate(a, b, travelled / length);
           travelled = Math.min(length, travelled + dashSpeed * duration);
@@ -191,10 +213,10 @@ function scheduleBlock(
           continue;
         }
         let dashBoundary = Infinity;
-        if (allowDash && dash && reserve + dash.cost <= stamina.capacity) {
+        if (allowDash && dash && reserve + dash.cost <= stamina!.capacity) {
           const recharge = Math.max(0, reserve + dash.cost - energy);
           const recovery =
-            recharge > epsilon && recoveryRate > 0 && stamina.recoveryDuringSprint
+            recharge > epsilon && recoveryRate > 0 && stamina!.recoveryDuringSprint
               ? delay + recharge / recoveryRate
               : recharge > epsilon
                 ? Infinity
@@ -206,7 +228,7 @@ function scheduleBlock(
         const netDrain = drain - (recoveringSprint ? recoveryRate : 0);
         if (netDrain > 0 && sprinting && energy - reserve <= epsilon) {
           sprinting = false;
-          delay = stamina.recoveryDelay;
+          delay = stamina!.recoveryDelay;
           velocity = speed;
         }
         if (!sprinting) {
@@ -234,7 +256,7 @@ function scheduleBlock(
             allowSprint &&
             stamina &&
             sprintSpeed > speed &&
-            restartEnergy <= stamina.capacity &&
+            restartEnergy <= stamina!.capacity &&
             recoveryRate > 0;
           if (canResume) {
             const rechargeTime = delay + Math.max(0, restartEnergy - energy) / recoveryRate;
@@ -246,7 +268,7 @@ function scheduleBlock(
           if (stamina) {
             const recovering = Math.max(0, duration - delay);
             delay = Math.max(0, delay - duration);
-            energy = Math.min(stamina.capacity, energy + recovering * recoveryRate);
+            energy = Math.min(stamina!.capacity, energy + recovering * recoveryRate);
           }
           advanceClock(duration);
           velocity = speed;
@@ -281,10 +303,10 @@ function scheduleBlock(
         advanceClock(duration);
         velocity = Math.min(sprintSpeed, velocity + sprintAcceleration * duration);
         if (stamina) {
-          const recovering = stamina.recoveryDuringSprint ? Math.max(0, duration - delay) : 0;
+          const recovering = stamina!.recoveryDuringSprint ? Math.max(0, duration - delay) : 0;
           delay = Math.max(0, delay - duration);
           energy = Math.min(
-            stamina.capacity,
+            stamina!.capacity,
             Math.max(0, energy - duration * drain + recovering * recoveryRate),
           );
           minimum = Math.min(minimum, energy);
@@ -304,10 +326,10 @@ function scheduleBlock(
       previousDirection,
       ...(dash ? { dashCooldown, dashRemaining, dashCount } : {}),
     },
-    duration: segments.reduce((sum, segment): any => sum + segment.times.at(-1), 0),
+    duration: segments.reduce((sum, segment) => sum + segment.times.at(-1)!, 0),
   };
 }
-const sameContinuation = (a: any, b: any): any => {
+const sameContinuation = (a: LocomotionState, b: LocomotionState) => {
   if (
     Math.abs((a.dashCooldown ?? 0) - (b.dashCooldown ?? 0)) > epsilon ||
     Math.abs((a.dashRemaining ?? 0) - (b.dashRemaining ?? 0)) > epsilon
@@ -322,10 +344,10 @@ const sameContinuation = (a: any, b: any): any => {
   if (!a.previousDirection || !b.previousDirection)
     return a.previousDirection === b.previousDirection;
   return a.previousDirection.every(
-    (value: any, axis: any) => Math.abs(value - b.previousDirection[axis]) <= epsilon,
+    (value, axis) => Math.abs(value - b.previousDirection![axis]) <= epsilon,
   );
 };
-const dominates = (a: any, b: any): any =>
+const dominates = (a: Scheduled, b: Scheduled) =>
   sameContinuation(a.state, b.state) &&
   a.duration <= b.duration + epsilon &&
   a.state.energy >= b.state.energy - epsilon &&
@@ -334,11 +356,11 @@ const dominates = (a: any, b: any): any =>
  * non-ground policy still resets ground velocity at exit; physical air replay is
  * a separate contract. Do not infer a landing velocity from these resource states.
  */
-export function createLocomotion(options: any): any {
+export function createLocomotion(options: LocomotionOptions) {
   validateOptions(options);
   const energy = options.stamina?.initial ?? 0;
   return {
-    initial: (): any => ({
+    initial: (): LocomotionState => ({
       energy,
       minimum: energy,
       delay: 0,
@@ -347,15 +369,15 @@ export function createLocomotion(options: any): any {
       velocity: options.speed,
       previousDirection: null,
     }),
-    advance(segment: any, state: any): any {
+    advance(segment: Segment, state: LocomotionState) {
       const choices = segment.mode === 'walk' ? [true, false] : [true];
       return choices
-        .flatMap((choice): any =>
+        .flatMap((choice) =>
           (options.dash && choice && segment.mode === 'walk' ? [true, false] : [false]).map(
-            (dashing): any => scheduleBlock([segment], options, state, choice, dashing),
+            (dashing) => scheduleBlock([segment], options, state, choice, dashing),
           ),
         )
-        .filter(Boolean);
+        .filter((scheduled) => scheduled !== null);
     },
   };
 }
@@ -374,7 +396,7 @@ export function createLocomotion(options: any): any {
  * Ground turns of 30 degrees reset speed without paying another activation. Acceleration
  * uses samples at no more than 0.1-second intervals for linear trajectory playback.
  */
-export function retimeGroundRoute(route: any, options: any): any {
+export function retimeGroundRoute(route: Route, options: LocomotionOptions): Route {
   validateOptions(options);
   if (route.status !== 'complete') return { ...route };
   const { speed, stamina } = options;
@@ -396,14 +418,14 @@ export function retimeGroundRoute(route: any, options: any): any {
     ) {
       throw new Error('Invalid locomotion segment');
     }
-    validateMotion({ ...segment, cost: segment.times?.at(-1) });
+    validateMotion({ ...segment, cost: segment.times?.at(-1)! });
   }
   let endpoint = route.points[0];
-  let blocks = [];
+  let blocks: Segment[][] = [];
   for (const segment of route.segments) {
     if (distance(endpoint, segment.points[0]) > 1e-6)
       throw new Error('Discontinuous locomotion route');
-    endpoint = segment.points.at(-1);
+    endpoint = segment.points.at(-1)!;
     const last = blocks.at(-1);
     if (
       segment.mode === 'walk' &&
@@ -413,16 +435,16 @@ export function retimeGroundRoute(route: any, options: any): any {
       last.push(segment);
     else blocks.push([segment]);
   }
-  if (distance(endpoint, route.points.at(-1)) > 1e-6)
+  if (distance(endpoint, route.points.at(-1)!) > 1e-6)
     throw new Error('Inconsistent locomotion endpoint');
   if (options.dash) {
     // Fixed spatial decision intervals bound the control search independently of
     // navigation tessellation. Each label can spend now or carry its charge onward.
-    const interval = options.dash.speed * options.dash.duration;
-    blocks = blocks.flatMap((block): any => {
+    const interval = options.dash!.speed * options.dash.duration;
+    blocks = blocks.flatMap((block) => {
       if (block[0].mode !== 'walk') return [block];
-      const decisions = [];
-      let current = [],
+      const decisions: Segment[][] = [];
+      let current: Segment[] = [],
         remaining = interval;
       for (const segment of block)
         for (let index = 1; index < segment.points.length; index++) {
@@ -452,21 +474,7 @@ export function retimeGroundRoute(route: any, options: any): any {
     });
   }
   const initialEnergy = stamina?.initial ?? 0;
-  let labels: {
-    duration: number;
-    previous: any;
-    segments: any[];
-    state: {
-      energy: number;
-      minimum: number;
-      delay: number;
-      sprinting: boolean;
-      hasActivated: boolean;
-      velocity: number;
-      previousDirection: number[] | null;
-      dashCount?: number;
-    };
-  }[] = [
+  let labels: Label[] = [
     {
       duration: 0,
       previous: null,
@@ -485,7 +493,7 @@ export function retimeGroundRoute(route: any, options: any): any {
   const maxLabels = 256;
   let truncated = false;
   for (const block of blocks) {
-    const next: any = [];
+    const next: Label[] = [];
     const choices = block[0].mode === 'walk' ? [true, false] : [true];
     for (const label of labels)
       for (const allowSprint of choices)
@@ -499,7 +507,7 @@ export function retimeGroundRoute(route: any, options: any): any {
             duration: label.duration + scheduled.duration,
             previous: label,
           };
-          if (next.some((other: any): any => dominates(other, candidate))) continue;
+          if (next.some((other) => dominates(other, candidate))) continue;
           for (let index = next.length - 1; index >= 0; index--) {
             if (dominates(candidate, next[index])) next.splice(index, 1);
           }
@@ -508,23 +516,23 @@ export function retimeGroundRoute(route: any, options: any): any {
     if (!next.length) return { status: 'no-verified-route' };
     if (next.length > maxLabels) {
       // Retain diverse high-energy states alongside faster partial journeys.
-      next.sort((a: any, b: any) => a.duration - b.duration);
+      next.sort((a, b) => a.duration - b.duration);
       const fastest = next.slice(0, maxLabels / 2);
       const remainder = next
         .slice(maxLabels / 2)
-        .sort((a: any, b: any) => b.state.energy - a.state.energy || a.duration - b.duration);
+        .sort((a, b) => b.state.energy - a.state.energy || a.duration - b.duration);
       labels = [...fastest, ...remainder.slice(0, maxLabels / 2)];
       truncated = true;
     } else labels = next;
   }
-  const best = labels.reduce((chosen, label): any =>
+  const best = labels.reduce((chosen, label) =>
     label.duration < chosen.duration - epsilon ||
     (Math.abs(label.duration - chosen.duration) <= epsilon &&
       label.state.energy < chosen.state.energy - epsilon)
       ? label
       : chosen,
   );
-  const path: any[][] = [];
+  const path: Segment[][] = [];
   for (let current = best; current.previous; current = current.previous)
     path.push(current.segments);
   const segments = path.reverse().flat();
@@ -533,16 +541,16 @@ export function retimeGroundRoute(route: any, options: any): any {
     // Resource scheduling splits ground motion but preserves every authored air
     // or device segment in order. Match that ordinal rather than its old index.
     const ordinal =
-      route.segments.slice(0, goalHit.segment + 1).filter((segment: any) => segment.mode !== 'walk')
+      route.segments.slice(0, goalHit.segment + 1).filter((segment) => segment.mode !== 'walk')
         .length - 1;
     let seen = -1;
     const segment = segments.findIndex((part) => part.mode !== 'walk' && ++seen === ordinal);
     goalHit = { ...goalHit, segment, position: [...goalHit.position] };
   }
-  const points = [[...route.points[0]]];
+  const points: Vec3[] = [[...route.points[0]]];
   for (const segment of segments)
     for (const point of segment.points.slice(1)) {
-      if (distance(points.at(-1), point) > epsilon) points.push([...point]);
+      if (distance(points.at(-1)!, point) > epsilon) points.push([...point]);
     }
   return {
     ...route,

@@ -1,31 +1,96 @@
-import { movementGeometry } from './movement-geometry.js';
-export { groundComponents } from './connectivity.js';
+import type { Bounds } from './bounds.js';
 import { createBoundsIndex } from './bounds.js';
+import type { CollisionWorld } from './collision-types.js';
 import { createMinHeap } from './heap.js';
+import type {
+  Vec3,
+  Surface,
+  Portal,
+  DiscoveryOptions,
+  DiscoveryDiagnostics,
+  GroundConnection,
+} from './index-types.js';
 import { jumpConnection, jumpDuration } from './jumps.js';
 import { landingCandidates } from './landings.js';
+import { movementGeometry } from './movement-geometry.js';
+import type { SharedPortal } from './surfaces.js';
 import { surfacePortals, directedPortals } from './surfaces.js';
 import { createWallChecker } from './walls.js';
-const finitePoint = (point: any) =>
+
+export interface Boundary {
+  surface: string;
+  edge: number;
+  a: Vec3;
+  b: Vec3;
+  midpoint: Vec3;
+  length: number;
+  inward: number[];
+  interior: number[];
+}
+export interface Region extends Bounds {
+  min: number[];
+  max: number[];
+  id: string;
+  component: number;
+  boundaries: (Boundary & Bounds)[];
+  surfaces: Surface[];
+}
+interface Pair {
+  start: Vec3;
+  end: Vec3;
+  boundary: boolean;
+}
+interface Candidate extends Pair {
+  uncertain: boolean;
+  score: number;
+}
+interface Transfer {
+  key: string;
+  a: Region;
+  b: Region;
+  ground: boolean;
+  reach: number;
+  closed: boolean;
+  cost: number;
+  generation?: { pairs: Generator<Pair>; pending: Candidate[]; cursor: number; done: boolean };
+  search?: { candidates: Candidate[]; cursor: number; tried: Set<string> };
+}
+type Standing = { position: Vec3; surface: string; reason?: never };
+type Rejection = {
+  reason: 'support' | 'projection' | 'clearance';
+  position?: never;
+  surface?: never;
+};
+type DiscoveredConnection = GroundConnection & {
+  fromSurface: string;
+  toSurface: string;
+  motionValidation: 'model-based';
+};
+
+export { groundComponents } from './connectivity.js';
+
+const finitePoint = (point: unknown) =>
   Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
-const distance = (a: any, b: any) =>
-  Math.hypot(...a.map((value: any, axis: any) => value - b[axis]));
-const horizontal = (a: any, b: any) => Math.hypot(a[0] - b[0], a[2] - b[2]);
-const boundaryKey = (surface: any, edge: any) => JSON.stringify([surface, edge]);
-export const exposedBoundaries = (surfaces: any, portals: any, sharedPortals: any): any => {
-  const covered = new Map<any, any>();
-  const byId = new Map<any, any>(surfaces.map((surface: any): any => [surface.id, surface]));
-  const cover = (id: any, edge: any, start: any, end: any) => {
-    const surface = byId.get(id),
+const distance = (a: readonly number[], b: readonly number[]) =>
+  Math.hypot(...a.map((value, axis) => value - b[axis]));
+const horizontal = (a: readonly number[], b: readonly number[]) =>
+  Math.hypot(a[0] - b[0], a[2] - b[2]);
+const boundaryKey = (surface: string, edge: number) => JSON.stringify([surface, edge]);
+export const exposedBoundaries = (
+  surfaces: Surface[],
+  portals: Portal[],
+  sharedPortals?: SharedPortal[],
+): Boundary[] => {
+  const covered = new Map<string, [number, number][]>();
+  const byId = new Map<string, Surface>(surfaces.map((surface) => [surface.id, surface]));
+  const cover = (id: string, edge: number, start: Vec3, end: Vec3) => {
+    const surface = byId.get(id)!,
       a = surface.vertices[edge],
       b = surface.vertices[(edge + 1) % surface.vertices.length];
-    const direction = b.map((value: any, axis: any) => value - a[axis]);
-    const squared = direction.reduce((sum: any, value: any): any => sum + value * value, 0);
-    const fraction = (point: any) =>
-      point.reduce(
-        (sum: any, value: any, axis: any): any => sum + (value - a[axis]) * direction[axis],
-        0,
-      ) / squared;
+    const direction = b.map((value, axis) => value - a[axis]);
+    const squared = direction.reduce((sum, value) => sum + value * value, 0);
+    const fraction = (point: Vec3) =>
+      point.reduce((sum, value, axis) => sum + (value - a[axis]) * direction[axis], 0) / squared;
     const first = fraction(start),
       last = fraction(end),
       key = boundaryKey(id, edge);
@@ -40,19 +105,16 @@ export const exposedBoundaries = (surfaces: any, portals: any, sharedPortals: an
   for (const portal of directedPortals(surfaces, portals)) {
     cover(portal.from, portal.fromEdge, portal.start, portal.end);
   }
-  const boundaries = [];
+  const boundaries: Boundary[] = [];
   for (const surface of surfaces) {
     const center = [0, 1, 2].map(
       (axis) =>
-        surface.vertices.reduce((sum: any, point: any): any => sum + point[axis], 0) /
-        surface.vertices.length,
+        surface.vertices.reduce((sum, point) => sum + point[axis], 0) / surface.vertices.length,
     );
     for (let edge = 0; edge < surface.vertices.length; edge++) {
       const from = surface.vertices[edge],
         to = surface.vertices[(edge + 1) % surface.vertices.length];
-      const ranges = (covered.get(boundaryKey(surface.id, edge)) ?? []).sort(
-        (a: any, b: any) => a[0] - b[0],
-      );
+      const ranges = (covered.get(boundaryKey(surface.id, edge)) ?? []).sort((a, b) => a[0] - b[0]);
       const gaps = [];
       let cursor = 0;
       for (const [near, far] of ranges) {
@@ -61,9 +123,9 @@ export const exposedBoundaries = (surfaces: any, portals: any, sharedPortals: an
       }
       if (cursor < 1) gaps.push([cursor, 1]);
       for (const [near, far] of gaps) {
-        const a = from.map((value: any, axis: any): any => value + near * (to[axis] - value));
-        const b = from.map((value: any, axis: any): any => value + far * (to[axis] - value));
-        const midpoint = a.map((value: any, axis: any) => (value + b[axis]) / 2);
+        const a: Vec3 = from.map((value, axis) => value + near * (to[axis] - value)) as Vec3;
+        const b: Vec3 = from.map((value, axis) => value + far * (to[axis] - value)) as Vec3;
+        const midpoint: Vec3 = a.map((value, axis) => (value + b[axis]) / 2) as Vec3;
         const length = horizontal(a, b);
         if (length <= 1e-4) continue;
         const inward = [-(b[2] - a[2]) / length, (b[0] - a[0]) / length];
@@ -91,17 +153,17 @@ export const exposedBoundaries = (surfaces: any, portals: any, sharedPortals: an
   }
   return boundaries;
 };
-const horizontalGap = (a: any, b: any) =>
+const horizontalGap = (a: Bounds, b: Bounds) =>
   Math.hypot(
     ...[0, 2].map((axis) => Math.max(a.min[axis] - b.max[axis], b.min[axis] - a.max[axis], 0)),
   );
-const boundsOf = (vertices: any): any => ({
-  min: [0, 1, 2].map((axis) => Math.min(...vertices.map((point: any): any => point[axis]))),
-  max: [0, 1, 2].map((axis) => Math.max(...vertices.map((point: any): any => point[axis]))),
+const boundsOf = (vertices: Vec3[]): Bounds => ({
+  min: [0, 1, 2].map((axis) => Math.min(...vertices.map((point) => point[axis]))),
+  max: [0, 1, 2].map((axis) => Math.max(...vertices.map((point) => point[axis]))),
 });
-export const interleave = (lists: any, limit: any): any => {
-  const result = [];
-  let active = lists.map((entries: any): any => ({ entries, cursor: 0 }));
+export const interleave = <T>(lists: T[][], limit: number): T[] => {
+  const result: T[] = [];
+  let active = lists.map((entries) => ({ entries, cursor: 0 }));
   while (active.length && result.length < limit) {
     const pending = [];
     for (const group of active) {
@@ -113,7 +175,7 @@ export const interleave = (lists: any, limit: any): any => {
   }
   return result;
 };
-export const validateDiscovery = (world: any, options: any) => {
+export const validateDiscovery = (world: CollisionWorld, options: DiscoveryOptions) => {
   const {
     profile,
     walls,
@@ -173,28 +235,37 @@ export const validateDiscovery = (world: any, options: any) => {
     model.maxHorizontalSpeed < 0 ||
     ((model.airAcceleration !== undefined || model.airDeceleration !== undefined) &&
       (![model.airAcceleration, model.airDeceleration].every(Number.isFinite) ||
-        model.airAcceleration <= 0 ||
-        model.airDeceleration <= 0)) ||
+        model.airAcceleration! <= 0 ||
+        model.airDeceleration! <= 0)) ||
     ((model.startHorizontalSpeed !== undefined || model.airOverspeedDeceleration !== undefined) &&
       (![model.startHorizontalSpeed, model.airOverspeedDeceleration].every(Number.isFinite) ||
-        model.startHorizontalSpeed < 0 ||
-        model.airOverspeedDeceleration <= 0))
+        model.startHorizontalSpeed! < 0 ||
+        model.airOverspeedDeceleration! <= 0))
   ) {
     throw new Error('Invalid traversal discovery options');
   }
 };
 export const standingFoot = (
-  nav: any,
-  world: any,
-  { profile, maxVertical, maxSlope, blocked, project }: any,
-): any => {
+  nav: { position: Vec3; surface?: string },
+  world: CollisionWorld,
+  {
+    profile,
+    maxVertical,
+    maxSlope,
+    blocked,
+    project,
+  }: Pick<DiscoveryOptions, 'profile' | 'maxVertical' | 'maxSlope'> & {
+    blocked: ReturnType<typeof createWallChecker>;
+    project: ReturnType<typeof movementGeometry>['project'];
+  },
+): Standing | Rejection => {
   const support = world.groundAt(nav.position, {
     maxUp: profile.radius,
     maxDown: profile.radius,
     maxSlope,
   });
   if (!support) return { reason: 'support' };
-  const position = [...support.position];
+  const position: Vec3 = [...support.position];
   position[1] += profile.radius * (1 / support.normal[1] - 1) + 0.005;
   // Real support corrects voxel and slope height. Bind the corrected foot to the
   // closest eligible navigation support, matching subsequent ground queries.
@@ -214,12 +285,12 @@ export const standingFoot = (
  * directed ground component. Sampling limits remain explicit, so failure is inconclusive.
  */
 export function findJumpConnections(
-  surfaces: any,
-  world: any,
-  options: any,
-  workLimits?: any,
+  surfaces: Surface[],
+  world: CollisionWorld,
+  options: DiscoveryOptions,
+  workLimits?: { arcAttempts?: number; regionSearches?: number },
   intermediateActions = true,
-): any {
+): { connections: DiscoveredConnection[]; diagnostics: DiscoveryDiagnostics } {
   const {
     profile,
     portals = [],
@@ -238,7 +309,13 @@ export function findJumpConnections(
   } = options ?? {};
   validateDiscovery(world, options);
   const blocked = createWallChecker(walls, profile);
-  const diagnostics: any = {
+  const diagnostics: DiscoveryDiagnostics &
+    Required<
+      Pick<
+        DiscoveryDiagnostics,
+        'sourceEndpoints' | 'targetEndpoints' | 'sourceCandidates' | 'directCandidates'
+      >
+    > = {
     reason: 'searched',
     components: 0,
     boundaryEdges: 0,
@@ -274,50 +351,46 @@ export function findJumpConnections(
     },
     rejected: { projection: 0, support: 0, clearance: 0, range: 0, motion: 0 },
   };
-  const connections: any = [];
+  const connections: DiscoveredConnection[] = [];
   const geometry = movementGeometry(surfaces, options);
   const { graph, topology, project } = geometry;
   diagnostics.components = topology.count;
-  const componentOf = (surface: any): any => topology.components[topology.ids.get(surface)];
+  const componentOf = (surface: string) => topology.components[topology.ids.get(surface)!];
   const source = project(from, { maxVertical })[0];
   const targets = project(to, { maxVertical, interaction }).filter(
-    (target: any) => !blocked(target.position, target.position),
+    (target) => !blocked(target.position, target.position),
   );
   if (!source || !targets.length || blocked(source.position, source.position)) {
     diagnostics.reason = 'unmapped-endpoint';
     return { connections, diagnostics };
   }
   const sourceComponent = componentOf(source.surface);
-  const targetComponents = new Set<any>(
-    targets.map((target: any): any => componentOf(target.surface)),
-  );
+  const targetComponents = new Set<number>(targets.map((target) => componentOf(target.surface)));
   const { byId, projectSupport } = geometry;
-  const extraForward = new Map<any, any>();
+  const extraForward = new Map<number, number[]>();
   for (const connection of options.connections ?? []) {
     if (connection.state !== 'open') continue;
     const a = connection.fromSurface === undefined ? surfaces : [byId.get(connection.fromSurface)];
     const b = connection.toSurface === undefined ? surfaces : [byId.get(connection.toSurface)];
     if (!a[0] || !b[0]) throw new Error('Invalid movement support surface');
     const from = projectSupport(connection.points[0], maxVertical, connection.fromSurface);
-    const to = projectSupport(connection.points.at(-1), maxVertical, connection.toSurface);
+    const to = projectSupport(connection.points.at(-1)!, maxVertical, connection.toSurface);
     if (
       !from ||
       !to ||
-      connection.points
-        .slice(1)
-        .some((point: any, index: any): any => blocked(connection.points[index], point))
+      connection.points.slice(1).some((point, index) => blocked(connection.points[index], point))
     )
       continue;
-    const id = topology.ids.get(from.surface),
+    const id = topology.ids.get(from.surface)!,
       entries = extraForward.get(id) ?? [];
-    entries.push(topology.ids.get(to.surface));
+    entries.push(topology.ids.get(to.surface)!);
     extraForward.set(id, entries);
   }
   // Proposals start anywhere already reachable without a new airborne action.
   // Ground transfers have zero proposal cost, so distance to the original arrival
   // is not an admissible heuristic: directed stairs can put a reachable floor far
   // from that arrival, starving a short box chain behind an unrelated cliff.
-  const reachable = new Set<any>([topology.ids.get(source.surface)]),
+  const reachable = new Set<number>([topology.ids.get(source.surface)!]),
     queue = [...reachable];
   for (let head = 0; head < queue.length; head++)
     for (const entries of [topology.forward[queue[head]], extraForward.get(queue[head]) ?? []])
@@ -326,20 +399,20 @@ export function findJumpConnections(
         reachable.add(next);
         queue.push(next);
       }
-  const sourceComponents = new Set<any>(
-    [...reachable].map((index): any => topology.components[index]),
+  const sourceComponents = new Set<number>(
+    [...reachable].map((index) => topology.components[index]),
   );
   diagnostics.sourceComponent = sourceComponent;
   diagnostics.targetComponent = componentOf(targets[0].surface);
   diagnostics.goalFaces = targets.length;
   diagnostics.goalComponents = targetComponents.size;
-  if (targets.some((target: any) => reachable.has(topology.ids.get(target.surface)))) {
+  if (targets.some((target) => reachable.has(topology.ids.get(target.surface)!))) {
     diagnostics.reason = options.connections?.length ? 'known-connected' : 'ground-connected';
     diagnostics.targetReached = true;
     return { connections, diagnostics };
   }
-  geometry.regions ??= ((): any => {
-    const regions = Array.from({ length: topology.count }, (_, component): any => ({
+  geometry.regions ??= (() => {
+    const regions = Array.from({ length: topology.count }, (_, component): Region => ({
       id: String(component),
       component,
       min: [Infinity, Infinity, Infinity],
@@ -358,19 +431,19 @@ export function findJumpConnections(
     }
     const boundaries = geometry.boundaries;
     for (const boundary of boundaries) {
-      Object.assign(boundary, boundsOf([boundary.a, boundary.b]));
-      regions[componentOf(boundary.surface)].boundaries.push(boundary);
+      const bounded = Object.assign(boundary, boundsOf([boundary.a, boundary.b]));
+      regions[componentOf(boundary.surface)].boundaries.push(bounded);
     }
     return { regions, boundaries, queryRegions: createBoundsIndex(regions) };
   })();
   const { regions, boundaries, queryRegions } = geometry.regions;
   diagnostics.boundaryEdges = boundaries.length;
   const endpointTolerance = Math.min(maxVertical, profile.radius);
-  const transfers = new Map<any, any>(),
-    groundIncoming = new Map<any, any>();
-  const transfer = (a: any, b: any, ground: any, reach: any): any => {
+  const transfers = new Map<string, Transfer>(),
+    groundIncoming = new Map<string, Set<Transfer>>();
+  const transfer = (a: Region, b: Region, ground: boolean, reach: number): Transfer => {
     const key = `${a.id}/${b.id}`;
-    if (transfers.has(key)) return transfers.get(key);
+    if (transfers.has(key)) return transfers.get(key)!;
     const gap = horizontalGap(a, b);
     // This optimistic ordering favours short chains; it is never a travel-time
     // proof or a grant of access through the overlapping region bounds.
@@ -390,7 +463,7 @@ export function findJumpConnections(
     const a = regions[componentOf(edge.from)],
       b = regions[componentOf(edge.to)];
     if (a === b) continue;
-    const entries = groundIncoming.get(b.id) ?? new Set<any>();
+    const entries = groundIncoming.get(b.id) ?? new Set<Transfer>();
     entries.add(transfer(a, b, true, 0));
     groundIncoming.set(b.id, entries);
   }
@@ -403,21 +476,21 @@ export function findJumpConnections(
         const a = regions[topology.components[from]],
           b = regions[topology.components[to]];
         if (a === b) continue;
-        const entries = groundIncoming.get(b.id) ?? new Set<any>();
+        const entries = groundIncoming.get(b.id) ?? new Set<Transfer>();
         entries.add(transfer(a, b, true, 0));
         groundIncoming.set(b.id, entries);
       }
-  const incoming = new Map<any, any>(),
-    preparedIncoming = new Map<any, any>();
+  const incoming = new Map<string, Transfer[]>(),
+    preparedIncoming = new Map<string, Transfer[]>();
   const pairingAvailable = () =>
     diagnostics.neighbourChecks < diagnostics.limits.neighbourChecks &&
     diagnostics.pairChecks < diagnostics.limits.pairChecks;
   const generationAvailable = () =>
     diagnostics.seedChecks < diagnostics.limits.seedChecks && pairingAvailable();
-  const neighbours = (b: any): any => {
+  const neighbours = (b: Region): Transfer[] => {
     if (!generationAvailable())
       return [...(groundIncoming.get(b.id) ?? []), ...(preparedIncoming.get(b.id) ?? [])];
-    if (incoming.has(b.id)) return incoming.get(b.id);
+    if (incoming.has(b.id)) return incoming.get(b.id)!;
     const entries = [...(groundIncoming.get(b.id) ?? [])];
     const bounds = {
       min: [
@@ -451,17 +524,17 @@ export function findJumpConnections(
     diagnostics.regionPairs = transfers.size;
     return entries;
   };
-  const findChain = (): any => {
-    const pending = createMinHeap(),
-      costs = new Map<any, any>(),
-      next = new Map<any, any>();
+  const findChain = (): Transfer[] | null => {
+    const pending = createMinHeap<{ region: Region; travelled: number; cost: number }>(),
+      costs = new Map<string, number>(),
+      next = new Map<string, Transfer>();
     for (const component of targetComponents) {
       const region = regions[component];
       costs.set(region.id, 0);
       pending.push({ region, travelled: 0, cost: 0 });
     }
     while (pending.size) {
-      const { region, travelled } = pending.pop();
+      const { region, travelled } = pending.pop()!;
       if (travelled !== costs.get(region.id)) continue;
       if (sourceComponents.has(region.component)) {
         const chain = [];
@@ -480,16 +553,16 @@ export function findJumpConnections(
     }
     return null;
   };
-  const cachedStanding = new Map<any, any>();
-  const standing = (seed: any, component: any): any => {
+  const cachedStanding = new Map<string, Standing | null>();
+  const standing = (seed: Vec3, component: number): Standing | null => {
     const key = JSON.stringify([component, seed]);
-    if (cachedStanding.has(key)) return cachedStanding.get(key);
+    if (cachedStanding.has(key)) return cachedStanding.get(key)!;
     if (diagnostics.endpointChecks >= diagnostics.limits.endpointChecks) {
       diagnostics.truncated = true;
       return null;
     }
     diagnostics.endpointChecks++;
-    let result = null;
+    let result: Standing | null = null;
     const nav = project(seed, { maxVertical })[0];
     if (!nav || componentOf(nav.surface) !== component) diagnostics.rejected.projection++;
     else {
@@ -513,7 +586,7 @@ export function findJumpConnections(
     return result;
   };
   const insets = [
-    ...new Set<any>([
+    ...new Set<number>([
       0,
       profile.radius * 0.25,
       profile.radius * 0.5,
@@ -526,14 +599,20 @@ export function findJumpConnections(
       3,
     ]),
   ].sort((a, b) => a - b);
-  const seedsFor = (region: any, other: any, takeoff: any, reach: any, limit: any): any => {
-    const seeds = [],
-      seen = new Set<any>();
-    const center = other.min.map((value: any, axis: any) => (value + other.max[axis]) / 2);
+  const seedsFor = (
+    region: Region,
+    other: Region,
+    takeoff: boolean,
+    reach: number,
+    limit: number,
+  ): Vec3[] => {
+    const seeds: Vec3[] = [],
+      seen = new Set<string>();
+    const center = other.min.map((value, axis) => (value + other.max[axis]) / 2);
     const edges = region.boundaries
       .filter(
-        (boundary: any) =>
-          horizontalGap(boundary, other) <= reach + insets.at(-1) &&
+        (boundary) =>
+          horizontalGap(boundary, other) <= reach + insets.at(-1)! &&
           (takeoff
             ? boundary.max[1] + model.maxJumpHeight + endpointTolerance >= other.min[1] &&
               boundary.min[1] - maxDrop - endpointTolerance <= other.max[1]
@@ -541,7 +620,7 @@ export function findJumpConnections(
               boundary.max[1] >= other.min[1] - maxDrop - endpointTolerance),
       )
       .sort(
-        (a: any, b: any) =>
+        (a, b) =>
           horizontalGap(a, other) - horizontalGap(b, other) ||
           distance(a.midpoint, takeoff ? to : from) - distance(b.midpoint, takeoff ? to : from),
       );
@@ -559,7 +638,7 @@ export function findJumpConnections(
         ),
       );
       // Always try the closest part of a long ledge before uniform refinement.
-      const fractions = new Set<any>([nearest, 0.5]);
+      const fractions = new Set<number>([nearest, 0.5]);
       const refinement = Math.min(
         samples,
         Math.max(0, Math.floor((limit - generated) / insets.length)),
@@ -575,9 +654,9 @@ export function findJumpConnections(
           }
           generated++;
           diagnostics.seedChecks++;
-          const point = boundary.a.map(
-            (value: any, axis: any): any => value + fraction * (boundary.b[axis] - value),
-          );
+          const point: Vec3 = boundary.a.map(
+            (value, axis) => value + fraction * (boundary.b[axis] - value),
+          ) as Vec3;
           point[0] += boundary.interior[0] * inset;
           point[2] += boundary.interior[1] * inset;
           const key = JSON.stringify(point);
@@ -592,17 +671,17 @@ export function findJumpConnections(
     }
     return seeds;
   };
-  const spreadSeeds = (seeds: any): any => {
-    const cells = new Map<any, any>();
+  const spreadSeeds = (seeds: Vec3[]) => {
+    const cells = new Map<string, Vec3[]>();
     for (const seed of seeds) {
-      const key = seed.map((value: any) => Math.floor(value / (profile.radius * 2))).join('/');
+      const key = seed.map((value) => Math.floor(value / (profile.radius * 2))).join('/');
       const group = cells.get(key) ?? [];
       group.push(seed);
       cells.set(key, group);
     }
     return interleave([...cells.values()], seeds.length);
   };
-  const pairsFor = function* ({ a, b, reach }: any): any {
+  const pairsFor = function* ({ a, b, reach }: Transfer): Generator<Pair> {
     if (diagnostics.seedChecks >= diagnostics.limits.seedChecks) {
       diagnostics.truncated = true;
       return;
@@ -613,12 +692,15 @@ export function findJumpConnections(
       seedsFor(b, a, false, reach, diagnostics.limits.seedChecks - diagnostics.seedChecks),
     );
     const queryLandings = createBoundsIndex(
-      landings.map((point: any): any => ({ min: point, max: point, point })),
+      landings.map((point) => ({ min: point, max: point, point })),
     );
     const queryFaces = createBoundsIndex(
-      b.surfaces.map((surface: any): any => ({ surface, ...boundsOf(surface.vertices) })),
+      b.surfaces.map((surface) => ({ surface, ...boundsOf(surface.vertices) })),
     );
-    let active = [];
+    let active: ({ start: Vec3 } & (
+      | { boundary: true; landings: Generator<{ min: Vec3; max: Vec3; point: Vec3 }> }
+      | { boundary: false; landings: Generator<{ surface: Surface } & Bounds> }
+    ))[] = [];
     for (const start of takeoffs) {
       const duration = jumpDuration(
         start[1] + endpointTolerance,
@@ -651,10 +733,14 @@ export function findJumpConnections(
             break;
           }
           if (query.boundary)
-            yield { start: query.start, end: landing.value.point, boundary: true };
+            yield {
+              start: query.start,
+              end: (landing.value as { point: Vec3 }).point,
+              boundary: true,
+            };
           else
             for (const point of landingCandidates(
-              landing.value.surface,
+              (landing.value as { surface: Surface }).surface,
               query.start,
               to,
               model,
@@ -668,7 +754,7 @@ export function findJumpConnections(
       active = pending;
     }
   };
-  const candidatesFor = (entry: any): any => {
+  const candidatesFor = (entry: Transfer): Candidate[] => {
     const { a, b } = entry;
     const generation = (entry.generation ??= {
       pairs: pairsFor(entry),
@@ -676,7 +762,7 @@ export function findJumpConnections(
       cursor: 0,
       done: false,
     });
-    const nextBatch = (): any => {
+    const nextBatch = () => {
       const candidates = generation.pending.slice(
         generation.cursor,
         generation.cursor + maxCandidates,
@@ -694,9 +780,9 @@ export function findJumpConnections(
     diagnostics.generationBatches++;
     const previousPairs = diagnostics.pairChecks,
       previousNeighbours = diagnostics.neighbourChecks;
-    const buckets = new Map<any, any>(),
+    const buckets = new Map<string, Map<string, Candidate[]>>(),
       diversity = profile.radius * 2;
-    const compare = (a: any, b: any) =>
+    const compare = (a: Candidate, b: Candidate) =>
       Number(b.boundary) - Number(a.boundary) ||
       Number(a.uncertain) - Number(b.uncertain) ||
       a.score - b.score;
@@ -731,9 +817,9 @@ export function findJumpConnections(
         continue;
       }
       diagnostics.pairChecks++;
-      const launch = start.map((value: any) => Math.floor(value / diversity)).join('/');
-      const landingKey = end.map((value: any) => Math.floor(value / diversity)).join('/');
-      const destinations = buckets.get(launch) ?? new Map<any, any>();
+      const launch = start.map((value) => Math.floor(value / diversity)).join('/');
+      const landingKey = end.map((value) => Math.floor(value / diversity)).join('/');
+      const destinations = buckets.get(launch) ?? new Map<string, Candidate[]>();
       const bucket = destinations.get(landingKey) ?? [];
       const nominal = jumpDuration(start[1], end[1], {
         ...model,
@@ -755,9 +841,9 @@ export function findJumpConnections(
     // Within one launch region, retain spatially diverse landings and then fine
     // offsets. This includes railing pullbacks without losing narrow platforms.
     const launches = [...buckets.values()]
-      .map((destinations): any => {
+      .map((destinations) => {
         const lists = [...destinations.values()]
-          .map((list): any => list.sort(compare))
+          .map((list) => list.sort(compare))
           .sort((a, b) => compare(a[0], b[0]));
         return interleave(lists, diagnostics.pairChecks - previousPairs);
       })
@@ -767,10 +853,10 @@ export function findJumpConnections(
     if (!generation.done) diagnostics.truncated = true;
     return nextBatch();
   };
-  const validate = (entry: any): any => {
+  const validate = (entry: Transfer): DiscoveredConnection | null | undefined => {
     const { a, b } = entry;
     if (!entry.search) {
-      entry.search = { candidates: [], cursor: 0, tried: new Set<any>() };
+      entry.search = { candidates: [], cursor: 0, tried: new Set<string>() };
       const entries = preparedIncoming.get(b.id) ?? [];
       entries.push(entry);
       preparedIncoming.set(b.id, entries);
@@ -806,7 +892,7 @@ export function findJumpConnections(
         diagnostics.rejected.range++;
         continue;
       }
-      for (const mode of ['jump', 'drop']) {
+      for (const mode of ['jump', 'drop'] as const) {
         if (mode === 'jump' && model.maxJumpHeight === 0) continue;
         if (mode === 'drop' && end.position[1] > start.position[1]) continue;
         if (diagnostics.attempted >= diagnostics.limits.arcAttempts) {
@@ -819,7 +905,7 @@ export function findJumpConnections(
           profile,
           walls,
           mode,
-          sweep: (from: any, to: any, body: any): any => world.sweepCapsule(from, to, body),
+          sweep: (from, to, body) => world.sweepCapsule(from, to, body),
         });
         if (!arc) {
           diagnostics.rejected.motion++;
@@ -843,7 +929,7 @@ export function findJumpConnections(
         return undefined;
       }
     }
-    const generation = entry.generation;
+    const generation = entry.generation!;
     if (generation.cursor < generation.pending.length || (!generation.done && pairingAvailable())) {
       entry.cost += 1;
       diagnostics.deferredPairs++;
@@ -851,7 +937,7 @@ export function findJumpConnections(
     }
     return null;
   };
-  const validated = new Set<any>();
+  const validated = new Set<string>();
   while (
     connections.length < maxLinks &&
     diagnostics.regionSearches < (workLimits?.regionSearches ?? maxCandidates)
@@ -878,7 +964,7 @@ export function findJumpConnections(
       diagnostics.accepted++;
       if (connections.length >= maxLinks) break;
     }
-    if (complete && chain.every((entry: any): any => entry.ground || validated.has(entry.key))) {
+    if (complete && chain.every((entry) => entry.ground || validated.has(entry.key))) {
       diagnostics.targetReached = true;
       break;
     }

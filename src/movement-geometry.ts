@@ -1,14 +1,41 @@
+import type { BoundsIndex } from './bounds.js';
+import type { GroundTopology } from './connectivity.js';
 import { groundComponents } from './connectivity.js';
 import { createGoalProjector } from './goals.js';
 import { groundPreparation } from './ground.js';
+import type { Surface, Vec3, DiscoveryOptions, Graph } from './index-types.js';
 import { createSupportProjector } from './support-projector.js';
 import { surfaceGraph, surfacePortals } from './surfaces.js';
+import type { Region, Boundary } from './traversal.js';
 import { exposedBoundaries } from './traversal.js';
 import { createWallChecker } from './walls.js';
-const snapshots = new WeakMap<any, any>();
+
+interface Geometry {
+  graph: Graph;
+  forward?: NonNullable<ReturnType<typeof groundPreparation>>['routeBase']['forward'];
+  blocked: ReturnType<typeof createWallChecker>;
+  portals: ReturnType<typeof surfacePortals>;
+  byId: Map<string, Surface>;
+  lengthScale: number;
+  centers: Map<string, Vec3>;
+  project: ReturnType<typeof createGoalProjector>;
+  projectSupport: ReturnType<typeof createSupportProjector>;
+  visibility?: NonNullable<ReturnType<typeof groundPreparation>>['straighten'];
+  topology: GroundTopology;
+  boundaries: Boundary[];
+  regions?: { regions: Region[]; boundaries: Boundary[]; queryRegions: BoundsIndex<Region> };
+}
+
+const snapshots = new WeakMap<
+  NonNullable<ReturnType<typeof groundPreparation>>,
+  { signature: string; portals: DiscoveryOptions['portals']; value: Geometry }
+>();
 // Share only immutable ground geometry. Each discovery call owns its temporary
 // action overlays, reachability, seeds and validation budgets.
-export const movementGeometry = (surfaces: any, options: any): any => {
+export const movementGeometry = (
+  surfaces: Surface[],
+  options: Pick<DiscoveryOptions, 'walls' | 'profile' | 'portals' | 'groundPlanner'>,
+): Geometry => {
   const candidate = groundPreparation(options.groundPlanner);
   const prepared = candidate?.surfaces === surfaces ? candidate : undefined;
   const signature = JSON.stringify([options.walls, options.profile]);
@@ -23,16 +50,13 @@ export const movementGeometry = (surfaces: any, options: any): any => {
   const graph = normalized?.graph ?? {
     nodes: base.nodes,
     edges: base.edges.filter(
-      (edge: any) =>
-        !edge.points
-          .slice(1)
-          .some((point: any, index: any): any => blocked(edge.points[index], point)),
+      (edge) => !edge.points.slice(1).some((point, index) => blocked(edge.points[index], point)),
     ),
   };
   const byId =
-    prepared?.byId ?? new Map<any, any>(surfaces.map((surface: any): any => [surface.id, surface]));
-  let topology, boundaries;
-  const value = {
+    prepared?.byId ?? new Map<string, Surface>(surfaces.map((surface) => [surface.id, surface]));
+  let topology: GroundTopology | undefined, boundaries: Boundary[] | undefined;
+  const value: Geometry = {
     graph,
     forward: normalized?.forward,
     blocked,
@@ -41,7 +65,7 @@ export const movementGeometry = (surfaces: any, options: any): any => {
     lengthScale: reused ? prepared.searchSpeed : 1,
     centers:
       prepared?.centers ??
-      new Map<any, any>(graph.nodes.map((node: any): any => [node.id, node.position])),
+      new Map<string, Vec3>(graph.nodes.map((node) => [node.id, node.position])),
     project: prepared?.projectGoal ?? createGoalProjector(surfaces),
     projectSupport: prepared?.projectSupport ?? createSupportProjector(surfaces, byId),
     visibility: prepared?.straighten,

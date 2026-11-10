@@ -1,8 +1,59 @@
+import type { CollisionWorld } from './collision-types.js';
+import type { Vec3, JumpModel, jumpConnection as JumpConnection } from './index-types.js';
 import { createWallChecker } from './walls.js';
+
+export type JumpOptions = Parameters<typeof JumpConnection>[2];
+export type VerticalOptions = Omit<JumpModel, 'maxHorizontalSpeed'> & { mode: 'jump' | 'drop' };
+export interface MotionControl {
+  mode: 'jump' | 'drop';
+  exit?: [number, number];
+  speedFraction?: number;
+  terminal?: 'average' | 'balanced' | 'fast';
+  horizontalWaypoint?: [number, number];
+  horizontalSplit?: number;
+  expireAfter?: number;
+  expiredHorizontalSpeed?: number;
+}
+interface Phase {
+  y: number;
+  velocity: number;
+  acceleration: number;
+  duration: number;
+}
+interface Trajectory {
+  phases: Phase[];
+  duration: number;
+}
+export interface Approach {
+  launch: Vec3;
+  points: Vec3[];
+  distances: number[];
+}
+export type ApproachCache = Map<string, Approach | null>;
+export type ExitCache = Map<string, [number, number] | null>;
+export type Arc = NonNullable<ReturnType<typeof JumpConnection>>;
+export type RunOffOptions = Omit<JumpOptions, 'mode'> &
+  Partial<MotionControl> & { world: CollisionWorld; maxSlope: number };
+interface SweepOptions {
+  profile: JumpOptions['profile'];
+  clearance: number;
+  wallCheck: NonNullable<JumpOptions['wallCheck']>;
+  sweep: JumpOptions['sweep'];
+  horizontalAt(time: number): readonly number[];
+  horizontalAcceleration: number;
+  peakHorizontalSpeed?: number;
+  mode: 'jump' | 'drop';
+}
+
 const maximumStep = 0.025;
-const finitePoint = (point: any) =>
+const finitePoint = (point: unknown) =>
   Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
-const horizontalLeg = (distance: any, speed: any, acceleration: any, deceleration: any): any => {
+const horizontalLeg = (
+  distance: number,
+  speed: number,
+  acceleration: number,
+  deceleration: number,
+) => {
   if (distance === 0) return { duration: 0, peak: 0, at: () => 0 };
   const peak = Math.min(speed, Math.sqrt((2 * distance) / (1 / acceleration + 1 / deceleration)));
   if (peak === 0) return null;
@@ -13,7 +64,7 @@ const horizontalLeg = (distance: any, speed: any, acceleration: any, deceleratio
   return {
     duration,
     peak,
-    at(time: any): any {
+    at(time: number) {
       if (time <= 0) return 0;
       if (time >= duration) return distance;
       if (time < rise) return (acceleration * time * time) / 2;
@@ -24,15 +75,22 @@ const horizontalLeg = (distance: any, speed: any, acceleration: any, deceleratio
   };
 };
 // Distance for the forward-input flight family, including a launch impulse.
-export const jumpTravel = (initial: any, time: any, model: any) => {
+export const jumpTravel = (
+  initial: number,
+  time: number,
+  model: Pick<
+    JumpOptions,
+    'maxHorizontalSpeed' | 'airOverspeedDeceleration' | 'expireAfter' | 'expiredHorizontalSpeed'
+  >,
+) => {
   const { maxHorizontalSpeed, airOverspeedDeceleration, expireAfter, expiredHorizontalSpeed } =
     model;
-  const travel = (speed: any, cap: any, duration: any) => {
+  const travel = (speed: number, cap: number, duration: number) => {
     if (speed <= cap) return speed * duration;
-    const braking = Math.min(duration, (speed - cap) / airOverspeedDeceleration);
+    const braking = Math.min(duration, (speed - cap) / airOverspeedDeceleration!);
     return (
       speed * braking -
-      (airOverspeedDeceleration * braking * braking) / 2 +
+      (airOverspeedDeceleration! * braking * braking) / 2 +
       cap * (duration - braking)
     );
   };
@@ -40,32 +98,32 @@ export const jumpTravel = (initial: any, time: any, model: any) => {
     return travel(initial, maxHorizontalSpeed, time);
   const speed = Math.max(
     Math.min(initial, maxHorizontalSpeed),
-    initial - airOverspeedDeceleration * expireAfter,
+    initial - airOverspeedDeceleration! * expireAfter,
   );
   return (
     travel(initial, maxHorizontalSpeed, expireAfter) +
-    travel(speed, expiredHorizontalSpeed, time - expireAfter)
+    travel(speed, expiredHorizontalSpeed!, time - expireAfter)
   );
 };
 // Bounded control primitives share the same vertical model and collision proof.
 // A split moves partway early, brakes, then completes the motion late. This can
 // clear a railing, descend through an opening and move under an overhang.
 export function createMotionVariants(
-  model: any,
-  world: any,
-  profile: any,
-  exits = new Map<any, any>(),
-  approaches = new Map<any, any>(),
-  allowJump?: any,
-): any {
-  return function* (start: any, end: any, exit?: any): any {
+  model: JumpModel,
+  world: CollisionWorld,
+  profile: JumpOptions['profile'],
+  exits: ExitCache = new Map(),
+  approaches: ApproachCache = new Map(),
+  allowJump?: (start: Vec3, end: Vec3) => boolean,
+) {
+  return function* (start: Vec3, end: Vec3, exit?: [number, number]): Generator<MotionControl> {
     const jumping = !allowJump || allowJump(start, end);
     yield { mode: 'drop' };
     if (jumping) yield { mode: 'jump' };
     if (exit && model.airAcceleration !== undefined) {
       const key = JSON.stringify([start, exit]);
       steering: for (const speedFraction of [0.5, 0.25, 1, 0.125]) {
-        for (const terminal of ['average', 'balanced', 'fast']) {
+        for (const terminal of ['average', 'balanced', 'fast'] as const) {
           if (approaches.has(key) && approaches.get(key) === null) break steering;
           yield { mode: 'drop', exit, speedFraction, terminal };
         }
@@ -75,18 +133,18 @@ export function createMotionVariants(
       return;
     const duration = jumpDuration(start[1], end[1], { ...model, mode: 'jump' });
     if (duration === null) return;
-    const fits = (point: any) => {
+    const fits = (point: [number, number]) => {
       const first = horizontalLeg(
         Math.hypot(point[0] - start[0], point[1] - start[2]),
         model.maxHorizontalSpeed,
-        model.airAcceleration,
-        model.airDeceleration,
+        model.airAcceleration!,
+        model.airDeceleration!,
       );
       const last = horizontalLeg(
         Math.hypot(end[0] - point[0], end[2] - point[1]),
         model.maxHorizontalSpeed,
-        model.airAcceleration,
-        model.airDeceleration,
+        model.airAcceleration!,
+        model.airDeceleration!,
       );
       return first !== null && last !== null && first.duration + last.duration <= duration;
     };
@@ -94,19 +152,19 @@ export function createMotionVariants(
       profile.radius +
       (Math.hypot(
         Math.max(model.gravity, model.fallingGravity),
-        model.airAcceleration,
-        model.airDeceleration,
+        model.airAcceleration!,
+        model.airDeceleration!,
       ) *
         maximumStep ** 2) /
         8;
     if (exit) {
       const key = JSON.stringify([start, exit]);
       if (!exits.has(key)) {
-        let waypoint = null;
+        let waypoint: [number, number] | null = null;
         const length = Math.hypot(exit[0] - start[0], exit[1] - start[2]);
         if (length > 0)
           for (let offset = -1.5; offset <= 2; offset += 0.25) {
-            const position = [
+            const position: [number, number] = [
               exit[0] + ((exit[0] - start[0]) / length) * profile.radius * offset,
               exit[1] + ((exit[1] - start[2]) / length) * profile.radius * offset,
             ];
@@ -114,8 +172,8 @@ export function createMotionVariants(
               world.bounds &&
               position.some(
                 (value, axis) =>
-                  value - padding < world.bounds.min[axis] ||
-                  value + padding > world.bounds.max[axis],
+                  value - padding < world.bounds!.min[axis] ||
+                  value + padding > world.bounds!.max[axis],
               )
             )
               continue;
@@ -140,8 +198,8 @@ export function createMotionVariants(
     for (const horizontalSplit of [0.5, 0.25, 0.75, 0, 1]) {
       if (
         fits([
-          start[0] + (end[0] - start[0]) * horizontalSplit,
-          start[2] + (end[2] - start[2]) * horizontalSplit,
+          start[0] + (end[0] - start[0]) * horizontalSplit!,
+          start[2] + (end[2] - start[2]) * horizontalSplit!,
         ])
       )
         yield { mode: 'jump', horizontalSplit };
@@ -150,7 +208,12 @@ export function createMotionVariants(
 }
 // Candidate retrieval needs only elapsed time. Build phase records only when a
 // physical trajectory will actually be swept, using the same summation order.
-const verticalDuration = (startHeight: any, endHeight: any, options: any, phases?: any): any => {
+const verticalDuration = (
+  startHeight: number,
+  endHeight: number,
+  options: VerticalOptions,
+  phases?: Phase[],
+): number | null => {
   const { gravity, fallingGravity, maxJumpHeight, maxFallingSpeed, apexTime, mode } = options ?? {};
   if (
     ![
@@ -215,8 +278,12 @@ const verticalDuration = (startHeight: any, endHeight: any, options: any, phases
   if (duration <= 0) return null;
   return duration;
 };
-const jumpPhases = (startHeight: any, endHeight: any, options: any): any => {
-  const phases: any = [],
+const jumpPhases = (
+  startHeight: number,
+  endHeight: number,
+  options: VerticalOptions,
+): Trajectory | null => {
+  const phases: Phase[] = [],
     duration = verticalDuration(startHeight, endHeight, options, phases);
   return duration === null ? null : { phases, duration };
 };
@@ -224,18 +291,22 @@ const jumpPhases = (startHeight: any, endHeight: any, options: any): any => {
  * Null means that the destination height cannot be reached by the selected mode.
  * This does not check horizontal reach, collision, state or landing support.
  */
-export function jumpDuration(startHeight: any, endHeight: any, options: any): any {
+export function jumpDuration(
+  startHeight: number,
+  endHeight: number,
+  options: VerticalOptions,
+): number | null {
   return verticalDuration(startHeight, endHeight, options);
 }
 // Internal goal broadphase uses the same phase boundaries and vertical physics
 // as the sampled trajectory, including apex holds and terminal-speed descent.
 export function jumpVerticalRange(
-  startHeight: any,
-  endHeight: any,
-  options: any,
-  fromTime: any,
-  toTime: any,
-): any {
+  startHeight: number,
+  endHeight: number,
+  options: VerticalOptions,
+  fromTime: number,
+  toTime: number,
+) {
   const trajectory = jumpPhases(startHeight, endHeight, options);
   if (!trajectory) return null;
   const lower = Math.max(0, fromTime),
@@ -244,7 +315,7 @@ export function jumpVerticalRange(
   let min = Infinity,
     max = -Infinity,
     elapsed = 0;
-  const include = (phase: any, time: any) => {
+  const include = (phase: Phase, time: number) => {
     const height = phase.y + phase.velocity * time + (phase.acceleration * time * time) / 2;
     min = Math.min(min, height);
     max = Math.max(max, height);
@@ -274,7 +345,7 @@ export function jumpVerticalRange(
  * floor contact or initial overlap is ignored, and endpoints are never lifted.
  * Passing this model does not establish the game's live air-control behaviour.
  */
-export function jumpConnection(start: any, end: any, options: any): any {
+export function jumpConnection(start: Vec3, end: Vec3, options: JumpOptions): Arc | null {
   const {
     profile,
     gravity,
@@ -328,7 +399,7 @@ export function jumpConnection(start: any, end: any, options: any): any {
   // Avoid an unbounded allocation for inputs outside any practical scene extent.
   if (duration / maximumStep > 100000) throw new Error('Jump model exceeds the sweep budget');
   const horizontalDistance = Math.hypot(end[0] - start[0], end[2] - start[2]);
-  let horizontalAt = (time: any): any => [
+  let horizontalAt = (time: number): [number, number] => [
     start[0] + ((end[0] - start[0]) * time) / duration,
     start[2] + ((end[2] - start[2]) * time) / duration,
   ];
@@ -338,8 +409,8 @@ export function jumpConnection(start: any, end: any, options: any): any {
   if (startHorizontalSpeed !== undefined || airOverspeedDeceleration !== undefined) {
     if (
       ![startHorizontalSpeed, airOverspeedDeceleration].every(Number.isFinite) ||
-      startHorizontalSpeed < 0 ||
-      airOverspeedDeceleration <= 0
+      startHorizontalSpeed! < 0 ||
+      airOverspeedDeceleration! <= 0
     )
       throw new Error('Invalid jump launch speed');
   }
@@ -347,10 +418,10 @@ export function jumpConnection(start: any, end: any, options: any): any {
   if (
     expires &&
     (!Number.isFinite(options.expireAfter) ||
-      options.expireAfter < 0 ||
+      options.expireAfter! < 0 ||
       !Number.isFinite(options.expiredHorizontalSpeed) ||
-      options.expiredHorizontalSpeed < 0 ||
-      options.expiredHorizontalSpeed > maxHorizontalSpeed ||
+      options.expiredHorizontalSpeed! < 0 ||
+      options.expiredHorizontalSpeed! > maxHorizontalSpeed ||
       !Number.isFinite(airOverspeedDeceleration))
   ) {
     throw new Error('Invalid flight speed expiry');
@@ -359,14 +430,14 @@ export function jumpConnection(start: any, end: any, options: any): any {
     if (
       mode !== 'jump' ||
       startHorizontalSpeed === undefined ||
-      (!expires && startHorizontalSpeed <= maxHorizontalSpeed) ||
+      (!expires && startHorizontalSpeed! <= maxHorizontalSpeed) ||
       options.horizontalSplit !== undefined ||
       options.horizontalWaypoint !== undefined
     )
       return null;
     // A jump impulse can exceed the sustained air-speed limit. Keep steering
     // forward while the excess decays, then continue at the sustained speed.
-    const travelled = (initial: any, time: any) => jumpTravel(initial, time, options);
+    const travelled = (initial: number, time: number) => jumpTravel(initial, time, options);
     if (
       travelled(Math.max(startHorizontalSpeed, maxHorizontalSpeed), duration) < horizontalDistance
     )
@@ -379,8 +450,8 @@ export function jumpConnection(start: any, end: any, options: any): any {
       else high = middle;
     }
     peakHorizontalSpeed = high;
-    horizontalAcceleration = airOverspeedDeceleration;
-    horizontalAt = (time): any => {
+    horizontalAcceleration = airOverspeedDeceleration!;
+    horizontalAt = (time) => {
       const fraction = travelled(high, time) / horizontalDistance;
       return [start[0] + (end[0] - start[0]) * fraction, start[2] + (end[2] - start[2]) * fraction];
     };
@@ -389,10 +460,10 @@ export function jumpConnection(start: any, end: any, options: any): any {
     const { horizontalSplit, airAcceleration, airDeceleration } = options;
     if (
       ![airAcceleration, airDeceleration].every(Number.isFinite) ||
-      airAcceleration <= 0 ||
-      airDeceleration <= 0 ||
+      airAcceleration! <= 0 ||
+      airDeceleration! <= 0 ||
       (options.horizontalWaypoint === undefined &&
-        (!Number.isFinite(horizontalSplit) || horizontalSplit < 0 || horizontalSplit > 1)) ||
+        (!Number.isFinite(horizontalSplit) || horizontalSplit! < 0 || horizontalSplit! > 1)) ||
       (options.horizontalWaypoint !== undefined &&
         (!Array.isArray(options.horizontalWaypoint) ||
           options.horizontalWaypoint.length !== 2 ||
@@ -401,20 +472,25 @@ export function jumpConnection(start: any, end: any, options: any): any {
       throw new Error('Invalid horizontal jump control');
     }
     const middle = options.horizontalWaypoint ?? [
-      start[0] + (end[0] - start[0]) * horizontalSplit,
-      start[2] + (end[2] - start[2]) * horizontalSplit,
+      start[0] + (end[0] - start[0]) * horizontalSplit!,
+      start[2] + (end[2] - start[2]) * horizontalSplit!,
     ];
     const firstDistance = Math.hypot(middle[0] - start[0], middle[1] - start[2]);
     const lastDistance = Math.hypot(end[0] - middle[0], end[2] - middle[1]);
     const first = horizontalLeg(
       firstDistance,
       maxHorizontalSpeed,
-      airAcceleration,
-      airDeceleration,
+      airAcceleration!,
+      airDeceleration!,
     );
-    const last = horizontalLeg(lastDistance, maxHorizontalSpeed, airAcceleration, airDeceleration);
+    const last = horizontalLeg(
+      lastDistance,
+      maxHorizontalSpeed,
+      airAcceleration!,
+      airDeceleration!,
+    );
     if (!first || !last || first.duration + last.duration > duration) return null;
-    horizontalAt = (time): any => {
+    horizontalAt = (time) => {
       const a = firstDistance === 0 ? 1 : first.at(time) / firstDistance;
       const b = lastDistance === 0 ? 1 : last.at(time - (duration - last.duration)) / lastDistance;
       return [
@@ -422,7 +498,7 @@ export function jumpConnection(start: any, end: any, options: any): any {
         start[2] + (middle[1] - start[2]) * a + (end[2] - middle[1]) * b,
       ];
     };
-    horizontalAcceleration = Math.max(airAcceleration, airDeceleration);
+    horizontalAcceleration = Math.max(airAcceleration!, airDeceleration!);
     peakHorizontalSpeed = Math.max(first.peak, last.peak);
   }
   return sweepTrajectory(start, end, trajectory, {
@@ -437,9 +513,9 @@ export function jumpConnection(start: any, end: any, options: any): any {
   });
 }
 function sweepTrajectory(
-  start: any,
-  end: any,
-  { phases, duration }: any,
+  start: Vec3,
+  end: Vec3,
+  { phases, duration }: Trajectory,
   {
     profile,
     clearance,
@@ -449,18 +525,18 @@ function sweepTrajectory(
     horizontalAcceleration,
     peakHorizontalSpeed,
     mode,
-  }: any,
-): any {
-  const points = [[...start]],
+  }: SweepOptions,
+): Arc | null {
+  const points: Vec3[] = [[...start]],
     times = [0];
   let elapsed = 0;
   for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex++) {
     const phase = phases[phaseIndex],
       count = Math.ceil(phase.duration / maximumStep);
-    const advance: any = (previousTime: any, localTime: any, last: any): any => {
+    const advance = (previousTime: number, localTime: number, last: boolean): boolean => {
       const time = elapsed + localTime;
       const horizontal = horizontalAt(time);
-      const point = last
+      const point: Vec3 = last
         ? [...end]
         : [
             horizontal[0],
@@ -470,7 +546,7 @@ function sweepTrajectory(
       const delta = localTime - previousTime;
       const inflation =
         clearance + (Math.hypot(phase.acceleration, horizontalAcceleration) * delta * delta) / 8;
-      const previous = points.at(-1);
+      const previous = points.at(-1)!;
       const blocked =
         wallCheck(previous, point, inflation) ||
         sweep(previous, point, { ...profile, inflation }) !== null;
@@ -511,7 +587,12 @@ function sweepTrajectory(
  * cannot bridge a missing support interval or step through an obstacle.
  * Internal discovery helper; callers supply validated world/model options.
  */
-export function runOffConnection(start: any, end: any, options: any, cache?: any): any {
+export function runOffConnection(
+  start: Vec3,
+  end: Vec3,
+  options: RunOffOptions,
+  cache?: ApproachCache,
+): Arc | null {
   const { world, maxSlope, profile, walls } = options;
   const wallCheck = options.wallCheck ?? createWallChecker(walls, profile);
   const span = Math.hypot(end[0] - start[0], end[2] - start[2]);
@@ -534,11 +615,11 @@ export function runOffConnection(start: any, end: any, options: any, cache?: any
       : null;
   }
   if (cacheKey) cache?.set(cacheKey, null);
-  const points = [[...start]],
+  const points: Vec3[] = [[...start]],
     distances = [0];
   let travelled = 0;
-  const supportAt = (distance: any, previous: any): any => {
-    const foot = [
+  const supportAt = (distance: number, previous: Vec3): Vec3 | null => {
+    const foot: Vec3 = [
       start[0] + direction[0] * distance,
       previous[1] - 0.005,
       start[2] + direction[1] * distance,
@@ -547,8 +628,8 @@ export function runOffConnection(start: any, end: any, options: any, cache?: any
       world.bounds &&
       [0, 2].some(
         (axis, index) =>
-          foot[axis] - profile.radius < world.bounds.min[index] ||
-          foot[axis] + profile.radius > world.bounds.max[index],
+          foot[axis] - profile.radius < world.bounds!.min[index] ||
+          foot[axis] + profile.radius > world.bounds!.max[index],
       )
     )
       return null;
@@ -559,13 +640,13 @@ export function runOffConnection(start: any, end: any, options: any, cache?: any
       radius: profile.radius,
     });
     if (!support) return null;
-    const position = [...support.position];
+    const position: Vec3 = [...support.position];
     position[1] += 0.005;
     return position;
   };
-  const appendSupport: any = (distance: any, position: any): any => {
-    const previous = points.at(-1),
-      previousDistance: any = distances.at(-1);
+  const appendSupport = (distance: number, position: Vec3): boolean => {
+    const previous = points.at(-1)!,
+      previousDistance = distances.at(-1)!;
     if (wallCheck(previous, position) || world.sweepCapsule(previous, position, profile) !== null) {
       if (distance - previousDistance <= spacing / 128) return false;
       const middle = (distance + previousDistance) / 2,
@@ -580,11 +661,11 @@ export function runOffConnection(start: any, end: any, options: any, cache?: any
   };
   while (travelled < limit) {
     const nextDistance = Math.min(limit, travelled + spacing);
-    let next = supportAt(nextDistance, points.at(-1));
+    let next = supportAt(nextDistance, points.at(-1)!);
     if (!next) {
       let low = travelled,
         high = nextDistance,
-        launch = points.at(-1);
+        launch = points.at(-1)!;
       // Locate support loss independently of navmesh erosion and triangulation.
       for (let refinement = 0; refinement < 12; refinement++) {
         const middle = (low + high) / 2,
@@ -601,7 +682,7 @@ export function runOffConnection(start: any, end: any, options: any, cache?: any
       }
       const arc = jumpConnection(launch, end, { ...options, mode: 'drop' });
       if (!arc) return null;
-      const airSpeed = (span - low) / arc.times.at(-1);
+      const airSpeed = (span - low) / arc.times.at(-1)!;
       if (airSpeed <= 0 || airSpeed > options.maxHorizontalSpeed) return null;
       const approachTime = low / airSpeed;
       return {
@@ -609,7 +690,7 @@ export function runOffConnection(start: any, end: any, options: any, cache?: any
         points: [...points, ...arc.points.slice(1)],
         times: [
           ...distances.map((distance) => distance / airSpeed),
-          ...arc.times.slice(1).map((time: any): any => approachTime + time),
+          ...arc.times.slice(1).map((time) => approachTime + time),
         ],
       };
     }
@@ -621,13 +702,13 @@ export function runOffConnection(start: any, end: any, options: any, cache?: any
 // A supported approach supplies the initial air velocity. Cubic velocity controls
 // bound speed and acceleration over the entire fall, including turns under roofs.
 function steerDrop(
-  start: any,
-  end: any,
-  direction: any,
-  approach: any,
-  distances: any,
-  options: any,
-): any {
+  start: Vec3,
+  end: Vec3,
+  direction: number[],
+  approach: Vec3[],
+  distances: number[],
+  options: RunOffOptions & { wallCheck: NonNullable<JumpOptions['wallCheck']> },
+): Arc | null {
   const trajectory = jumpPhases(start[1], end[1], { ...options, mode: 'drop' });
   if (!trajectory) return null;
   const { duration } = trajectory;
@@ -635,9 +716,9 @@ function steerDrop(
   const length = Math.hypot(...average),
     cap = options.maxHorizontalSpeed;
   if (length > cap) return null;
-  const speed = cap * options.speedFraction;
+  const speed = cap * options.speedFraction!;
   if (!Number.isFinite(speed) || speed <= 0) return null;
-  const initial = direction.map((value: any) => value * speed);
+  const initial = direction.map((value) => value * speed);
   const terminal =
     options.terminal === 'average'
       ? average
@@ -654,7 +735,7 @@ function steerDrop(
       Math.hypot(...middle.map((value, axis) => value - initial[axis])),
       Math.hypot(...terminal.map((value, axis) => value - middle[axis])),
     );
-  if (peakHorizontalSpeed > cap || horizontalAcceleration > options.airAcceleration) return null;
+  if (peakHorizontalSpeed > cap || horizontalAcceleration > options.airAcceleration!) return null;
   if (options.world.bounds) {
     const padding =
       options.profile.radius +
@@ -669,23 +750,23 @@ function steerDrop(
       controls.some((point) =>
         [0, 2].some(
           (axis, index) =>
-            point[axis] - padding < options.world.bounds.min[index] ||
-            point[axis] + padding > options.world.bounds.max[index],
+            point[axis] - padding < options.world.bounds!.min[index] ||
+            point[axis] + padding > options.world.bounds!.max[index],
         ),
       )
     )
       return null;
   }
-  const horizontalAt = (time: any): any => {
+  const horizontalAt = (time: number): [number, number] => {
     const t = time / duration;
     return [0, 1].map(
-      (axis): any =>
+      (axis) =>
         start[axis * 2] +
         duration *
           (initial[axis] * t +
             (middle[axis] - initial[axis]) * t * t +
             ((terminal[axis] - 2 * middle[axis] + initial[axis]) * t * t * t) / 3),
-    );
+    ) as [number, number];
   };
   const arc = sweepTrajectory(start, end, trajectory, {
     profile: options.profile,
@@ -698,13 +779,13 @@ function steerDrop(
     mode: 'drop',
   });
   if (!arc) return null;
-  const approachTime = distances.at(-1) / speed;
+  const approachTime = distances.at(-1)! / speed;
   return {
     ...arc,
     points: [...approach, ...arc.points.slice(1)],
     times: [
-      ...distances.map((distance: any) => distance / speed),
-      ...arc.times.slice(1).map((time: any): any => approachTime + time),
+      ...distances.map((distance) => distance / speed),
+      ...arc.times.slice(1).map((time) => approachTime + time),
     ],
   };
 }

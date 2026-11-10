@@ -1,25 +1,147 @@
 import { boundaryTree, boundaryOrder } from './boundary-order.js';
+import type { Bounds, BoundsIndex } from './bounds.js';
 import { createBoundsIndex } from './bounds.js';
 import { createCandidateBounds } from './candidate-bounds.js';
+import type { CollisionWorld } from './collision-types.js';
+import type { DistanceField, WeightedEdge } from './distance-field.js';
 import { advanceDistanceField } from './distance-field.js';
+import type { GoalProjection } from './goals.js';
+import type {
+  Vec3,
+  Surface,
+  Edge,
+  GroundConnection,
+  DiscoveryOptions,
+  ShortcutDiagnostics,
+  Route,
+  GroundOptions,
+} from './index-types.js';
+import type { Arc, ApproachCache, ExitCache, MotionControl, JumpOptions } from './jumps.js';
 import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.js';
 import { landingCandidates, boundaryLanding, createLandingGoalCache } from './landings.js';
 import { createMotionBounds } from './motion-bounds.js';
 import { movementGeometry } from './movement-geometry.js';
 import { createJumpEnvelope, createJumpPredecessor } from './reachability.js';
+import type { GroundStraightener } from './straighten.js';
 import { createGroundStraightener } from './straighten.js';
+import type { Boundary } from './traversal.js';
 import { interleave, standingFoot, validateDiscovery } from './traversal.js';
-const distance = (a: any, b: any) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-const horizontal = (a: any, b: any) => Math.hypot(a[0] - b[0], a[2] - b[2]);
-const geometries = new WeakMap<any, any>();
-const adjacency = (edges: any, sharedForward: any): any => {
-  const forward = sharedForward ?? new Map<any, any>(),
-    reverse = new Map<any, any>();
+
+type IndexedBoundary = Boundary & Bounds & { ordinal: number };
+type LandingFace = Surface & Bounds;
+interface PreparedGeometry {
+  forward: { get(id: string): WeightedEdge[] | undefined };
+  reverse: Map<string, WeightedEdge[]>;
+  lengthScale: number;
+  blocked: ReturnType<typeof movementGeometry>['blocked'];
+  boundaries: IndexedBoundary[];
+  landingSurfaces: LandingFace[];
+  boundaryIndex: BoundsIndex<IndexedBoundary, number>;
+  landingIndex: BoundsIndex<LandingFace, number>;
+  representatives: string[];
+  byId: Map<string, Surface>;
+  centers: Map<string, Vec3>;
+  projectSupport: ReturnType<typeof movementGeometry>['projectSupport'];
+  project: ReturnType<typeof movementGeometry>['project'];
+  visibility?: GroundStraightener;
+  boundaryOrder?: { key: string; tree: ReturnType<typeof boundaryTree<IndexedBoundary>> };
+}
+export type ShortcutOptions = Omit<DiscoveryOptions, 'connections'> &
+  Pick<GroundOptions, 'speed' | 'locomotion' | 'activeBoost'> & {
+    baseline?: Extract<Route, { status: 'complete' }>;
+    costBound?: number;
+    boundGoal?: Vec3;
+    connections?: (GroundConnection & { boostExpiry?: number })[];
+  };
+interface Witness {
+  surface: string;
+  position: Vec3;
+}
+interface Takeoff extends Witness {
+  cell: string;
+  exit?: [number, number];
+  walk: number;
+}
+interface Candidate {
+  start: Takeoff;
+  end: Witness;
+  cell: string;
+  score: number;
+  connected: boolean;
+  uncertain: boolean;
+}
+interface Validation {
+  candidate: Candidate;
+  start?: Witness;
+  end?: Witness;
+  groundTime?: number;
+  variants?: Generator<MotionControl>;
+}
+type Seed =
+  | { excluded: true; seed?: never; exit?: never }
+  | { excluded?: false; seed: Vec3; exit: [number, number] };
+type LandingQuery = {
+  boundary: boolean;
+  query: BoundsIndex<IndexedBoundary | LandingFace, number>;
+};
+interface ActiveQuery {
+  start: Takeoff;
+  boundary: boolean;
+  iterator: Generator<IndexedBoundary | LandingFace>;
+}
+interface Cursor {
+  revision: string;
+  maxLinks: number;
+  goalBounds: { min: number[]; max: number[] };
+  seeds: Generator<Seed>;
+  seen: Set<string>;
+  seedDone: boolean;
+  active: (ActiveQuery | null)[];
+  pairs: Map<string, Candidate[]>;
+  pairSeen: Set<string>;
+  pending: Validation[];
+  ready: Candidate[];
+  rejected: Set<string>;
+  accepted: Set<string>;
+  serial: number;
+  representativeLimited: boolean;
+  landingQueries?: LandingQuery[];
+}
+export interface ShortcutCache {
+  binding?: { surfaces: Surface[]; world: CollisionWorld; signature: string };
+  query?: string;
+  geometry?: PreparedGeometry;
+  visibility?: GroundStraightener;
+  traces?: Map<string, Vec3[] | null>;
+  approaches?: ApproachCache;
+  exits?: ExitCache;
+  source?: GoalProjection;
+  goals?: GoalProjection[];
+  distanceFields?: { approach?: DistanceField; departure?: DistanceField };
+  ordering?: { source: Float64Array; target: Float64Array; line: Float64Array };
+  forwardCursor?: Cursor;
+  reverseCursor?: Cursor;
+  standing?: Map<string, Witness | null>;
+  motions?: Map<string, Arc | null>;
+}
+type Diagnostics = Omit<ShortcutDiagnostics, 'baselineCost'> & {
+  baselineCost: number | null;
+  dominatedFaces: number;
+};
+
+const distance = (a: readonly number[], b: readonly number[]) =>
+  Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const horizontal = (a: readonly number[], b: readonly number[]) =>
+  Math.hypot(a[0] - b[0], a[2] - b[2]);
+const geometries = new WeakMap<ReturnType<typeof movementGeometry>, PreparedGeometry>();
+const adjacency = (edges: Edge[], sharedForward: PreparedGeometry['forward'] | undefined) => {
+  const forward = sharedForward ?? new Map<string, Edge[]>(),
+    reverse = new Map<string, Edge[]>();
   for (const edge of edges) {
     if (!sharedForward) {
       const entries = forward.get(edge.from) ?? [];
       entries.push(edge);
-      forward.set(edge.from, entries);
+      (forward as Map<string, WeightedEdge[]>).set(edge.from, entries);
     }
     const entries = reverse.get(edge.to) ?? [];
     entries.push(edge);
@@ -27,40 +149,34 @@ const adjacency = (edges: any, sharedForward: any): any => {
   }
   return { forward, reverse };
 };
-function prepareGeometry(surfaces: any, options: any): any {
+function prepareGeometry(surfaces: Surface[], options: DiscoveryOptions): PreparedGeometry {
   const shared = movementGeometry(surfaces, options);
   const cached = geometries.get(shared);
   if (cached) return cached;
   const { blocked, byId, centers, project, projectSupport, visibility, topology } = shared;
   const graph = { nodes: shared.graph.nodes, edges: shared.graph.edges };
-  const representatives: any = [];
-  const componentOf = (id: any): any => topology.components[topology.ids.get(id)];
+  const representatives: string[] = [];
+  const componentOf = (id: string) => topology.components[topology.ids.get(id)!];
   for (const node of graph.nodes) representatives[componentOf(node.id)] ??= node.id;
-  const boundaries = shared.boundaries.map((boundary: any, ordinal: any): any => ({
+  const boundaries = shared.boundaries.map((boundary, ordinal) => ({
     ...boundary,
     ordinal,
     min: [0, 1, 2].map((axis) => Math.min(boundary.a[axis], boundary.b[axis])),
     max: [0, 1, 2].map((axis) => Math.max(boundary.a[axis], boundary.b[axis])),
   }));
-  const landingSurfaces = surfaces.map((surface: any): any => ({
+  const landingSurfaces = surfaces.map((surface) => ({
     ...surface,
-    min: [0, 1, 2].map((axis) =>
-      Math.min(...surface.vertices.map((point: any): any => point[axis])),
-    ),
-    max: [0, 1, 2].map((axis) =>
-      Math.max(...surface.vertices.map((point: any): any => point[axis])),
-    ),
+    min: [0, 1, 2].map((axis) => Math.min(...surface.vertices.map((point) => point[axis]))),
+    max: [0, 1, 2].map((axis) => Math.max(...surface.vertices.map((point) => point[axis]))),
   }));
-  const geometry = {
+  const geometry: PreparedGeometry = {
     ...adjacency(graph.edges, shared.forward),
     lengthScale: shared.lengthScale,
     blocked,
     boundaries,
     landingSurfaces,
-    boundaryIndex: createBoundsIndex(boundaries, (edge: any): any => componentOf(edge.surface)),
-    landingIndex: createBoundsIndex(landingSurfaces, (surface: any): any =>
-      componentOf(surface.id),
-    ),
+    boundaryIndex: createBoundsIndex(boundaries, (edge) => componentOf(edge.surface)),
+    landingIndex: createBoundsIndex(landingSurfaces, (surface) => componentOf(surface.id)),
     representatives,
     byId,
     projectSupport,
@@ -78,27 +194,35 @@ function prepareGeometry(surfaces: any, options: any): any {
  * The caller must compare final grounded, resource-timed routes. Sampling is bounded
  * and does not establish a globally time-optimal route.
  */
-export function findJumpShortcuts(surfaces: any, world: any, options: any, cache?: any): any {
-  return findConnections(surfaces, world, options, false, cache);
+export function findJumpShortcuts(
+  surfaces: Surface[],
+  world: CollisionWorld,
+  options: ShortcutOptions & { baseline: Extract<Route, { status: 'complete' }> },
+  cache?: ShortcutCache,
+): { connections: GroundConnection[]; diagnostics: ShortcutDiagnostics } {
+  return findConnections(surfaces, world, options, false, cache) as {
+    connections: GroundConnection[];
+    diagnostics: ShortcutDiagnostics;
+  };
 }
 /** Expand verified actions from currently reachable ground into new surfaces. */
 export function findJumpFrontier(
-  surfaces: any,
-  world: any,
-  options: any,
-  cache: any,
+  surfaces: Surface[],
+  world: CollisionWorld,
+  options: ShortcutOptions,
+  cache?: ShortcutCache,
   reverse = false,
-): any {
+): { connections: GroundConnection[]; diagnostics: Diagnostics } {
   return findConnections(surfaces, world, options, true, cache, reverse);
 }
 function findConnections(
-  surfaces: any,
-  world: any,
-  options: any,
-  frontier: any,
-  cache: any,
+  surfaces: Surface[],
+  world: CollisionWorld,
+  options: ShortcutOptions,
+  frontier: boolean,
+  cache?: ShortcutCache,
   reverse = false,
-): any {
+): { connections: GroundConnection[]; diagnostics: Diagnostics } {
   validateDiscovery(world, options);
   if (cache) {
     const signature = JSON.stringify([
@@ -118,7 +242,7 @@ function findConnections(
       binding &&
       (binding.surfaces !== surfaces || binding.world !== world || binding.signature !== signature)
     ) {
-      for (const key of Object.keys(cache)) delete cache[key];
+      for (const key of Object.keys(cache) as (keyof ShortcutCache)[]) delete cache[key];
     }
     cache.binding = { surfaces, world, signature };
     const query = JSON.stringify([
@@ -137,7 +261,7 @@ function findConnections(
         'distanceFields',
         'forwardCursor',
         'reverseCursor',
-      ])
+      ] as const)
         delete cache[key];
       cache.query = query;
     }
@@ -172,7 +296,7 @@ function findConnections(
   ) {
     throw new Error('Invalid shortcut baseline or ground speed');
   }
-  const diagnostics: any = {
+  const diagnostics: Diagnostics = {
     reason: frontier ? (reverse ? 'goal-frontier' : 'reachable-frontier') : 'searched',
     baselineCost: baseline?.cost ?? null,
     boundaryEdges: 0,
@@ -197,21 +321,21 @@ function findConnections(
   const prepared = cache?.geometry ?? prepareGeometry(surfaces, options);
   if (cache) cache.geometry = prepared;
   const { blocked, byId, centers, project, projectSupport, boundaries } = prepared;
-  const connections: any = [];
+  const connections: GroundConnection[] = [];
   let visibility = cache?.visibility ?? prepared.visibility;
-  const traces = cache?.traces ?? new Map<any, any>();
+  const traces = cache?.traces ?? new Map<string, Vec3[] | null>();
   if (cache) cache.traces = traces;
-  const groundTrace = (start: any, end: any): any => {
+  const groundTrace = (start: Vec3, end: Vec3): Vec3[] | null => {
     const key = JSON.stringify([start, end]);
     if (!traces.has(key)) {
       visibility ??= createGroundStraightener(surfaces, { walls, profile });
       if (cache) cache.visibility = visibility;
       traces.set(key, visibility.trace(start, end));
     }
-    return traces.get(key);
+    return traces.get(key)!;
   };
-  const approaches = cache?.approaches ?? new Map<any, any>(),
-    exits = cache?.exits ?? new Map<any, any>();
+  const approaches = cache?.approaches ?? new Map<string, import('./jumps.js').Approach | null>(),
+    exits = cache?.exits ?? new Map<string, [number, number] | null>();
   if (cache) {
     cache.approaches = approaches;
     cache.exits = exits;
@@ -224,7 +348,7 @@ function findConnections(
     exits,
     approaches,
     motionBounds
-      ? (start: any, end: any) =>
+      ? (start: Vec3, end: Vec3) =>
           withinCostBound(
             start,
             end,
@@ -232,7 +356,7 @@ function findConnections(
           )
       : undefined,
   );
-  const edges = [];
+  const edges: (WeightedEdge & { points?: Vec3[] })[] = [];
   const source = cache?.source ?? project(from, { maxVertical })[0];
   const goals = cache?.goals ?? project(to, { maxVertical, interaction });
   if (cache) {
@@ -252,13 +376,9 @@ function findConnections(
       connection.toSurface === undefined ? surfaces : [byId.get(connection.toSurface)];
     if (!fromFaces[0] || !toFaces[0]) throw new Error('Invalid movement support surface');
     const a = projectSupport(connection.points[0], maxVertical, connection.fromSurface);
-    const b = projectSupport(connection.points.at(-1), maxVertical, connection.toSurface);
+    const b = projectSupport(connection.points.at(-1)!, maxVertical, connection.toSurface);
     if (!a || !b) continue;
-    if (
-      connection.points
-        .slice(1)
-        .some((point: any, index: any): any => blocked(connection.points[index], point))
-    )
+    if (connection.points.slice(1).some((point, index) => blocked(connection.points[index], point)))
       continue;
     const approach = groundTrace(source.position, a.position);
     if (approach)
@@ -267,19 +387,16 @@ function findConnections(
         to: a.surface,
         cost: approach
           .slice(1)
-          .reduce(
-            (sum: any, point: any, index: any): any => sum + distance(approach[index], point),
-            0,
-          ),
+          .reduce((sum, point, index) => sum + distance(approach[index], point), 0),
       });
     edges.push({
       from: a.surface,
       to: b.surface,
       points: connection.points,
       cost:
-        distance(centers.get(a.surface), a.position) +
-        connection.times.at(-1) * speed +
-        distance(b.position, centers.get(b.surface)),
+        distance(centers.get(a.surface)!, a.position) +
+        connection.times.at(-1)! * speed +
+        distance(b.position, centers.get(b.surface)!),
     });
   }
   const fields = cache?.distanceFields ?? {};
@@ -287,7 +404,7 @@ function findConnections(
   fields.approach = advanceDistanceField(
     prepared.forward,
     edges,
-    [{ id: source.surface, cost: distance(source.position, centers.get(source.surface)) }],
+    [{ id: source.surface, cost: distance(source.position, centers.get(source.surface)!) }],
     false,
     fields.approach,
     prepared.lengthScale,
@@ -295,9 +412,9 @@ function findConnections(
   fields.departure = advanceDistanceField(
     prepared.reverse,
     edges,
-    goals.map((goal: any): any => ({
+    goals.map((goal) => ({
       id: goal.surface,
-      cost: distance(goal.position, centers.get(goal.surface)),
+      cost: distance(goal.position, centers.get(goal.surface)!),
     })),
     true,
     fields.departure,
@@ -312,9 +429,9 @@ function findConnections(
   diagnostics.boundaryEdges = boundaries.length;
   const endpointTolerance = Math.min(maxVertical, profile.radius),
     diversity = profile.radius * 2;
-  const cellOf = (position: any): any =>
-    position.map((value: any) => Math.floor(value / diversity)).join('/');
-  const durationLimit = frontier ? Infinity : baseline.cost - baseline.arrivalCost;
+  const cellOf = (position: Vec3) =>
+    position.map((value) => Math.floor(value / diversity)).join('/');
+  const durationLimit = frontier ? Infinity : baseline!.cost - baseline!.arrivalCost;
   let travelSpeed = Math.max(speed, model.maxHorizontalSpeed);
   for (const connection of existing)
     for (let index = 1; index < connection.points.length; index++) {
@@ -325,7 +442,7 @@ function findConnections(
           horizontal(connection.points[index - 1], connection.points[index]) / elapsed,
         );
     }
-  const lowerBound = (start: any, end: any, airTime: any): any =>
+  const lowerBound = (start: Vec3, end: Vec3, airTime: number) =>
     (horizontal(from, start) + Math.max(0, horizontal(end, to) - (interaction?.radius ?? 0))) /
       travelSpeed +
     airTime;
@@ -344,7 +461,7 @@ function findConnections(
     model.startHorizontalSpeed ?? 0,
     Number.EPSILON,
   );
-  const withinCostBound = (start: any, end: any, airTime: any) =>
+  const withinCostBound = (start: Vec3, end: Vec3, airTime: number) =>
     !Number.isFinite(costLimit) ||
     (Math.max(0, horizontal(from, start) - profile.radius) +
       Math.max(0, horizontal(end, costGoal) - profile.radius)) /
@@ -352,7 +469,7 @@ function findConnections(
       airTime <=
       costLimit + 1e-9;
   const insets = [
-    ...new Set<any>([
+    ...new Set<number>([
       0,
       profile.radius,
       1,
@@ -366,15 +483,20 @@ function findConnections(
     ]),
   ];
   const regionSize = Math.max(sampleSpacing, diversity, maxHorizontalDistance / 2);
-  const regionOf = (position: any, size = regionSize) =>
+  const regionOf = (position: readonly number[], size = regionSize) =>
     [
       Math.floor(position[0] / size),
       Math.floor(position[1] / Math.max(profile.height, model.maxJumpHeight)),
       Math.floor(position[2] / size),
     ].join('/');
-  const spread = (entries: any, position: any, size = regionSize, limit = entries.length): any => {
+  const spread = <T>(
+    entries: T[],
+    position: (entry: T) => readonly number[],
+    size = regionSize,
+    limit = entries.length,
+  ): T[] => {
     if (entries.length < 2 || size <= diversity) return entries.slice(0, limit);
-    const regions = new Map<any, any>();
+    const regions = new Map<string, T[]>();
     for (const entry of entries) {
       const key = regionOf(position(entry), size),
         group = regions.get(key) ?? [];
@@ -384,7 +506,7 @@ function findConnections(
     return interleave(
       [...regions.values()]
         .slice(0, limit)
-        .map((group): any => spread(group, position, size / 2, limit)),
+        .map((group) => spread(group, position, size / 2, limit)),
       limit,
     );
   };
@@ -392,7 +514,7 @@ function findConnections(
   // Reachability changes when any authored action changes, including an update
   // that keeps its id. Geometry failures remain in the query's independent caches.
   const revision = JSON.stringify(
-    existing.map((edge: any): any => [
+    existing.map((edge) => [
       edge.id,
       edge.state,
       edge.fromSurface,
@@ -406,20 +528,20 @@ function findConnections(
       edge.boostExpiry,
     ]),
   );
-  const previous = frontier && cache?.[cursorKey];
+  const previous = frontier ? cache?.[cursorKey] : undefined;
   // A smaller link quota can discard pool representatives during validation.
   // Growing it requires fresh enumeration, while a larger work budget resumes.
   let cursor = previous?.revision === revision && maxLinks <= previous.maxLinks ? previous : null;
   const resumed = Boolean(cursor);
-  const takeoffs = [];
+  const takeoffs: Takeoff[] = [];
   let goalBounds = cursor?.goalBounds;
-  let seedIterator;
+  let seedIterator: Generator<Seed> | undefined;
   if (!cursor) {
     // Ordering is a heuristic only. It must not exclude a jump because a polygon
     // centre corridor overestimates the continuous approach or departure distance.
     const ordering =
       cache?.ordering ??
-      ((): any => {
+      (() => {
         const source = new Float64Array(boundaries.length),
           target = new Float64Array(boundaries.length),
           line = new Float64Array(boundaries.length);
@@ -432,10 +554,11 @@ function findConnections(
         return { source, target, line };
       })();
     if (cache) cache.ordering = ordering;
-    const nearLine = (a: any, b: any) => ordering.line[a.ordinal] - ordering.line[b.ordinal];
+    const nearLine = (a: IndexedBoundary, b: IndexedBoundary) =>
+      ordering.line[a.ordinal] - ordering.line[b.ordinal];
     const stable =
-      (compare: any): any =>
-      (a: any, b: any): any =>
+      (compare: (a: IndexedBoundary, b: IndexedBoundary) => number) =>
+      (a: IndexedBoundary, b: IndexedBoundary) =>
         compare(a, b) || a.ordinal - b.ordinal;
     goalBounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
     for (const surface of prepared.landingSurfaces)
@@ -445,9 +568,7 @@ function findConnections(
           goalBounds.max[axis] = Math.max(goalBounds.max[axis], surface.max[axis]);
         }
       }
-    const goalCenter = goalBounds.min.map(
-      (value: any, axis: any) => (value + goalBounds.max[axis]) / 2,
-    );
+    const goalCenter = goalBounds.min.map((value, axis) => (value + goalBounds!.max[axis]) / 2);
     const predecessor =
       frontier && reverse
         ? createJumpPredecessor(goalBounds, {
@@ -481,51 +602,58 @@ function findConnections(
           diversity,
         ),
       };
-    const order = (eligible: any, compare: any): any =>
+    const order = (
+      eligible: (boundary: IndexedBoundary) => boolean,
+      compare: (a: IndexedBoundary, b: IndexedBoundary) => number,
+    ) =>
       boundaryOrder(
-        prepared.boundaryOrder.tree,
+        prepared.boundaryOrder!.tree,
         eligible,
         stable(compare),
         frontier ? boundaries.length : seedLimit,
       );
     const sourceEdges = reverse
       ? order(
-          (boundary: any) => !departure.has(boundary.surface),
-          (a: any, b: any) => ordering.target[a.ordinal] - ordering.target[b.ordinal],
+          (boundary) => !departure.has(boundary.surface),
+          (a: IndexedBoundary, b: IndexedBoundary) =>
+            ordering.target[a.ordinal] - ordering.target[b.ordinal],
         )
       : order(
-          (boundary: any): any => approach.has(boundary.surface),
-          (a: any, b: any) => approach.get(a.surface) - approach.get(b.surface) || nearLine(a, b),
+          (boundary) => approach.has(boundary.surface),
+          (a: IndexedBoundary, b: IndexedBoundary) =>
+            approach.get(a.surface)! - approach.get(b.surface)! || nearLine(a, b),
         );
     const goalEdges = frontier
       ? []
       : order(
-          (boundary: any): any => departure.has(boundary.surface),
-          (a: any, b: any) => departure.get(a.surface) - departure.get(b.surface) || nearLine(a, b),
+          (boundary) => departure.has(boundary.surface),
+          (a: IndexedBoundary, b: IndexedBoundary) =>
+            departure.get(a.surface)! - departure.get(b.surface)! || nearLine(a, b),
         );
     const otherEdges = frontier
       ? []
       : order(
-          (boundary: any) => !approach.has(boundary.surface) || !departure.has(boundary.surface),
+          (boundary) => !approach.has(boundary.surface) || !departure.has(boundary.surface),
           nearLine,
         );
     const visibleEdges =
       frontier && !reverse
         ? order(
-            (boundary: any) => !approach.has(boundary.surface),
-            (a: any, b: any) => ordering.source[a.ordinal] - ordering.source[b.ordinal],
+            (boundary) => !approach.has(boundary.surface),
+            (a: IndexedBoundary, b: IndexedBoundary) =>
+              ordering.source[a.ordinal] - ordering.source[b.ordinal],
           )
         : [];
     const orderedEdges = frontier
       ? interleave(
-          [sourceEdges, visibleEdges].filter((edges): any => edges.length),
+          [sourceEdges, visibleEdges].filter((edges) => edges.length),
           boundaries.length,
         )
       : interleave(
-          [sourceEdges, goalEdges, otherEdges].filter((edges): any => edges.length),
+          [sourceEdges, goalEdges, otherEdges].filter((edges) => edges.length),
           boundaries.length * 3,
         );
-    const seedStream = function* (boundary: any): any {
+    const seedStream = function* (boundary: IndexedBoundary): Generator<Seed> {
       // Preserve the original budgeted seed prefix. Proven empty regions still
       // consume their old slots, without projection or spatial-query work.
       const excluded = predecessor && !predecessor(boundary);
@@ -535,7 +663,7 @@ function findConnections(
       );
       const dx = boundary.b[0] - boundary.a[0],
         dz = boundary.b[2] - boundary.a[2];
-      const nearest = (reference: any) =>
+      const nearest = (reference: readonly number[]) =>
         Math.max(
           0,
           Math.min(
@@ -544,13 +672,13 @@ function findConnections(
               (dx * dx + dz * dz),
           ),
         );
-      const emitted = new Set<any>();
+      const emitted = new Set<number>();
       const levels = frontier
-        ? [...new Set<any>([Math.min(4, samples), Math.min(16, samples), samples])]
+        ? [...new Set<number>([Math.min(4, samples), Math.min(16, samples), samples])]
         : [Math.min(samples, Math.floor(diagnostics.limits.seedChecks / insets.length))];
-      if (levels.at(-1) < samples) diagnostics.truncated = true;
+      if (levels.at(-1)! < samples) diagnostics.truncated = true;
       for (const refinement of levels) {
-        const fractions = new Set<any>([nearest(to), nearest(goalCenter), nearest(from), 0.5]);
+        const fractions = new Set<number>([nearest(to), nearest(goalCenter), nearest(from), 0.5]);
         for (let index = 0; index < refinement; index++) fractions.add((index + 0.5) / refinement);
         const fresh = [...fractions].filter((fraction) => !emitted.has(fraction));
         for (const fraction of fresh) emitted.add(fraction);
@@ -561,8 +689,8 @@ function findConnections(
               continue;
             }
             const seed = boundary.a.map(
-              (value: any, axis: any): any => value + fraction * (boundary.b[axis] - value),
-            );
+              (value, axis) => value + fraction * (boundary.b[axis] - value),
+            ) as Vec3;
             seed[0] += boundary.inward[0] * inset;
             seed[2] += boundary.inward[1] * inset;
             yield {
@@ -577,9 +705,9 @@ function findConnections(
     };
     // Boundary streams retain their offsets. Activate new ledges before revisiting
     // a dense patch, then round-robin the remaining offsets across all ledges.
-    seedIterator = (function* (): any {
+    seedIterator = (function* (): Generator<Seed> {
       let streams = [];
-      for (const boundary of new Set<any>(orderedEdges)) {
+      for (const boundary of new Set<IndexedBoundary>(orderedEdges)) {
         const stream = seedStream(boundary),
           next = stream.next();
         if (!next.done) {
@@ -603,17 +731,17 @@ function findConnections(
     cursor = {
       revision,
       maxLinks,
-      goalBounds,
-      seeds: seedIterator,
-      seen: new Set<any>(),
+      goalBounds: goalBounds!,
+      seeds: seedIterator!,
+      seen: new Set<string>(),
       seedDone: false,
       active: [],
-      pairs: new Map<any, any>(),
-      pairSeen: new Set<any>(),
+      pairs: new Map<string, Candidate[]>(),
+      pairSeen: new Set<string>(),
       pending: [],
       ready: [],
-      rejected: new Set<any>(),
-      accepted: new Set<any>(),
+      rejected: new Set<string>(),
+      accepted: new Set<string>(),
       serial: 0,
       representativeLimited: false,
     };
@@ -621,10 +749,10 @@ function findConnections(
   }
   if (cursor) cursor.maxLinks = maxLinks;
   const refill = !cursor || cursor.pending.length + cursor.ready.length < maxCandidates;
-  const seen = cursor?.seen ?? new Set<any>();
+  const seen = cursor?.seen ?? new Set<string>();
   seedIterator = cursor?.seeds ?? seedIterator;
   while (refill && diagnostics.seedChecks < diagnostics.limits.seedChecks && !cursor?.seedDone) {
-    const next = seedIterator.next();
+    const next = seedIterator!.next();
     if (next.done) {
       if (cursor) cursor.seedDone = true;
       break;
@@ -653,7 +781,7 @@ function findConnections(
         maxHorizontalDistance,
         endpointTolerance,
         padding: [profile.radius / 2, maxVertical, profile.radius / 2],
-      })(goalBounds)
+      })(goalBounds!)
     ) {
       diagnostics.rejected.range++;
       continue;
@@ -663,39 +791,39 @@ function findConnections(
       cell: cellOf(nav.position),
       exit: next.value.exit,
       walk: approach.has(nav.surface)
-        ? approach.get(nav.surface) + distance(centers.get(nav.surface), nav.position)
+        ? approach.get(nav.surface)! + distance(centers.get(nav.surface)!, nav.position)
         : distance(from, nav.position),
     });
   }
-  const eligible = (id: any): any => !frontier || (reverse ? departure.has(id) : !approach.has(id));
-  const landingQueries =
+  const eligible = (id: string) => !frontier || (reverse ? departure.has(id) : !approach.has(id));
+  const landingQueries: LandingQuery[] =
     cursor?.landingQueries ??
     [
       ...(frontier
-        ? [true, false].map((connected): any => ({
+        ? [true, false].map((connected) => ({
             boundary: true,
             query: prepared.boundaryIndex.filterGroups(
-              (group: any): any =>
+              (group: number) =>
                 eligible(prepared.representatives[group]) &&
                 departure.has(prepared.representatives[group]) === connected,
             ),
           }))
         : []),
-      ...[true, false].map((connected): any => ({
+      ...[true, false].map((connected) => ({
         boundary: false,
         query: prepared.landingIndex.filterGroups(
-          (group: any): any =>
+          (group: number) =>
             eligible(prepared.representatives[group]) &&
             departure.has(prepared.representatives[group]) === connected,
         ),
       })),
     ].filter(({ query }) => !query.empty);
   if (cursor) cursor.landingQueries = landingQueries;
-  const rejectedPairs = cursor?.rejected ?? new Set<any>();
-  const pairKey = (start: any, end: any) =>
+  const rejectedPairs = cursor?.rejected ?? new Set<string>();
+  const pairKey = (start: Takeoff, end: Witness) =>
     JSON.stringify([start.surface, start.position, start.exit, end.surface, end.position]);
-  const pairs = cursor?.pairs ?? new Map<any, any>();
-  const fullSources = new Set<any>();
+  const pairs = cursor?.pairs ?? new Map<string, Candidate[]>();
+  const fullSources = new Set<string>();
   const dominated = frontier
     ? null
     : createCandidateBounds({
@@ -724,7 +852,7 @@ function findConnections(
         start.position[2] + maxHorizontalDistance,
       ],
     };
-    const heights = new Set<any>([
+    const heights = new Set<number>([
       start.position[1],
       Math.min(bounds.max[1], Math.max(bounds.min[1], to[1])),
     ]);
@@ -740,7 +868,7 @@ function findConnections(
         Math.max(0, horizontal(from, start.position) - profile.radius) / boundSpeed;
       const inset = boundary ? profile.radius / 2 : 0;
       const intersects = Number.isFinite(costLimit)
-        ? (box: any): any => {
+        ? (box: Bounds) => {
             const dx = Math.max(
               box.min[0] - inset - start.position[0],
               0,
@@ -800,17 +928,31 @@ function findConnections(
     diagnostics.neighbourChecks++;
     const start = query.start,
       surface = next.value;
-    if (dominated && !query.boundary && fullSources.has(start.cell) && dominated(start, surface)) {
+    if (
+      dominated &&
+      !query.boundary &&
+      fullSources.has(start.cell) &&
+      dominated(start, surface as LandingFace)
+    ) {
       diagnostics.dominatedFaces++;
       continue;
     }
     const ends = query.boundary
-      ? project(boundaryLanding(surface, start.position, profile.radius / 2), { maxVertical })
-      : landingCandidates(surface, start.position, to, model, profile.radius, goalWitness);
+      ? project(boundaryLanding(surface as IndexedBoundary, start.position, profile.radius / 2), {
+          maxVertical,
+        })
+      : landingCandidates(
+          surface as LandingFace,
+          start.position,
+          to,
+          model,
+          profile.radius,
+          goalWitness,
+        );
     for (const end of ends) {
       if (!end || end.surface === start.surface) continue;
       const identity = cursor ? pairKey(start, end) : null;
-      if (cursor && (rejectedPairs.has(identity) || cursor.pairSeen.has(identity))) continue;
+      if (cursor && (rejectedPairs.has(identity!) || cursor.pairSeen.has(identity!))) continue;
       const span = horizontal(start.position, end.position),
         drop = start.position[1] - end.position[1];
       if (span > maxHorizontalDistance || drop > maxDrop + 2 * endpointTolerance) continue;
@@ -839,23 +981,23 @@ function findConnections(
         mode: model.maxJumpHeight > 0 ? 'jump' : 'drop',
       });
       const remaining = departure.has(end.surface)
-        ? departure.get(end.surface) + distance(centers.get(end.surface), end.position)
+        ? departure.get(end.surface)! + distance(centers.get(end.surface)!, end.position)
         : distance(end.position, to);
       const score = (start.walk + remaining) / speed + (nominal ?? duration);
       const key = `${start.cell}:${cellOf(end.position)}`;
       const group = pairs.get(key) ?? [];
-      cursor?.pairSeen.add(identity);
+      cursor?.pairSeen.add(identity!);
       const uncertain = nominal === null || span > nominal * model.maxHorizontalSpeed;
-      const compare = (entry: any) =>
+      const compare = (entry: Candidate) =>
         Number(uncertain) - Number(entry.uncertain) || score - entry.score || 0;
       // Retain fine pullbacks for railings without letting one dense triangle
       // patch displace transfers elsewhere in the scene. Admit only competitive
       // witnesses, preserving stable ties without sorting the whole bucket again.
       if (!frontier && group.length === insets.length) {
-        if (compare(group.at(-1)) >= 0) continue;
+        if (compare(group.at(-1)!) >= 0) continue;
         group.pop();
       }
-      const candidate = {
+      const candidate: Candidate = {
         start,
         end,
         cell: key,
@@ -866,11 +1008,12 @@ function findConnections(
       if (frontier) {
         group.push(candidate);
         group.sort(
-          (a: any, b: any) => Number(a.uncertain) - Number(b.uncertain) || a.score - b.score,
+          (a: Candidate, b: Candidate) =>
+            Number(a.uncertain) - Number(b.uncertain) || a.score - b.score,
         );
         if (group.length > insets.length) {
           group.pop();
-          cursor.representativeLimited = true;
+          cursor!.representativeLimited = true;
         }
       } else {
         let index = group.length;
@@ -882,7 +1025,7 @@ function findConnections(
         group[index] = candidate;
       }
       pairs.set(key, group);
-      if (dominated && group.length === insets.length && !group.at(-1).uncertain)
+      if (dominated && group.length === insets.length && !group.at(-1)!.uncertain)
         fullSources.add(start.cell);
     }
   }
@@ -891,41 +1034,41 @@ function findConnections(
     cursor.active = [...active.slice(next), ...active.slice(0, next)].filter(Boolean);
   } else if (activeQueries) diagnostics.truncated = true;
   const candidateLimit = cursor
-    ? [...pairs.values()].reduce((sum, group): any => sum + group.length, 0)
+    ? [...pairs.values()].reduce((sum, group) => sum + group.length, 0)
     : maxCandidates;
-  const compare = (a: any, b: any) =>
+  const compare = (a: Candidate, b: Candidate) =>
     Number(a.uncertain) - Number(b.uncertain) || a.score - b.score;
-  const connected: any = [],
-    intermediate: any = [];
+  const connected: Candidate[][] = [],
+    intermediate: Candidate[][] = [];
   for (const group of pairs.values()) (group[0].connected ? connected : intermediate).push(group);
-  const orderLaunches = (groups: any): any => {
-    const launches = new Map<any, any>();
+  const orderLaunches = (groups: Candidate[][]): Candidate[] => {
+    const launches = new Map<string, Candidate[][]>();
     for (const group of groups) {
       const key = group[0].start.cell,
         destinations = launches.get(key) ?? [];
       destinations.push(group);
       launches.set(key, destinations);
     }
-    const batches = [...launches.values()].map((destinations): any =>
+    const batches = [...launches.values()].map((destinations) =>
       interleave(
-        destinations.sort((a: any, b: any) => compare(a[0], b[0])),
+        destinations.sort((a, b) => compare(a[0], b[0])),
         candidateLimit,
       ),
     );
     return interleave(
       spread(
         batches.sort((a, b) => compare(a[0], b[0])),
-        (batch: any): any => batch[0].start.position,
+        (batch) => batch[0].start.position,
       ),
       candidateLimit,
     );
   };
   const ordered = interleave(
-    [connected, intermediate].filter((groups): any => groups.length).map(orderLaunches),
+    [connected, intermediate].filter((groups) => groups.length).map(orderLaunches),
     candidateLimit,
   );
   diagnostics.candidatePairs =
-    [...pairs.values()].reduce((sum, group): any => sum + group.length, 0) +
+    [...pairs.values()].reduce((sum, group) => sum + group.length, 0) +
     (cursor?.pending.length ?? 0) +
     (cursor?.ready.length ?? 0);
   if (ordered.length < diagnostics.candidatePairs) diagnostics.truncated = true;
@@ -933,32 +1076,32 @@ function findConnections(
     for (const candidate of ordered) cursor.ready.push(candidate);
     pairs.clear();
   }
-  const cached = cache?.standing ?? new Map<any, any>(),
-    motions = cache?.motions ?? new Map<any, any>();
+  const cached = cache?.standing ?? new Map<string, Witness | null>(),
+    motions = cache?.motions ?? new Map<string, Arc | null>();
   if (cache) {
     cache.standing = cached;
     cache.motions = motions;
   }
-  const accepted = cursor?.accepted ?? new Set<any>(),
-    tried = new Set<any>();
-  const retained: { score: number; connection: any }[][] = [[], []];
+  const accepted = cursor?.accepted ?? new Set<string>(),
+    tried = new Set<string>();
+  const retained: { score: number; connection: GroundConnection }[][] = [[], []];
   const hasConnected =
     connected.length > 0 ||
-    Boolean(cursor?.pending.some((entry: any): any => entry.candidate.connected)) ||
-    Boolean(cursor?.ready.some((entry: any): any => entry.connected));
+    Boolean(cursor?.pending.some((entry) => entry.candidate.connected)) ||
+    Boolean(cursor?.ready.some((entry) => entry.connected));
   const hasIntermediate =
     intermediate.length > 0 ||
-    Boolean(cursor?.pending.some((entry: any) => !entry.candidate.connected)) ||
-    Boolean(cursor?.ready.some((entry: any) => !entry.connected));
+    Boolean(cursor?.pending.some((entry) => !entry.candidate.connected)) ||
+    Boolean(cursor?.ready.some((entry) => !entry.connected));
   const capacity =
     hasConnected && hasIntermediate
       ? [Math.ceil(maxLinks / 2), Math.floor(maxLinks / 2)]
       : [hasConnected ? maxLinks : 0, hasIntermediate ? maxLinks : 0];
   let serial = cursor?.serial ?? 0;
-  const ids = new Set<any>(existing.map((connection: any): any => connection.id));
-  const standing = (seed: any): any => {
+  const ids = new Set<string>(existing.map((connection: GroundConnection) => connection.id));
+  const standing = (seed: Witness): Witness | null => {
     const key = JSON.stringify([seed.position, seed.surface]);
-    if (cached.has(key)) return cached.get(key);
+    if (cached.has(key)) return cached.get(key)!;
     if (diagnostics.endpointChecks >= diagnostics.limits.endpointChecks) {
       diagnostics.truncated = true;
       return null;
@@ -970,7 +1113,7 @@ function findConnections(
     cached.set(key, value);
     return value;
   };
-  let candidates = cursor?.pending ?? [];
+  let candidates: Validation[] = cursor?.pending ?? [];
   const ready = cursor
     ? cursor.ready.splice(0, Math.max(0, maxCandidates - candidates.length))
     : ordered;
@@ -1045,23 +1188,22 @@ function findConnections(
           groundTime: ground
             ? ground
                 .slice(1)
-                .reduce(
-                  (sum: any, point: any, index: any): any => sum + distance(ground[index], point),
-                  0,
-                ) / speed
+                .reduce((sum, point, index) => sum + distance(ground[index], point), 0) / speed
             : Infinity,
           variants: motionVariants(start.position, end.position, candidate.start.exit),
         });
       }
-      const next = entry.variants.next();
+      const next = entry.variants!.next();
       if (next.done) {
         rejectedPairs.add(pairKey(candidate.start, candidate.end));
         continue;
       }
       pending.push(entry);
-      const { start, end, groundTime } = entry,
+      const { start: rawStart, end: rawEnd, groundTime } = entry,
         variant = next.value,
         { mode } = variant;
+      const start = rawStart!,
+        end = rawEnd!;
       if (mode === 'jump' && model.maxJumpHeight === 0) continue;
       const duration = jumpDuration(start.position[1], end.position[1], { ...model, mode });
       if (
@@ -1070,7 +1212,7 @@ function findConnections(
         lowerBound(start.position, end.position, duration) >= durationLimit
       )
         continue;
-      if (groundTime <= duration) {
+      if (groundTime! <= duration) {
         diagnostics.rejected.groundDominated++;
         continue;
       }
@@ -1084,19 +1226,19 @@ function findConnections(
           prefix
             ? {
                 launch: prefix.launch,
-                distance: prefix.distances.at(-1),
+                distance: prefix.distances.at(-1)!,
               }
             : undefined,
         );
         if (!withinCostBound(start.position, end.position, minimum)) continue;
       }
-      const motion = {
+      const motion: JumpOptions & MotionControl = {
         ...model,
         profile,
         walls,
         wallCheck: blocked,
         ...variant,
-        sweep: (from: any, to: any, body: any): any => world.sweepCapsule(from, to, body),
+        sweep: (from, to, body) => world.sweepCapsule(from, to, body),
       };
       const motionKey = JSON.stringify([start.position, end.position, variant]);
       let arc = motions.get(motionKey);
@@ -1117,7 +1259,7 @@ function findConnections(
         diagnostics.rejected.motion++;
         continue;
       }
-      if (!withinCostBound(start.position, end.position, arc.times.at(-1))) continue;
+      if (!withinCostBound(start.position, end.position, arc.times.at(-1)!)) continue;
       let id;
       do {
         id = `shortcut/${serial++}`;
@@ -1157,7 +1299,7 @@ function findConnections(
       landingQueries: cursor.active.length,
     };
     diagnostics.truncated ||=
-      cursor.representativeLimited ||
+      cursor!.representativeLimited ||
       !cursor.seedDone ||
       cursor.active.length > 0 ||
       pairs.size > 0 ||

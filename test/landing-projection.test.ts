@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { closestOnSurface } from '../src/goals.js';
+import type { Vec3 } from '../src/index-types.js';
 
 // Original vector formulation is an independent numeric oracle for the scalar path.
-const distanceSquared = (a, b) => a.reduce((sum, value, axis) => sum + (value - b[axis]) ** 2, 0);
-const dot = (a, b) => a.reduce((sum, value, axis) => sum + value * b[axis], 0);
+const distanceSquared = (a: Vec3, b: number[]) =>
+  a.reduce((sum, value, axis) => sum + (value - b[axis]) ** 2, 0);
+const dot = (a: number[], b: number[]) => a.reduce((sum, value, axis) => sum + value * b[axis], 0);
 
-const closestOnEdge = (target, a, b) => {
+const closestOnEdge = (target: Vec3, a: number[], b: number[]) => {
   const direction = b.map((value, axis) => value - a[axis]);
   const lengthSquared = dot(direction, direction);
   const fraction =
@@ -26,7 +28,7 @@ const closestOnEdge = (target, a, b) => {
   return a.map((value, axis) => value + fraction * direction[axis]);
 };
 
-const closestOnTriangle = (target, a, b, c) => {
+const closestOnTriangle = (target: Vec3, a: number[], b: number[], c: number[]) => {
   const ab = b.map((value, axis) => value - a[axis]);
   const ac = c.map((value, axis) => value - a[axis]);
   const at = target.map((value, axis) => value - a[axis]);
@@ -59,12 +61,13 @@ test('landing projections retain the original numerical order on varied triangle
   };
   for (const scale of [0.001, 1, 1e5])
     for (let index = 0; index < 1500; index++) {
-      const vertices = Array.from({ length: 3 }, () =>
-        Array.from({ length: 3 }, () => (random() - 0.5) * scale),
+      const vertices: Vec3[] = Array.from(
+        { length: 3 },
+        () => Array.from({ length: 3 }, () => (random() - 0.5) * scale) as Vec3,
       );
       if (index % 19 === 0) vertices[1] = [...vertices[0]];
       if (index % 23 === 0) vertices[0] = [-0, 0, -0];
-      const target = Array.from({ length: 3 }, () => (random() - 0.5) * scale);
+      const target: Vec3 = Array.from({ length: 3 }, () => (random() - 0.5) * scale) as Vec3;
       const [a, b, c] = vertices;
       const area = (b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0]);
       let expected = null;

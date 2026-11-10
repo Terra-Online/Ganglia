@@ -1,11 +1,28 @@
+interface Entry {
+  midpoint: readonly number[];
+}
+type TreeNode<T> = { slot: number } & (
+  | { entries: T[]; children?: never }
+  | { entries?: never; children: TreeNode<T>[] }
+);
+export type BoundaryTree<T> = TreeNode<T> & {
+  count: number;
+  entryCount: number;
+  entrySlots: Map<T, number>;
+};
 // The static hierarchy owns group order and stable slots. Per-query ranks and
 // eligibility live in compact arrays, without constructing another full tree.
-export const boundaryTree = (entries: any, size: any, height: any, diversity: any): any => {
+export const boundaryTree = <T extends Entry>(
+  entries: T[],
+  size: number,
+  height: number,
+  diversity: number,
+): BoundaryTree<T> => {
   let serial = 0;
-  const build = (items: any, scale: any): any => {
+  const build = (items: T[], scale: number): TreeNode<T> => {
     const slot = serial++;
     if (items.length < 2 || scale <= diversity) return { slot, entries: items };
-    const groups = new Map<any, any>();
+    const groups = new Map<string, T[]>();
     for (const edge of items) {
       const p = edge.midpoint;
       const key = `${Math.floor(p[0] / scale)}/${Math.floor(p[1] / height)}/${Math.floor(p[2] / scale)}`;
@@ -13,29 +30,34 @@ export const boundaryTree = (entries: any, size: any, height: any, diversity: an
       group.push(edge);
       groups.set(key, group);
     }
-    return { slot, children: [...groups.values()].map((group): any => build(group, scale / 2)) };
+    return { slot, children: [...groups.values()].map((group) => build(group, scale / 2)) };
   };
-  const tree = build(entries, size);
+  const tree = build(entries, size) as BoundaryTree<T>;
   tree.count = serial;
   tree.entryCount = entries.length;
-  tree.entrySlots = new Map<any, any>(entries.map((entry: any, index: any): any => [entry, index]));
+  tree.entrySlots = new Map<T, number>(entries.map((entry, index) => [entry, index]));
   return tree;
 };
-export const boundaryOrder = (tree: any, eligible: any, compare: any, limit: any): any => {
+export const boundaryOrder = <T>(
+  tree: BoundaryTree<T>,
+  eligible: (entry: T) => boolean,
+  compare: (a: T, b: T) => number,
+  limit: number,
+): T[] => {
   if (limit <= 0) return [];
-  const best = new Array(tree.count),
+  const best = new Array<T | null>(tree.count),
     included = new Uint8Array(tree.entryCount);
-  const rank = (node: any): any => {
-    let first = null;
+  const rank = (node: TreeNode<T>): T | null => {
+    let first: T | null = null;
     if (node.entries) {
       for (const entry of node.entries) {
         if (!eligible(entry)) continue;
-        included[tree.entrySlots.get(entry)] = 1;
+        included[tree.entrySlots.get(entry)!] = 1;
         if (first === null || compare(entry, first) < 0) first = entry;
       }
     } else {
       for (const child of node.children) {
-        const candidate: any = rank(child);
+        const candidate = rank(child);
         if (candidate !== null && (first === null || compare(candidate, first) < 0))
           first = candidate;
       }
@@ -45,16 +67,14 @@ export const boundaryOrder = (tree: any, eligible: any, compare: any, limit: any
   };
   // A region appears in a globally sorted list at its least-ranked eligible edge.
   // Only regions actually visited by the round-robin prefix need sorting/streams.
-  const stream = function* (node: any): any {
+  const stream = function* (node: TreeNode<T>): Generator<T> {
     if (node.entries) {
-      yield* node.entries
-        .filter((entry: any) => included[tree.entrySlots.get(entry)])
-        .sort(compare);
+      yield* node.entries.filter((entry) => included[tree.entrySlots.get(entry)!]).sort(compare);
       return;
     }
     let active = node.children
-      .filter((child: any) => best[child.slot] !== null)
-      .sort((a: any, b: any): any => compare(best[a.slot], best[b.slot]))
+      .filter((child) => best[child.slot] !== null)
+      .sort((a, b) => compare(best[a.slot]!, best[b.slot]!))
       .slice(0, limit)
       .map(stream);
     while (active.length) {

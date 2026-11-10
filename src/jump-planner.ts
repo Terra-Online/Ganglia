@@ -1,11 +1,35 @@
 import { planAirborneGoal } from './airborne-goal.js';
 import { planBoostedRoute } from './boosted-route.js';
+import type { CollisionWorld } from './collision-types.js';
 import { createGoalProjector } from './goals.js';
 import { createGroundPlanner, groundPreparation } from './ground.js';
+import type {
+  Vec3,
+  Surface,
+  GroundArrival,
+  GroundConnection,
+  JumpRouteOptions,
+  JumpDiagnostics,
+  Route,
+} from './index-types.js';
 import { movementGeometry } from './movement-geometry.js';
 import { findRouteShortcuts } from './route-shortcuts.js';
+import type { ShortcutCache } from './shortcuts.js';
 import { findJumpFrontier, findJumpShortcuts } from './shortcuts.js';
 import { findJumpConnections } from './traversal.js';
+
+export type PlannerOptions = JumpRouteOptions & {
+  endpointTolerance?: number;
+  costBound?: number;
+  boundGoal?: Vec3;
+};
+export interface JumpResult {
+  route: Route;
+  connections: GroundConnection[];
+  diagnostics: JumpDiagnostics & { knownActionChains?: JumpDiagnostics };
+}
+type Stage = 'direction' | 'relations' | 'entry' | 'final';
+
 /** Solve directed ground/jump/drop action combinations for arbitrary arrivals.
  * Geometry, collision, state, walls and body must belong to one immutable snapshot.
  * Discovery supplies supported, swept motion edges. The ground planner jointly
@@ -14,15 +38,15 @@ import { findJumpConnections } from './traversal.js';
  * Search limits constrain candidate coverage, not the number of actions in a route.
  */
 function solveJumpRoute(
-  surfaces: any,
-  world: any,
-  starts: any,
-  goal: any,
-  options: any,
-  shared: any,
-  stage: any,
-  initial?: any,
-): any {
+  surfaces: Surface[],
+  world: CollisionWorld,
+  starts: GroundArrival[],
+  goal: Vec3,
+  options: PlannerOptions,
+  shared: ShortcutCache,
+  stage: Stage,
+  initial?: Route,
+): JumpResult {
   const { interaction, runAirSpeed, model } = options;
   if (!Number.isFinite(runAirSpeed) || runAirSpeed < 0 || runAirSpeed > model.maxHorizontalSpeed) {
     throw new Error('Invalid running air-speed limit');
@@ -34,7 +58,7 @@ function solveJumpRoute(
     throw new Error('Invalid shortcut candidate limit');
   }
   const planner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
-  const diagnostics: any = {
+  const diagnostics: JumpResult['diagnostics'] = {
     strategy: 'surface-action-graph',
     groundStatus: 'unmapped',
     baselineCost: null,
@@ -50,15 +74,17 @@ function solveJumpRoute(
         connections: options.connections ?? [],
       }),
     bestConnections = options.connections ?? [];
-  const partialConnections = new Map<any, any>(
-    bestConnections.map((edge: any): any => [edge.id, edge]),
+  const partialConnections = new Map<string, GroundConnection>(
+    bestConnections.map((edge) => [edge.id, edge]),
   );
   diagnostics.groundStatus = best.status;
   if (best.status === 'complete') diagnostics.baselineCost = best.cost;
-  const ids = new Set<any>(bestConnections.map((connection: any): any => connection.id));
+  const ids = new Set<string>(bestConnections.map((connection) => connection.id));
   let serial = 0;
-  const actions = new Map<any, any>();
-  const withGait = (connection: any): any => {
+  const actions = new Map<string, GroundConnection>();
+  const withGait = (
+    connection: GroundConnection & { peakHorizontalSpeed?: number },
+  ): GroundConnection => {
     let velocity = connection.peakHorizontalSpeed ?? 0;
     for (let index = 1; index < connection.points.length; index++) {
       const point = connection.points[index],
@@ -78,7 +104,10 @@ function solveJumpRoute(
       ...(velocity > runAirSpeed + 1e-7 ? { requiredGait: 'sprint' } : {}),
     };
   };
-  const search = (discovery: any): any => {
+  const search = (discovery: {
+    connections: GroundConnection[];
+    diagnostics: JumpDiagnostics['searches'][number];
+  }): GroundConnection[] => {
     diagnostics.searches.push(discovery.diagnostics);
     diagnostics.truncated ||= discovery.diagnostics.truncated;
     const additions = [];
@@ -95,8 +124,8 @@ function solveJumpRoute(
   for (const arrival of starts) {
     if (arrival.state !== 'available' || (best.status === 'complete' && arrival.cost >= best.cost))
       continue;
-    const known = new Map<any, any>(
-      (options.connections ?? []).map((edge: any): any => [edge.id, edge]),
+    const known = new Map<string, GroundConnection>(
+      (options.connections ?? []).map((edge) => [edge.id, edge]),
     );
     for (const action of actions.values()) known.set(action.id, action);
     let connections = [...known.values()];
@@ -116,7 +145,7 @@ function solveJumpRoute(
       from: arrival.position,
       to: goal,
       ...(Number.isFinite(options.costBound)
-        ? { costBound: options.costBound - arrival.cost }
+        ? { costBound: options.costBound! - arrival.cost }
         : {}),
     };
     let remaining = options.maxCandidates;
@@ -147,14 +176,14 @@ function solveJumpRoute(
     }
     const batches = [Math.min(128, remaining), Math.min(128, remaining)],
       spent = [0, 0];
-    const exhausted = new Set<any>();
+    const exhausted = new Set<boolean>();
     // The cache owns one current endpoint/model binding. Sharing the owner also
     // preserves cursor invalidations when nested direction or entry queries change it.
     const cache = shared;
-    cache.standing ??= new Map<any, any>();
-    cache.motions ??= new Map<any, any>();
-    cache.exits ??= new Map<any, any>();
-    cache.approaches ??= new Map<any, any>();
+    cache.standing ??= new Map();
+    cache.motions ??= new Map();
+    cache.exits ??= new Map();
+    cache.approaches ??= new Map();
     while (incumbent.status !== 'complete' && remaining > 0) {
       const maxLinks = options.maxLinks - connections.length + initialConnections;
       if (maxLinks <= 0) {
@@ -307,14 +336,14 @@ function solveJumpRoute(
  * validated actions enter the final, jointly timed start-to-goal query.
  */
 function planDirectedRoute(
-  surfaces: any,
-  world: any,
-  starts: any,
-  goal: any,
-  options: any,
-  shared: any,
-  stage: any,
-): any {
+  surfaces: Surface[],
+  world: CollisionWorld,
+  starts: GroundArrival[],
+  goal: Vec3,
+  options: PlannerOptions,
+  shared: ShortcutCache,
+  stage: Stage,
+): JumpResult {
   const { waypoints, onProgress, ...base } = options;
   if (
     waypoints !== undefined &&
@@ -350,10 +379,10 @@ function planDirectedRoute(
   }
   const prepared = groundPreparation(planner);
   const project = prepared?.projectGoal ?? createGoalProjector(surfaces),
-    searches = [];
+    searches: NonNullable<JumpDiagnostics['directions']>['searches'] = [];
   const topology =
     prepared && movementGeometry(surfaces, { ...base, groundPlanner: planner }).topology;
-  const regions = new Set<any>(),
+  const regions = new Set<string | number>(),
     directions = [];
   for (const point of waypoints) {
     const witness = project(point, {
@@ -369,7 +398,7 @@ function planDirectedRoute(
     // Only directed, wall-filtered ground connectivity authorizes this grouping;
     // spatial proximity and one-way drops must not merge floors.
     const region = topology
-      ? topology.components[topology.ids.get(witness.surface)]
+      ? topology.components[topology.ids.get(witness.surface)!]
       : witness.surface;
     if (regions.has(region)) continue;
     regions.add(region);
@@ -378,7 +407,7 @@ function planDirectedRoute(
   const budget = Math.floor(base.maxCandidates / (2 * Math.max(1, directions.length)));
   let connections = initialConnections,
     remaining = base.maxCandidates;
-  let goalRoute = initial,
+  let goalRoute: Route = initial,
     goalConnections = connections;
   for (const [index, { point, witness }] of directions.entries()) {
     if (budget < 1) break;
@@ -431,7 +460,7 @@ function planDirectedRoute(
   // unchanged. Carry that result through this call, without a route-result cache.
   const unchanged =
     goalConnections.length === connections.length &&
-    goalConnections.every((connection: any, index: any) => connection === connections[index]);
+    goalConnections.every((connection, index) => connection === connections[index]);
   const result = solveJumpRoute(
     surfaces,
     world,
@@ -455,8 +484,14 @@ function planDirectedRoute(
  * actions can reach the goal from a still-inaccessible region. Each retained entry
  * gets an explicit bounded query. Only a complete joint final-goal solve is returned.
  */
-function planBaseRoute(surfaces: any, world: any, starts: any, goal: any, options: any): any {
-  const shared = {};
+function planBaseRoute(
+  surfaces: Surface[],
+  world: CollisionWorld,
+  starts: GroundArrival[],
+  goal: Vec3,
+  options: PlannerOptions,
+): JumpResult {
+  const shared: ShortcutCache = {};
   const goalPlanner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
   const airborneOnly =
     options.interaction?.airborne &&
@@ -466,7 +501,7 @@ function planBaseRoute(surfaces: any, world: any, starts: any, goal: any, option
     }).length;
   // An airborne event has no ground node. Discover its complete flight first,
   // then search the supported departure using the ordinary entry machinery.
-  const result = airborneOnly
+  const result: JumpResult = airborneOnly
     ? {
         route: { status: 'unmapped' },
         connections: options.connections ?? [],
@@ -495,8 +530,8 @@ function planBaseRoute(surfaces: any, world: any, starts: any, goal: any, option
       world,
       starts,
       goal,
-      { ...options, groundPlanner: planner },
-      (position: any, maxCost: any): any =>
+      { ...options, groundPlanner: planner, interaction: options.interaction },
+      (position: Vec3, maxCost: number) =>
         planDirectedRoute(
           surfaces,
           world,
@@ -530,7 +565,7 @@ function planBaseRoute(surfaces: any, world: any, starts: any, goal: any, option
   // Failed discovery still contains physically validated actions. Entry searches
   // continue that pool and its geometry preparation within this immutable query.
   let known = result.connections;
-  const probe = (position: any, target: any, interaction: any) =>
+  const probe = (position: Vec3, target: Vec3, interaction?: JumpRouteOptions['interaction']) =>
     planner.plan([{ id: '@device-entry', position, state: 'available', cost: 0 }], target, {
       interaction,
       endpointTolerance: options.endpointTolerance,
@@ -540,23 +575,23 @@ function planBaseRoute(surfaces: any, world: any, starts: any, goal: any, option
   // first solving every pair of device approaches. Exact-coordinate duplicates
   // share the same fresh entry state; distinct positions retain their own trial.
   const sources = [
-    ...new Map<any, any>(
+    ...new Map<string, GroundConnection>(
       known
-        .filter((edge: any) => edge.state === 'open' && !edge.terminal)
-        .map((edge: any): any => [JSON.stringify(edge.points[0]), edge]),
+        .filter((edge) => edge.state === 'open' && !edge.terminal)
+        .map((edge) => [JSON.stringify(edge.points[0]), edge]),
     ).values(),
   ];
   let eligible = false;
   const geometry = movementGeometry(surfaces, { ...options, groundPlanner: planner });
-  const regions = new Map<any, any>(
-    sources.map((edge): any => {
+  const regions = new Map<GroundConnection, string | number>(
+    sources.map((edge) => {
       const support = geometry.projectSupport(
         edge.points[0],
         edge.endpointTolerance ?? 1e-6,
         edge.fromSurface,
       );
       const component =
-        support && geometry.topology.components[geometry.topology.ids.get(support.surface)];
+        support && geometry.topology.components[geometry.topology.ids.get(support.surface)!];
       return [edge, component ?? edge.id];
     }),
   );
@@ -564,17 +599,14 @@ function planBaseRoute(surfaces: any, world: any, starts: any, goal: any, option
   // multiplying the full query budget by every discovered device endpoint.
   const entryBudget = Math.min(
     options.maxCandidates,
-    Math.max(
-      128,
-      Math.floor(options.maxCandidates / Math.max(1, new Set<any>(regions.values()).size)),
-    ),
+    Math.max(128, Math.floor(options.maxCandidates / Math.max(1, new Set(regions.values()).size))),
   );
-  const attempts: { budgetPerGoal: number; goals: number; searches: any[] } = {
+  const attempts: NonNullable<JumpDiagnostics['deviceApproaches']> = {
     budgetPerGoal: entryBudget,
     goals: sources.length,
     searches: [],
   };
-  const searchedRegions = new Set<any>();
+  const searchedRegions = new Set<string | number>();
   for (const [index, edge] of sources.entries()) {
     const region = regions.get(edge);
     // One entry discovery covers a mutually walk-reachable ground region. This
@@ -666,12 +698,12 @@ function planBaseRoute(surfaces: any, world: any, starts: any, goal: any, option
   return result;
 }
 export function planJumpRoute(
-  surfaces: any,
-  world: any,
-  starts: any,
-  goal: any,
-  options: any,
-): any {
+  surfaces: Surface[],
+  world: CollisionWorld,
+  starts: GroundArrival[],
+  goal: Vec3,
+  options: PlannerOptions,
+): JumpResult {
   const result = planBaseRoute(surfaces, world, starts, goal, options);
   return options.boosts?.length
     ? planBoostedRoute(surfaces, world, starts, goal, options, result, planBaseRoute)

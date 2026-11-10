@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Face } from '../src/candidate-bounds.js';
 import { createCandidateBounds } from '../src/candidate-bounds.js';
+import type { JumpModel, Vec3 } from '../src/index-types.js';
 import { jumpDuration } from '../src/jumps.js';
 import { landingCandidates } from '../src/landings.js';
 
-const model = {
+const model: JumpModel = {
   gravity: 10,
   fallingGravity: 10,
   maxJumpHeight: 2,
@@ -13,7 +15,7 @@ const model = {
   apexTime: 0.2,
   maxHorizontalSpeed: 20,
 };
-const floor = (id, x0, x1, y, z0 = 1, z1 = 2) => ({
+const floor = (id: string, x0: number, x1: number, y: number, z0 = 1, z1 = 2): Face => ({
   id,
   vertices: [
     [x0, y, z0],
@@ -24,17 +26,22 @@ const floor = (id, x0, x1, y, z0 = 1, z1 = 2) => ({
   min: [x0, y, z0],
   max: [x1, y, z1],
 });
-const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
-const cellOf = (point, size) => point.map((value) => Math.floor(value / size)).join('/');
+const distance = (a: number[], b: Vec3) => Math.hypot(...a.map((value, axis) => value - b[axis]));
+const cellOf = (point: Vec3, size: number) =>
+  point.map((value) => Math.floor(value / size)).join('/');
 
 test('face bounds preserve the exact top K selected from real landing witnesses', () => {
   const diversity = 20,
     speed = 7,
     endpointTolerance = 0.3,
     limit = 2;
-  const start = { position: [2, 0, 1.5], walk: 3, cell: '0/0/0' },
-    to = [22.5, 0, 1.5];
-  const surfaces = [
+  const start: { cell?: string | undefined; position: Vec3; walk: number } = {
+      position: [2, 0, 1.5],
+      walk: 3,
+      cell: '0/0/0',
+    },
+    to: Vec3 = [22.5, 0, 1.5];
+  const surfaces: Face[] = [
     floor('best', 22, 23, 0),
     ...Array.from({ length: 24 }, (_, index) =>
       floor(`far/${index}`, 24 + index / 8, 24.5 + index / 8, 0),
@@ -42,15 +49,15 @@ test('face bounds preserve the exact top K selected from real landing witnesses'
     floor('apex-fallback', 26, 27, 2.1),
     floor('reach-intersection', 29, 33, 0),
   ];
-  const centers = new Map(
+  const centers = new Map<string, Vec3>(
     surfaces.map((surface) => [
       surface.id,
-      surface.min.map((value, axis) => (value + surface.max[axis]) / 2),
+      surface.min.map((value, axis) => (value + surface.max[axis]) / 2) as Vec3,
     ]),
   );
   const departure = new Map(surfaces.slice(8, 16).map((surface) => [surface.id, 20]));
-  const collect = (bounded) => {
-    const pairs = new Map();
+  const collect = (bounded: boolean) => {
+    const pairs = new Map<string, { score: number; uncertain: boolean }[]>();
     const dominated = createCandidateBounds({
       model,
       endpointTolerance,
@@ -84,7 +91,7 @@ test('face bounds preserve the exact top K selected from real landing witnesses'
           mode: 'jump',
         });
         const remaining = departure.has(end.surface)
-          ? departure.get(end.surface) + distance(centers.get(end.surface), end.position)
+          ? departure.get(end.surface)! + distance(centers.get(end.surface)!, end.position)
           : distance(end.position, to);
         const candidate = {
           start,
@@ -109,10 +116,14 @@ test('face bounds preserve the exact top K selected from real landing witnesses'
 });
 
 test('keeps uncertain tails, incomplete covered cells and score ties', () => {
-  const pairs = new Map(),
-    surface = floor('face', 22, 23, 0),
-    start = { position: [2, 0, 1.5], walk: 3, cell: '0/0/0' };
-  const options = {
+  const pairs = new Map<string, { score: number; uncertain: boolean }[]>(),
+    surface: Face = floor('face', 22, 23, 0),
+    start: { cell?: string | undefined; position: Vec3; walk: number } = {
+      position: [2, 0, 1.5],
+      walk: 3,
+      cell: '0/0/0',
+    };
+  const options: Parameters<typeof createCandidateBounds>[0] = {
     model,
     endpointTolerance: 0.3,
     diversity: 20,
@@ -139,6 +150,7 @@ test('keeps uncertain tails, incomplete covered cells and score ties', () => {
   assert.equal(dominated(start, surface), true);
   assert.equal(dominated(start, floor('crosses-cell', 19, 23, 0)), false);
   const time = jumpDuration(0, 0, { ...model, mode: 'jump' });
+  assert.ok(time);
   const score = (start.walk + distance([22, 0, 1], options.to)) / options.speed + time;
   pairs.set(key, [
     { score, uncertain: false },
@@ -149,7 +161,7 @@ test('keeps uncertain tails, incomplete covered cells and score ties', () => {
 
 test('falls back when tiny cells overflow or lose integer increments', () => {
   for (const height of [2 ** 54, -(2 ** 54)]) {
-    const pairs = new Map(),
+    const pairs = new Map<string, { score: number; uncertain: boolean }[]>(),
       cell = `0/${height}/0`;
     pairs.set(`${cell}:0/${height}/0`, [{ score: 0, uncertain: false }]);
     const dominated = createCandidateBounds({
@@ -162,8 +174,12 @@ test('falls back when tiny cells overflow or lose integer increments', () => {
       pairs,
       limit: 1,
     });
-    const surface = floor('high', 0.1, 0.2, height, 0.1, 0.2);
-    const start = { position: [0, height, 0], walk: 0, cell };
+    const surface: Face = floor('high', 0.1, 0.2, height, 0.1, 0.2);
+    const start: { cell?: string | undefined; position: Vec3; walk: number } = {
+      position: [0, height, 0],
+      walk: 0,
+      cell,
+    };
     assert.equal(dominated(start, surface), false);
     assert.equal(dominated(start, surface), false);
   }

@@ -1,5 +1,33 @@
+import type { Bounds } from './bounds.js';
+import type { JumpModel } from './index-types.js';
 import { jumpDuration, jumpTravel } from './jumps.js';
-const flightTables = new WeakMap<any, any>();
+
+export interface EnvelopeOptions {
+  model: JumpModel;
+  maxDrop: number;
+  maxHorizontalDistance: number;
+  endpointTolerance?: number;
+  reverse?: boolean;
+  padding?: readonly number[];
+}
+interface FlightEnvelope {
+  model: JumpModel;
+  maxDrop: number;
+  endpointTolerance: number;
+  initial: number;
+  duration(drop: number, mode?: 'jump' | 'drop'): number | null;
+  travel(initialSpeed: number, time: number): number;
+  reach(drop: number): number;
+}
+interface Domain {
+  sourceHeight: number[];
+  targetHeight: number[];
+  flightTime: number[];
+  initialSpeed: number[];
+  horizontal: { x: number[]; z: number[]; distance: number[] };
+}
+
+const flightTables = new WeakMap<JumpModel, FlightEnvelope>();
 const modelFields = [
   'gravity',
   'fallingGravity',
@@ -9,9 +37,13 @@ const modelFields = [
   'maxHorizontalSpeed',
   'startHorizontalSpeed',
   'airOverspeedDeceleration',
-];
+] as const;
 const heightResolution = 0.25;
-function flightEnvelope(model: any, maxDrop: any, endpointTolerance: any): any {
+function flightEnvelope(
+  model: JumpModel,
+  maxDrop: number,
+  endpointTolerance: number,
+): FlightEnvelope {
   const previous = flightTables.get(model);
   if (
     previous?.maxDrop === maxDrop &&
@@ -19,16 +51,21 @@ function flightEnvelope(model: any, maxDrop: any, endpointTolerance: any): any {
     modelFields.every((key) => Object.is(previous.model[key], model[key]))
   )
     return previous;
-  const snapshot = Object.fromEntries(modelFields.map((key): any => [key, model[key]]));
+  const snapshot = Object.fromEntries(
+    modelFields.map((key) => [key, model[key]]),
+  ) as unknown as JumpModel;
   // Validate the shared vertical model, including the zero-jump-height case.
   jumpDuration(0, 0, { ...snapshot, mode: 'drop' });
-  const vertical = { ...snapshot, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' };
+  const vertical = {
+    ...snapshot,
+    mode: model.maxJumpHeight > 0 ? ('jump' as const) : ('drop' as const),
+  };
   const initial = Math.max(model.maxHorizontalSpeed, model.startHorizontalSpeed ?? 0);
-  const analyticReach = (drop: any) => {
+  const analyticReach = (drop: number) => {
     const duration = jumpDuration(0, -drop, vertical);
     if (duration === null) return 0;
     return Number.isFinite(snapshot.airOverspeedDeceleration) &&
-      snapshot.airOverspeedDeceleration > 0
+      snapshot.airOverspeedDeceleration! > 0
       ? jumpTravel(initial, duration, snapshot)
       : initial * duration;
   };
@@ -51,16 +88,16 @@ function flightEnvelope(model: any, maxDrop: any, endpointTolerance: any): any {
     maxDrop,
     endpointTolerance,
     initial,
-    duration(drop: any, mode = vertical.mode): any {
+    duration(drop: number, mode: 'jump' | 'drop' = vertical.mode) {
       return jumpDuration(0, -drop, mode === vertical.mode ? vertical : { ...snapshot, mode });
     },
-    travel(initialSpeed: any, time: any) {
+    travel(initialSpeed: number, time: number) {
       return Number.isFinite(snapshot.airOverspeedDeceleration) &&
-        snapshot.airOverspeedDeceleration > 0
+        snapshot.airOverspeedDeceleration! > 0
         ? jumpTravel(initialSpeed, time, snapshot)
         : initialSpeed * time;
     },
-    reach(drop: any) {
+    reach(drop: number) {
       const index = Math.ceil(drop / heightResolution) - minimumBin;
       return table && index >= 0 && index < table.length ? table[index] : analyticReach(drop);
     },
@@ -81,7 +118,7 @@ function flightEnvelope(model: any, maxDrop: any, endpointTolerance: any): any {
  * approach envelope. Model speed expiry is ignored here to retain an upper bound.
  */
 export function createJumpEnvelope(
-  anchor: any,
+  anchor: readonly number[],
   {
     model,
     maxDrop,
@@ -89,8 +126,8 @@ export function createJumpEnvelope(
     endpointTolerance = 0,
     reverse = false,
     padding = [0, 0, 0],
-  }: any,
-): any {
+  }: EnvelopeOptions,
+) {
   if (
     !Array.isArray(anchor) ||
     anchor.length !== 3 ||
@@ -124,7 +161,7 @@ export function createJumpEnvelope(
     rise,
     fall,
   );
-  return (box: any) => {
+  return (box: Bounds) => {
     const minX = box.min[0] - paddingX,
       maxX = box.max[0] + paddingX;
     const minY = box.min[1] - paddingY,
@@ -182,7 +219,7 @@ export function createJumpEnvelope(
  * approaches outside that contract. Expiry is ignored for an optimistic bound.
  */
 export function createJumpPredecessor(
-  targetBox: any,
+  targetBox: Bounds,
   {
     model,
     maxDrop,
@@ -190,9 +227,12 @@ export function createJumpPredecessor(
     endpointTolerance = 0,
     sourcePadding = [0, 0, 0],
     targetPadding = [0, 0, 0],
-  }: any,
-): any {
-  const validPadding = (value: any) =>
+  }: Omit<EnvelopeOptions, 'padding' | 'reverse'> & {
+    sourcePadding?: readonly number[];
+    targetPadding?: readonly number[];
+  },
+) {
+  const validPadding = (value: unknown) =>
     Array.isArray(value) &&
     value.length === 3 &&
     value.every((component) => Number.isFinite(component) && component >= 0);
@@ -203,7 +243,7 @@ export function createJumpPredecessor(
     targetBox.min.length !== 3 ||
     targetBox.max.length !== 3 ||
     ![...targetBox.min, ...targetBox.max].every(Number.isFinite) ||
-    targetBox.min.some((value: any, axis: any) => value > targetBox.max[axis]) ||
+    targetBox.min.some((value, axis) => value > targetBox.max[axis]) ||
     !validPadding(sourcePadding) ||
     !validPadding(targetPadding)
   ) {
@@ -233,7 +273,7 @@ export function createJumpPredecessor(
     rise,
     fall,
   );
-  const test = (box: any, details: any): any => {
+  const test = (box: Bounds, details: boolean): Domain | null | boolean => {
     const x0 = box.min[0] - sx,
       x1 = box.max[0] + sx;
     const y0 = box.min[1] - sy,
@@ -302,7 +342,7 @@ export function createJumpPredecessor(
       },
     };
   };
-  const predecessor = (box: any): any => test(box, false);
-  predecessor.domain = (box: any): any => test(box, true);
+  const predecessor = (box: Bounds): boolean => test(box, false) as boolean;
+  predecessor.domain = (box: Bounds): Domain | null => test(box, true) as Domain | null;
   return predecessor;
 }

@@ -1,5 +1,12 @@
-const modes = new Set<any>(['walk', 'rope', 'jump', 'drop', 'launch']);
-const distance = (a: any, b: any) => Math.hypot(...a.map((v: any, i: any) => v - b[i]));
+import type {
+  Vec3,
+  Edge,
+  Segment,
+  BoostUse,
+  sampleJourney as SampleJourney,
+} from './index-types.js';
+const modes = new Set<string>(['walk', 'rope', 'jump', 'drop', 'launch']);
+const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((v, i) => v - b[i]));
 // Shared by graph and grounded-connection import. Sample times are measured from
 // segment entry, not global time; they preserve acceleration and pauses in a path.
 export function validateMotion({
@@ -10,7 +17,9 @@ export function validateMotion({
   connection,
   requiredGait,
   boost,
-}: any) {
+}: Pick<Edge, 'points' | 'cost' | 'mode' | 'times' | 'connection' | 'requiredGait'> & {
+  boost?: BoostUse;
+}) {
   if (
     boost !== undefined &&
     (!boost ||
@@ -38,7 +47,7 @@ export function validateMotion({
     times.length !== points.length ||
     times[0] !== 0 ||
     !times.every(Number.isFinite) ||
-    Math.abs(times.at(-1) - cost) > 1e-7 ||
+    Math.abs(times.at(-1)! - cost) > 1e-7 ||
     (mode !== 'walk' && cost <= 0) ||
     times.some((t, i) => t < 0 || (i > 0 && t < times[i - 1])) ||
     times.some((t, i) => i > 0 && t === times[i - 1] && distance(points[i], points[i - 1]) > 1e-9)
@@ -46,7 +55,7 @@ export function validateMotion({
     throw new Error('Invalid movement timing');
   }
 }
-export function routeSegment(edge: any): any {
+export function routeSegment(edge: Edge): Segment {
   const times = edge.times ? [...edge.times] : [0];
   if (!edge.times) {
     let length = 0;
@@ -59,7 +68,7 @@ export function routeSegment(edge: any): any {
   }
   return {
     mode: edge.mode ?? 'walk',
-    points: edge.points.map((p: any): any => [...p]),
+    points: edge.points.map((p): Vec3 => [...p]),
     times,
     ...(edge.connection === undefined ? {} : { connection: edge.connection }),
     ...(edge.requiredGait === undefined ? {} : { requiredGait: edge.requiredGait }),
@@ -69,12 +78,15 @@ export function routeSegment(edge: any): any {
  * overhead stays in route.arrivalCost; no flight is drawn from the player's old position.
  * This interpolates supplied trajectory samples, not a newly fitted parabola or spline.
  */
-export function sampleJourney(route: any, seconds: any): any {
+export function sampleJourney(
+  route: Parameters<typeof SampleJourney>[0],
+  seconds: number,
+): ReturnType<typeof SampleJourney> {
   if (route.status !== 'complete' || !Number.isFinite(seconds))
     throw new Error('Invalid journey sample');
   let remaining = Math.max(0, seconds);
   for (const segment of route.segments) {
-    const duration = segment.times.at(-1);
+    const duration = segment.times.at(-1)!;
     if (remaining < duration) {
       for (let i = 1; i < segment.times.length; i++) {
         if (remaining < segment.times[i]) {
@@ -83,8 +95,8 @@ export function sampleJourney(route: any, seconds: any): any {
           return {
             mode: segment.mode,
             position: segment.points[i - 1].map(
-              (v: any, axis: any): any => v + (segment.points[i][axis] - v) * fraction,
-            ),
+              (v, axis) => v + (segment.points[i][axis] - v) * fraction,
+            ) as Vec3,
             ...(segment.connection === undefined ? {} : { connection: segment.connection }),
           };
         }
@@ -92,5 +104,5 @@ export function sampleJourney(route: any, seconds: any): any {
     }
     remaining -= duration;
   }
-  return { mode: 'complete', position: [...route.points.at(-1)] };
+  return { mode: 'complete', position: [...route.points.at(-1)!] };
 }

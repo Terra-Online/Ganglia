@@ -1,27 +1,48 @@
-const sub = (a: any, b: any): any => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const dot = (a: any, b: any) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: any, b: any): any => [
+import type { CollisionGeometry } from './build-types.js';
+import type { CollisionOptions, CollisionWorld, Capsule } from './collision-types.js';
+import type { Vec3 } from './index-types.js';
+type Triangle = readonly (readonly number[])[];
+type GroundHit = ReturnType<CollisionWorld['groundAt']>;
+type SweepHit = ReturnType<CollisionWorld['sweepCapsule']>;
+type Hit = GroundHit | SweepHit;
+type Compare = (a: number, b: number) => number;
+type Tree = { box: number[] } & (
+  | { start: number; end: number; left?: never; right?: never }
+  | { left: Tree; right: Tree; start?: never; end?: never }
+);
+const sub = (a: readonly number[], b: readonly number[]): Vec3 => [
+  a[0] - b[0],
+  a[1] - b[1],
+  a[2] - b[2],
+];
+const dot = (a: readonly number[], b: readonly number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: readonly number[], b: readonly number[]): Vec3 => [
   a[1] * b[2] - a[2] * b[1],
   a[2] * b[0] - a[0] * b[2],
   a[0] * b[1] - a[1] * b[0],
 ];
-const mix = (a: any, b: any, t: any): any => [
+const mix = (a: readonly number[], b: readonly number[], t: number): Vec3 => [
   a[0] + (b[0] - a[0]) * t,
   a[1] + (b[1] - a[1]) * t,
   a[2] + (b[2] - a[2]) * t,
 ];
-const squared = (a: any, b: any) => {
+const squared = (a: readonly number[], b: readonly number[]) => {
   const x = a[0] - b[0],
     y = a[1] - b[1],
     z = a[2] - b[2];
   return x * x + y * y + z * z;
 };
-const pointSegment = (p: any, a: any, b: any) => {
+const pointSegment = (p: readonly number[], a: readonly number[], b: readonly number[]) => {
   const d = sub(b, a),
     length = dot(d, d);
   return squared(p, mix(a, b, length ? Math.max(0, Math.min(1, dot(sub(p, a), d) / length)) : 0));
 };
-const segmentSegment = (a: any, b: any, c: any, d: any) => {
+const segmentSegment = (
+  a: readonly number[],
+  b: readonly number[],
+  c: readonly number[],
+  d: readonly number[],
+) => {
   let best = Math.min(
     pointSegment(a, c, d),
     pointSegment(b, c, d),
@@ -41,18 +62,18 @@ const segmentSegment = (a: any, b: any, c: any, d: any) => {
   }
   return best;
 };
-const inside = (p: any, triangle: any, n: any) => {
+const inside = (p: readonly number[], triangle: Triangle, n: readonly number[]) => {
   for (let i = 0; i < 3; i++) {
     const a = triangle[i];
     if (!(dot(cross(sub(triangle[(i + 1) % 3], a), sub(p, a)), n) >= 0)) return false;
   }
   return true;
 };
-const pointTriangle = (p: any, triangle: any, n: any) => {
+const pointTriangle = (p: readonly number[], triangle: Triangle, n: readonly number[]) => {
   const area = dot(n, n);
   if (area > 0) {
     const distance = dot(sub(p, triangle[0]), n) / area;
-    const projected = p.map((v: any, i: any) => v - n[i] * distance);
+    const projected = p.map((v, i) => v - n[i] * distance);
     if (inside(projected, triangle, n)) return squared(p, projected);
   }
   return Math.min(
@@ -61,7 +82,7 @@ const pointTriangle = (p: any, triangle: any, n: any) => {
     pointSegment(p, triangle[2], triangle[0]),
   );
 };
-const segmentTriangle = (a: any, b: any, triangle: any) => {
+const segmentTriangle = (a: readonly number[], b: readonly number[], triangle: Triangle) => {
   const n = cross(sub(triangle[1], triangle[0]), sub(triangle[2], triangle[0]));
   const da = dot(sub(a, triangle[0]), n),
     db = dot(sub(b, triangle[0]), n);
@@ -77,7 +98,7 @@ const segmentTriangle = (a: any, b: any, triangle: any) => {
     segmentSegment(a, b, triangle[2], triangle[0]),
   );
 };
-const triangleTriangle = (a: any, b: any) =>
+const triangleTriangle = (a: Triangle, b: Triangle) =>
   Math.min(
     segmentTriangle(a[0], a[1], b),
     segmentTriangle(a[1], a[2], b),
@@ -86,13 +107,18 @@ const triangleTriangle = (a: any, b: any) =>
     segmentTriangle(b[1], b[2], a),
     segmentTriangle(b[2], b[0], a),
   );
-const overlaps = (a: any, b: any) =>
+const overlaps = (a: ArrayLike<number>, b: ArrayLike<number>) =>
   a[0] <= b[3] && a[3] >= b[0] && a[1] <= b[4] && a[4] >= b[1] && a[2] <= b[5] && a[5] >= b[2];
-const point = (p: any) => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite);
+const point = (p: unknown) => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite);
 // Highest bottom-sphere support on the triangle, including its edges and corners.
 // The edge objective is concave, so its stationary point or a segment endpoint
 // gives the exact maximum. This avoids directional ray sampling at a ledge.
-const sphereSupport = (position: any, face: any, normal: any, radius: any) => {
+const sphereSupport = (
+  position: readonly number[],
+  face: Triangle,
+  normal: readonly number[],
+  radius: number,
+) => {
   const contact = [position[0] - radius * normal[0], 0, position[2] - radius * normal[2]];
   const planeHeight =
     face[0][1] -
@@ -136,7 +162,10 @@ const sphereSupport = (position: any, face: any, normal: any, radius: any) => {
  * Optional XZ bounds retain all intersecting triangles at every height. Queries
  * outside that scope throw rather than treating unindexed space as clear.
  */
-export function createCollisionWorld(geometry: any, options: any): any {
+export function createCollisionWorld(
+  geometry: CollisionGeometry,
+  options?: CollisionOptions,
+): CollisionWorld {
   if (
     !geometry?.positions ||
     !geometry.indices ||
@@ -154,23 +183,23 @@ export function createCollisionWorld(geometry: any, options: any): any {
     throw new Error('Invalid collision query cache size');
   // One bounded FIFO serves both methods for this immutable geometry/scope.
   // Default-off avoids key allocation for cold worlds or mostly unique sweeps.
-  const queryCache: any = queryCacheSize ? new Map<any, any>() : null;
+  const queryCache = queryCacheSize ? new Map<string, Hit>() : null;
   let cacheHits = 0,
     cacheMisses = 0;
-  const queryKey = (kind: any, values: any): any =>
-    kind + values.map((value: any) => (Object.is(value, -0) ? '-0' : String(value))).join(',');
-  const copyResult = (result: any): any =>
-    result === null
+  const queryKey = (kind: string, values: number[]) =>
+    kind + values.map((value) => (Object.is(value, -0) ? '-0' : String(value))).join(',');
+  const copyResult = <T extends Hit>(result: T): T =>
+    (result === null
       ? null
-      : result.position
+      : 'position' in result
         ? { position: [...result.position], triangle: result.triangle, normal: [...result.normal] }
-        : { ...result };
-  const remember = (key: any, result: any): any => {
-    if (queryCache.size >= queryCacheSize) queryCache.delete(queryCache.keys().next().value);
-    queryCache.set(key, copyResult(result));
+        : { ...result }) as T;
+  const remember = <T extends Hit>(key: string, result: T): T => {
+    if (queryCache!.size >= queryCacheSize) queryCache!.delete(queryCache!.keys().next().value!);
+    queryCache!.set(key, copyResult(result));
     return result;
   };
-  let scope = null;
+  let scope: number[] | null = null;
   if (options?.bounds !== undefined) {
     const requested = options.bounds;
     if (
@@ -180,7 +209,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
       requested.min.length !== 2 ||
       requested.max.length !== 2 ||
       ![...requested.min, ...requested.max].every(Number.isFinite) ||
-      requested.min.some((value: any, axis: any) => value > requested.max[axis])
+      requested.min.some((value, axis) => value > requested.max[axis])
     ) {
       throw new Error('Invalid collision XZ bounds');
     }
@@ -188,10 +217,10 @@ export function createCollisionWorld(geometry: any, options: any): any {
   }
   // Inspect source coordinates directly before allocating retained triangle snapshots.
   // A triangle with outside vertices can still cross the indexed rectangle.
-  const retained: any = scope ? [] : null;
+  const retained: number[] | null = scope ? [] : null;
   if (scope) {
     const source = geometry.positions;
-    for (let offset: any = 0; offset < geometry.indices.length; offset += 3) {
+    for (let offset: number = 0; offset < geometry.indices.length; offset += 3) {
       const a = geometry.indices[offset] * 3;
       const b = geometry.indices[offset + 1] * 3;
       const c = geometry.indices[offset + 2] * 3;
@@ -200,7 +229,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
       const minZ = Math.min(source[a + 2], source[b + 2], source[c + 2]);
       const maxZ = Math.max(source[a + 2], source[b + 2], source[c + 2]);
       if (maxX >= scope[0] && minX <= scope[2] && maxZ >= scope[1] && minZ <= scope[3]) {
-        retained.push(offset / 3);
+        retained!.push(offset / 3);
       }
     }
   }
@@ -216,8 +245,10 @@ export function createCollisionWorld(geometry: any, options: any): any {
   }
   const order = Uint32Array.from({ length: count }, (_, index) => index);
   const bounds = new Float64Array(count * 6);
-  const vertex = (index: any): any => Array.from(positions.subarray(index * 3, index * 3 + 3));
-  const triangle = (id: any): any => [0, 1, 2].map((index): any => vertex(indices[id * 3 + index]));
+  const vertex = (index: number): Vec3 =>
+    Array.from(positions.subarray(index * 3, index * 3 + 3)) as Vec3;
+  const triangle = (id: number): Triangle =>
+    [0, 1, 2].map((index) => vertex(indices[id * 3 + index]));
   for (let id = 0; id < count; id++) {
     for (let axis = 0; axis < 3; axis++) {
       const a = positions[indices[id * 3] * 3 + axis];
@@ -227,7 +258,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
       bounds[id * 6 + axis + 3] = Math.max(a, b, c);
     }
   }
-  const requireScope = (box: any) => {
+  const requireScope = (box: number[]) => {
     if (
       scope &&
       (box[0] < scope[0] || box[2] < scope[1] || box[3] > scope[2] || box[5] > scope[3])
@@ -235,7 +266,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
       throw new Error('Collision query exceeds indexed XZ bounds');
     }
   };
-  const select = (start: any, end: any, middle: any, compare: any) => {
+  const select = (start: number, end: number, middle: number, compare: Compare) => {
     // Bound partition work on adversarial layouts. The fallback sorts only the
     // remaining selection interval, whose outside members are already decided.
     let budget = 2 * (end - start);
@@ -275,7 +306,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
     }
     order.subarray(start, end).sort(compare);
   };
-  const build: any = (start: any, end: any, parentOrder?: any): any => {
+  const build = (start: number, end: number, parentOrder?: Compare): Tree => {
     const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
     for (let j = start; j < end; j++)
       for (let i = 0; i < 3; i++) {
@@ -290,7 +321,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
     }
     let axis = 0;
     for (let i = 1; i < 3; i++) if (box[i + 3] - box[i] > box[axis + 3] - box[axis]) axis = i;
-    const compare = (a: any, b: any) =>
+    const compare = (a: number, b: number) =>
       bounds[a * 6 + axis] +
         bounds[a * 6 + axis + 3] -
         (bounds[b * 6 + axis] + bounds[b * 6 + axis + 3]) || a - b;
@@ -300,7 +331,9 @@ export function createCollisionWorld(geometry: any, options: any): any {
   };
   const root = count ? build(0, count) : null;
   return {
-    bounds: scope ? { min: scope.slice(0, 2), max: scope.slice(2, 4) } : null,
+    bounds: scope
+      ? { min: scope.slice(0, 2) as [number, number], max: scope.slice(2, 4) as [number, number] }
+      : null,
     get queryCacheStats() {
       return {
         capacity: queryCacheSize,
@@ -312,7 +345,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
     /** Original input triangle IDs overlapping an inclusive XZ rectangle, in
      * input order. This reuses the obstacle index for local geometry preparation.
      */
-    trianglesInBounds(rectangle: any): any {
+    trianglesInBounds(rectangle: NonNullable<CollisionOptions['bounds']>): number[] {
       if (
         !rectangle ||
         !Array.isArray(rectangle.min) ||
@@ -320,7 +353,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
         rectangle.min.length !== 2 ||
         rectangle.max.length !== 2 ||
         ![...rectangle.min, ...rectangle.max].every(Number.isFinite) ||
-        rectangle.min.some((value: any, axis: any) => value > rectangle.max[axis])
+        rectangle.min.some((value, axis) => value > rectangle.max[axis])
       ) {
         throw new Error('Invalid collision triangle rectangle');
       }
@@ -336,7 +369,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
       const result = [],
         stack = root ? [root] : [];
       while (stack.length) {
-        const node = stack.pop();
+        const node = stack.pop()!;
         if (!overlaps(box, node.box)) continue;
         if (node.left) {
           stack.push(node.left, node.right);
@@ -354,7 +387,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
      * Height limits are explicit and independent. This establishes triangle support
      * only; callers still verify standing capsule clearance and active world coverage.
      */
-    groundAt(position: any, options: any): any {
+    groundAt(position: Vec3, options: Parameters<CollisionWorld['groundAt']>[1]): GroundHit {
       const { maxUp, maxDown, maxSlope, radius = 0 } = options ?? {};
       if (
         !point(position) ||
@@ -382,16 +415,16 @@ export function createCollisionWorld(geometry: any, options: any): any {
         const found = queryCache.get(key);
         if (found !== undefined) {
           cacheHits++;
-          return copyResult(found);
+          return copyResult(found as GroundHit);
         }
         cacheMisses++;
       }
       const minimumUp = Math.cos((maxSlope * Math.PI) / 180),
         stack = root ? [root] : [];
-      let best: any = null,
+      let best: GroundHit = null,
         bestOffset = Infinity;
       while (stack.length) {
-        const node = stack.pop();
+        const node = stack.pop()!;
         if (!overlaps(box, node.box)) continue;
         if (node.left) {
           stack.push(node.left, node.right);
@@ -407,7 +440,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
             length = Math.hypot(...normal);
           if (!Number.isFinite(length)) throw new Error('Non-finite ground support normal');
           if (length === 0 || normal[1] <= 0 || normal[1] / length < minimumUp) continue;
-          const unitNormal = normal.map((value: any) => value / length);
+          const unitNormal = normal.map((value) => value / length);
           const x = position[0] - face[0][0],
             z = position[2] - face[0][2],
             determinant = -normal[1];
@@ -425,15 +458,15 @@ export function createCollisionWorld(geometry: any, options: any): any {
           if (height < position[1] - maxDown || height > position[1] + maxUp) continue;
           const offset = Math.abs(height - position[1]);
           if (
-            (radius > 0 && (!best || height > best.position[1])) ||
+            (radius > 0 && (!best || height > best!.position[1])) ||
             (radius === 0 &&
-              (offset < bestOffset || (offset === bestOffset && height > best.position[1])))
+              (offset < bestOffset || (offset === bestOffset && height > best!.position[1])))
           ) {
             bestOffset = offset;
             best = {
               position: [position[0], height, position[2]],
               triangle: originalIds ? originalIds[id] : id,
-              normal: unitNormal,
+              normal: unitNormal as Vec3,
             };
           }
         }
@@ -446,7 +479,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
      * error for curved paths and enlarges the capsule in every direction.
      * Returns any touching triangle, NOT the earliest impact or a landing proof.
      */
-    sweepCapsule(start: any, end: any, profile: any): any {
+    sweepCapsule(start: Vec3, end: Vec3, profile: Capsule): SweepHit {
       const { radius, height, inflation = 0 } = profile ?? {};
       if (
         !point(start) ||
@@ -475,7 +508,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
         const found = queryCache.get(key);
         if (found !== undefined) {
           cacheHits++;
-          return copyResult(found);
+          return copyResult(found as SweepHit);
         }
         cacheMisses++;
       }
@@ -485,7 +518,7 @@ export function createCollisionWorld(geometry: any, options: any): any {
         d = [end[0], end[1] + height - radius, end[2]];
       const stack = root ? [root] : [];
       while (stack.length) {
-        const node = stack.pop();
+        const node = stack.pop()!;
         if (!overlaps(box, node.box)) continue;
         if (node.left) {
           stack.push(node.left, node.right);

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { BuildOptions } from '../src/build-types.js';
 import { buildGroundSurfaces } from '../src/build.js';
+import type { Surface, Vec3, Wall } from '../src/index-types.js';
 import { planGroundRoute, projectPoint } from '../src/index.js';
-const options = {
+const options: BuildOptions = {
   profile: { radius: 0.35, height: 1.66 },
   maxSlope: 46,
   stepUp: 0.4,
@@ -11,7 +13,7 @@ const options = {
   cellSize: 0.1,
   cellHeight: 0.05,
 };
-const quad = (x0, x1, z0, z1, y0, y1 = y0) => [
+const quad = (x0: number, x1: number, z0: number, z1: number, y0: number, y1 = y0): Vec3[] => [
   [x0, y0, z0],
   [x0, y0, z1],
   [x1, y1, z1],
@@ -19,9 +21,9 @@ const quad = (x0, x1, z0, z1, y0, y1 = y0) => [
   [x1, y1, z1],
   [x1, y1, z0],
 ];
-const build = (vertices, config = options) =>
+const build = (vertices: number[][], config = options) =>
   buildGroundSurfaces({ positions: vertices.flat(), indices: vertices.map((_, i) => i) }, config);
-const route = (surfaces, start, end, walls = []) =>
+const route = (surfaces: Surface[], start: Vec3, end: Vec3, walls: Wall[] = []) =>
   planGroundRoute(surfaces, [{ id: 'player', position: start, cost: 0, state: 'available' }], end, {
     profile: options.profile,
     speed: 5,
@@ -38,9 +40,9 @@ test('builds from physical floor without an AI navigation mask and preserves det
     options,
   );
   const result = route(surfaces, [1, 0.4, 4], [9, 3.6, 4]);
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
   assert.ok(Math.abs(result.points[0][1] - 0.4) < 0.15);
-  assert.ok(Math.abs(result.points.at(-1)[1] - 3.6) < 0.15);
+  assert.ok(Math.abs(result.points.at(-1)![1] - 3.6) < 0.15);
   assert.equal(
     route(
       surfaces,
@@ -102,7 +104,7 @@ test('rejects invalid geometry and unsafe voxel budgets before native allocation
 });
 
 test('bounds restrict extended actors without dropping intersecting floor or headroom', async () => {
-  const config = { ...options, bounds: { min: [0, 0], max: [10, 8] } };
+  const config: BuildOptions | undefined = { ...options, bounds: { min: [0, 0], max: [10, 8] } };
   // Large source actors remain available to rasterization; only the build rectangle is clipped.
   const geometry = [...quad(-1000, 1000, -1000, 1000, 0), ...quad(4, 6, -1000, 1000, 1.4)];
   const surfaces = await build(geometry, config);
@@ -117,7 +119,10 @@ test('bounds restrict extended actors without dropping intersecting floor or hea
     { min: [NaN, 0], max: [10, 8] },
     { min: [0], max: [10, 8] },
   ]) {
-    await assert.rejects(build(geometry, { ...options, bounds }), /bounds/);
+    await assert.rejects(
+      build(geometry, { ...options, bounds } as unknown as Parameters<typeof build>[1]),
+      /bounds/,
+    );
   }
 });
 
@@ -154,7 +159,7 @@ test('height cuts stay outside complete stair flights and slopes at positive and
     for (const [flight, start, end] of [
       [quad(0, 10, 0, 8, height - 3, height + 3), [1, height - 2.4, 4], [9, height + 2.4, 4]],
       [stairs, [0.75, height - 1.8, 4], [9.25, height + 1.6, 4]],
-    ]) {
+    ] satisfies [Vec3[], Vec3, Vec3][]) {
       const surfaces = await build([...quad(0, 10, 0, 8, height - 500), ...flight]);
       // Native detail heights are approximate. This check isolates continuity
       // from the interaction goal's separate vertical projection allowance.

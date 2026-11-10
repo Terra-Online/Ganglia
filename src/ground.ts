@@ -1,19 +1,67 @@
 import { createGoalProjector } from './goals.js';
+import type {
+  Vec3,
+  Surface,
+  GroundOptions,
+  GroundArrival,
+  Graph,
+  Arrival,
+  Route,
+  Segment,
+  ResourceSearch,
+  createGroundPlanner as GroundPlannerFactory,
+} from './index-types.js';
 import { retimeGroundRoute } from './locomotion.js';
 import { validateMotion } from './motion.js';
 import { createRoutePlanner, prepareRoutePlanner } from './routes.js';
+import type { GroundStraightener } from './straighten.js';
 import { createGroundStraightener } from './straighten.js';
 import { createSupportProjector } from './support-projector.js';
+import type { SharedPortal } from './surfaces.js';
 import { surfaceGraph, surfacePortals } from './surfaces.js';
-const preparations = new WeakMap<any, any>();
+
+type Planner = ReturnType<typeof GroundPlannerFactory>;
+interface Preparation {
+  surfaces: Surface[];
+  portals: SharedPortal[];
+  straighten: GroundStraightener;
+  projectGoal: ReturnType<typeof createGoalProjector>;
+  projectSupport: ReturnType<typeof createSupportProjector>;
+  byId: Map<string, Surface>;
+  centers: Map<string, Vec3>;
+  graph: Graph;
+  routeBase: ReturnType<typeof prepareRoutePlanner>;
+  constraintsSignature: string;
+  searchSpeed: number;
+  importedPortals?: GroundOptions['portals'];
+}
+interface Projection {
+  surface: string;
+  position: Vec3;
+  support?: Vec3;
+}
+interface Endpoint {
+  id: string;
+  position: Vec3;
+  support: Vec3;
+  key: string;
+}
+
+const preparations = new WeakMap<Planner, Preparation>();
 /** Internal immutable preparation shared with action discovery for the same planner. */
-export const groundPreparation = (planner: any): any => preparations.get(planner);
+export const groundPreparation = (planner?: Planner): Preparation | undefined =>
+  preparations.get(planner!);
 /** Ground endpoints retain their projected positions. Each connector lies within its
  * convex source polygon; only the importer may select admissible surfaces/state.
  * Directed connections must already have grounded endpoints and validated trajectories.
  * Teleport entry costs are seconds, and unknown availability never grants access.
  */
-export function planGroundRoute(surfaces: any, starts: any, goal: any, options: any): any {
+export function planGroundRoute(
+  surfaces: Surface[],
+  starts: GroundArrival[],
+  goal: Vec3,
+  options: GroundOptions,
+): Route {
   return createGroundPlanner(surfaces, options).plan(starts, goal);
 }
 /** Prepare shared topology and ground visibility once for repeated, independent queries.
@@ -21,7 +69,7 @@ export function planGroundRoute(surfaces: any, starts: any, goal: any, options: 
  * Search selects a corridor; continuous ground tracing removes unnecessary graph turns.
  * This does not establish a globally shortest path across every possible corridor.
  */
-export function createGroundPlanner(surfaces: any, options: any): any {
+export function createGroundPlanner(surfaces: Surface[], options: GroundOptions): Planner {
   const { speed, maxVertical, walls, profile, connections = [] } = options;
   // Compare action times at the fastest permitted ground gait. The existing
   // resource scheduler verifies the complete selected motion sequence afterwards.
@@ -29,26 +77,31 @@ export function createGroundPlanner(surfaces: any, options: any): any {
   const portals = surfacePortals(surfaces);
   const base = surfaceGraph(surfaces, { speed: searchSpeed, portals: options.portals }, portals);
   const routeBase = prepareRoutePlanner(base, { walls, profile });
-  const blocked = routeBase.blocked;
+  const blocked = routeBase.blocked!;
   const constraintsSignature = JSON.stringify([walls, profile]);
-  let supportRoute;
-  const baseCenters = new Map<any, any>(
-    base.nodes.map((node: any): any => [node.id, node.position]),
-  );
-  const byId = new Map<any, any>(surfaces.map((surface: any): any => [surface.id, surface]));
+  let supportRoute: ReturnType<typeof createRoutePlanner> | undefined;
+  const baseCenters = new Map<string, Vec3>(base.nodes.map((node) => [node.id, node.position]));
+  const byId = new Map<string, Surface>(surfaces.map((surface) => [surface.id, surface]));
   const projectSupport = createSupportProjector(surfaces, byId);
   const straighten = createGroundStraightener(surfaces, options, portals);
   const projectGoal = createGoalProjector(surfaces);
-  const visibility = new Map<any, any>();
-  const failedVisibility = new Map<any, any>();
-  let endpointKeys = new Map<any, any>();
+  const visibility = new Map<string, Map<string, Vec3[]>>();
+  const failedVisibility = new Map<string, Set<string>>();
+  let endpointKeys = new Map<string, string>();
   const planner = {
     project: projectGoal,
-    plan(starts: any, goal: any, query: any = {}): any {
+    plan(
+      starts: GroundArrival[],
+      goal: Vec3,
+      query: NonNullable<Parameters<Planner['plan']>[2]> = {},
+    ): Route {
       // Transfers depend on support coordinates within this immutable planner.
       // Keep fixed device transfers when action discovery changes its target.
-      const graph: { nodes: any[]; edges: any[] } = { nodes: [], edges: [] };
-      let targets = projectGoal(goal, { maxVertical, interaction: query.interaction });
+      const graph: Graph = { nodes: [], edges: [] };
+      let targets: Projection[] = projectGoal(goal, {
+        maxVertical,
+        interaction: query.interaction,
+      });
       if (query.endpointTolerance !== undefined) {
         const tolerance = query.endpointTolerance;
         if (
@@ -69,8 +122,8 @@ export function createGroundPlanner(surfaces: any, options: any): any {
         return { status: 'unmapped' };
       }
       const centers = baseCenters;
-      const endpoints = new Map<any, any>();
-      const currentKeys = new Map<any, any>();
+      const endpoints = new Map<string, Endpoint[]>();
+      const currentKeys = new Map<string, string>();
       let serial = 0;
       const unique = () => {
         let id;
@@ -79,18 +132,18 @@ export function createGroundPlanner(surfaces: any, options: any): any {
         } while (centers.has(id));
         return id;
       };
-      const connect = (from: any, to: any, a: any, b: any) =>
+      const connect = (from: string, to: string, a: Vec3, b: Vec3) =>
         graph.edges.push({
           from,
           to,
           state: 'open',
           points: [a, b],
-          cost: Math.hypot(...a.map((v: any, i: any) => v - b[i])) / searchSpeed,
+          cost: Math.hypot(...a.map((v, i) => v - b[i])) / searchSpeed,
         });
-      const endpoint = (projected: any) => {
+      const endpoint = (projected: Projection) => {
         const id = unique();
         graph.nodes.push({ id, position: projected.position });
-        const center = centers.get(projected.surface);
+        const center = centers.get(projected.surface)!;
         connect(projected.surface, id, center, projected.position);
         connect(id, projected.surface, projected.position, center);
         // Same-face transfers must not detour through the polygon centre, including
@@ -111,9 +164,9 @@ export function createGroundPlanner(surfaces: any, options: any): any {
         return id;
       };
       const targetIds = targets.map(endpoint);
-      const goals = new Set<any>(targetIds);
-      const arrivals = [],
-        ids = new Set<any>();
+      const goals = new Set<string>(targetIds);
+      const arrivals: Arrival[] = [],
+        ids = new Set<string>();
       for (const start of starts) {
         if (
           typeof start.id !== 'string' ||
@@ -133,7 +186,7 @@ export function createGroundPlanner(surfaces: any, options: any): any {
           state: start.state,
         });
       }
-      const connectionIds = new Set<any>();
+      const connectionIds = new Set<string>();
       for (const connection of query.connections ?? connections) {
         const { id, mode, points, times, state, requiredGait } = connection;
         if (
@@ -141,7 +194,7 @@ export function createGroundPlanner(surfaces: any, options: any): any {
           !id ||
           connectionIds.has(id) ||
           mode === undefined ||
-          mode === 'walk' ||
+          (mode as string) === 'walk' ||
           !['open', 'closed', 'unknown'].includes(state) ||
           !Array.isArray(points) ||
           points.length < 2 ||
@@ -151,7 +204,7 @@ export function createGroundPlanner(surfaces: any, options: any): any {
           throw new Error('Invalid ground connection');
         }
         connectionIds.add(id);
-        const cost = times.at(-1);
+        const cost = times.at(-1)!;
         validateMotion({ mode, points, times, cost, connection: id, requiredGait });
         if (
           state !== 'open' ||
@@ -178,7 +231,7 @@ export function createGroundPlanner(surfaces: any, options: any): any {
             throw new Error('Invalid movement support surface');
         }
         const fromProjection = projectSupport(points[0], tolerance, connection.fromSurface);
-        const toProjection = projectSupport(points.at(-1), tolerance, connection.toSurface);
+        const toProjection = projectSupport(points.at(-1)!, tolerance, connection.toSurface);
         // Explicit collision-validated standing feet may sit above the navigation
         // support plane (rounded capsule support on slopes, or voxel-height error).
         const from = fromProjection && {
@@ -188,7 +241,7 @@ export function createGroundPlanner(surfaces: any, options: any): any {
         };
         const to = toProjection && {
           ...toProjection,
-          position: points.at(-1),
+          position: points.at(-1)!,
           support: toProjection.position,
         };
         if (!from || !to) continue;
@@ -246,19 +299,19 @@ export function createGroundPlanner(surfaces: any, options: any): any {
                   visibility.get(from.key)?.get(to.key) ??
                   straighten.trace(from.support, to.support);
                 if (!traced) {
-                  const failed = failedVisibility.get(from.key) ?? new Set<any>();
+                  const failed = failedVisibility.get(from.key) ?? new Set<string>();
                   failed.add(to.key);
                   failedVisibility.set(from.key, failed);
                   continue;
                 }
-                const visible = visibility.get(from.key) ?? new Map<any, any>();
+                const visible = visibility.get(from.key) ?? new Map<string, Vec3[]>();
                 visible.set(to.key, traced);
                 visibility.set(from.key, visible);
                 const points = [from.position, ...traced.slice(1, -1), to.position];
                 const cost =
                   points
                     .slice(1)
-                    .reduce((sum, point, index): any => sum + distance(points[index], point), 0) /
+                    .reduce((sum, point, index) => sum + distance(points[index], point), 0) /
                   searchSpeed;
                 graph.edges.push({ from: from.id, to: to.id, points, cost, state: 'open' });
               }
@@ -266,15 +319,12 @@ export function createGroundPlanner(surfaces: any, options: any): any {
         }
       // Compare actual continuous lengths and movement times for each available origin.
       // Centre-corridor costs alone can rank nearby teleport arrivals incorrectly.
-      let best: any = null,
-        search: any;
+      let best: Extract<Route, { status: 'complete' }> | null = null,
+        search: ResourceSearch | undefined;
       for (const arrival of arrivals) {
         if (best && arrival.cost >= best.cost) continue;
         let candidate = routeBase.plan(graph, [arrival], targetIds);
-        if (
-          candidate.status !== 'complete' &&
-          walls.some((wall: any) => wall.state !== 'inactive')
-        ) {
+        if (candidate.status !== 'complete' && walls.some((wall) => wall.state !== 'inactive')) {
           // A blocked polygon centre can disconnect the representative graph even
           // when its support corridor admits a clear continuous path. Try that
           // corridor, then validate every reconstructed segment against all walls.
@@ -287,7 +337,7 @@ export function createGroundPlanner(surfaces: any, options: any): any {
           blocked(continuous.points[0], continuous.points[0]) ||
           continuous.points
             .slice(1)
-            .some((point: any, index: any): any => blocked(continuous.points[index], point))
+            .some((point, index) => blocked(continuous.points[index], point))
         )
           continue;
         let timed = options.locomotion
@@ -298,9 +348,9 @@ export function createGroundPlanner(surfaces: any, options: any): any {
           // alternative. Retain the searched schedule if smoothing removes recovery.
           const resource = routeBase.plan(graph, [arrival], targetIds, options.locomotion);
           search = {
-            ...resource.search,
-            expanded: (search?.expanded ?? 0) + resource.search.expanded,
-            truncated: Boolean(search?.truncated || resource.search.truncated),
+            ...resource.search!,
+            expanded: (search?.expanded ?? 0) + resource.search!.expanded,
+            truncated: Boolean(search?.truncated || resource.search!.truncated),
           };
           if (resource.status === 'complete') {
             const smoothed = straightenRoute(resource, straighten, speed);
@@ -313,7 +363,7 @@ export function createGroundPlanner(surfaces: any, options: any): any {
         if (timed.status !== 'complete') continue;
         if (!best || timed.cost < best.cost) best = timed;
       }
-      const result = best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
+      const result: Route = best ?? { status: arrivals.length ? 'no-verified-route' : 'unmapped' };
       return search ? { ...result, search } : result;
     },
   };
@@ -333,10 +383,14 @@ export function createGroundPlanner(surfaces: any, options: any): any {
   });
   return planner;
 }
-const distance = (a: any, b: any) => Math.hypot(...a.map((v: any, i: any) => v - b[i]));
-function straightenRoute(route: any, straighten: any, speed: any): any {
-  const segments = [];
-  let pending: any = [];
+const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((v, i) => v - b[i]));
+function straightenRoute(
+  route: Extract<Route, { status: 'complete' }>,
+  straighten: GroundStraightener,
+  speed: number,
+): Extract<Route, { status: 'complete' }> {
+  const segments: Segment[] = [];
+  let pending: Vec3[] = [];
   const flush = () => {
     if (!pending.length) return;
     const points = straighten(pending);
@@ -355,20 +409,20 @@ function straightenRoute(route: any, straighten: any, speed: any): any {
     }
     if (!pending.length) pending.push(segment.points[0]);
     for (const point of segment.points.slice(1)) {
-      if (distance(pending.at(-1), point) > 1e-9) pending.push(point);
+      if (distance(pending.at(-1)!, point) > 1e-9) pending.push(point);
     }
   }
   flush();
-  const points = [[...route.points[0]]];
+  const points: Vec3[] = [[...route.points[0]]];
   for (const segment of segments)
     for (const point of segment.points.slice(1)) {
-      if (distance(points.at(-1), point) > 1e-9) points.push([...point]);
+      if (distance(points.at(-1)!, point) > 1e-9) points.push([...point]);
     }
   return {
     ...route,
     points,
     segments,
-    cost: route.arrivalCost + segments.reduce((sum, segment): any => sum + segment.times.at(-1), 0),
+    cost: route.arrivalCost + segments.reduce((sum, segment) => sum + segment.times.at(-1)!, 0),
     length: points.slice(1).reduce((sum, point, i) => sum + distance(points[i], point), 0),
   };
 }

@@ -1,22 +1,27 @@
+import type { Bounds } from './bounds.js';
+import type { JumpModel, Vec3 } from './index-types.js';
 import { jumpDuration } from './jumps.js';
-const horizontalGap = (a: any, b: any) =>
+const horizontalGap = (a: Bounds, b: Bounds) =>
   Math.hypot(
     Math.max(a.min[0] - b.max[0], b.min[0] - a.max[0], 0),
     Math.max(a.min[2] - b.max[2], b.min[2] - a.max[2], 0),
   );
-const pointGap = (point: any, box: any) =>
+const pointGap = (point: Vec3, box: Bounds) =>
   Math.hypot(
     Math.max(box.min[0] - point[0], point[0] - box.max[0], 0),
     Math.max(box.min[2] - point[2], point[2] - box.max[2], 0),
   );
-const conservative = (time: any): any =>
+const conservative = (time: number) =>
   Number.isFinite(time) ? Math.max(0, time - 64 * Number.EPSILON * Math.max(1, time)) : time;
 /** Minimum durations for complete transfers between supported-foot boxes.
  * Boxes must enclose every corrected foot represented by the caller's region.
  * The jump bound includes the full authored ascent and apex hold. A terminal
  * flight clipped at an airborne collection event needs a separate bound.
  */
-export function createMotionBounds(model: any, { endpointTolerance = 0 }: any = {}): any {
+export function createMotionBounds(
+  model: JumpModel,
+  { endpointTolerance = 0 }: { endpointTolerance?: number } = {},
+) {
   const snapshot = { ...model };
   jumpDuration(0, -1, { ...snapshot, mode: snapshot.maxJumpHeight > 0 ? 'jump' : 'drop' });
   const cap = snapshot.maxHorizontalSpeed;
@@ -39,11 +44,11 @@ export function createMotionBounds(model: any, { endpointTolerance = 0 }: any = 
       : 0;
   const terminalTime = snapshot.maxFallingSpeed / snapshot.fallingGravity;
   const terminalDistance = (snapshot.maxFallingSpeed * terminalTime) / 2;
-  const fallTime = (distance: any) =>
+  const fallTime = (distance: number) =>
     distance <= terminalDistance
       ? Math.sqrt((2 * distance) / snapshot.fallingGravity)
       : terminalTime + (distance - terminalDistance) / snapshot.maxFallingSpeed;
-  const inverseTravel = (span: any) => {
+  const inverseTravel = (span: number) => {
     if (span <= 0) return 0;
     if (initial <= cap || acceleration === undefined)
       return initial > 0 ? span / initial : Infinity;
@@ -56,10 +61,10 @@ export function createMotionBounds(model: any, { endpointTolerance = 0 }: any = 
     }
     return cap > 0 ? braking + (span - distance) / cap : Infinity;
   };
-  const verticalSlack = (low: any, high: any) =>
+  const verticalSlack = (low: number, high: number) =>
     64 * Number.EPSILON * Math.max(1, Math.abs(low), Math.abs(high), snapshot.maxJumpHeight);
   return {
-    jump(source: any, landing: any): any {
+    jump(source: Bounds, landing: Bounds) {
       if (snapshot.maxJumpHeight === 0) return Infinity;
       const low = source.min[1] - endpointTolerance,
         high = landing.max[1] + endpointTolerance;
@@ -77,7 +82,7 @@ export function createMotionBounds(model: any, { endpointTolerance = 0 }: any = 
      * verified matching prefix, only its whole-motion horizontal speed is bounded.
      * A prefix supplies its corrected launch and supported path distance.
      */
-    runOff(source: any, landing: any, prefix: any): any {
+    runOff(source: Bounds, landing: Bounds, prefix?: { launch: Vec3; distance: number }) {
       if (!prefix) {
         const span = horizontalGap(source, landing);
         return conservative(cap > 0 ? span / cap : span > 0 ? Infinity : 0);

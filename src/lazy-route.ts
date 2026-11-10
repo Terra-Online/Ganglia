@@ -1,13 +1,18 @@
+import type { Graph, Edge, Arrival, createLazyRoutePlanner as LazyPlanner } from './index-types.js';
 import { createUpdatingRoutePlanner } from './routes.js';
+
+type PlanOptions = Parameters<ReturnType<typeof LazyPlanner>['plan']>[2];
+type PlanResult = Awaited<ReturnType<ReturnType<typeof LazyPlanner>['plan']>>;
+
 /** Validate only edges selected by optimistic shortest-path searches. Costs are
  * seconds and unknown costs must be lower bounds. The caller must keep nodes and input edges immutable. Only unknown-edge
  * records and validated replacements are owned here; resume by calling plan again.
  */
-export function createLazyRoutePlanner(graph: any): any {
-  const unknown = new Map<any, any>();
-  const optimistic = graph.edges.map((edge: any, index: any): any => {
+export function createLazyRoutePlanner(graph: Graph): ReturnType<typeof LazyPlanner> {
+  const unknown = new Map<Edge, { original: Edge; index: number }>();
+  const optimistic = graph.edges.map((edge, index) => {
     if (edge.state !== 'unknown') return edge;
-    const candidate = { ...edge, state: 'open' };
+    const candidate: Edge = { ...edge, state: 'open' };
     unknown.set(candidate, { original: edge, index });
     return candidate;
   });
@@ -15,10 +20,10 @@ export function createLazyRoutePlanner(graph: any): any {
   let running = false;
   return {
     async plan(
-      starts: any,
-      goal: any,
-      { validate, maxValidations = Infinity, signal }: any = {},
-    ): Promise<any> {
+      starts: Arrival[],
+      goal: string | string[],
+      { validate, maxValidations = Infinity, signal }: Partial<PlanOptions> = {},
+    ): Promise<PlanResult> {
       if (running) throw new Error('Lazy planner already running');
       if (
         typeof validate !== 'function' ||
@@ -27,7 +32,10 @@ export function createLazyRoutePlanner(graph: any): any {
         throw new Error('Invalid lazy validation options');
       running = true;
       let attempted = 0;
-      const result = (status: any, extra: any = {}): any => ({
+      const result = (
+        status: PlanResult['status'],
+        extra: Pick<PlanResult, 'reason' | 'route'> = {},
+      ): PlanResult => ({
         status,
         ...extra,
         validation: {
@@ -40,11 +48,11 @@ export function createLazyRoutePlanner(graph: any): any {
           if (signal?.aborted) return result('incomplete', { reason: 'aborted' });
           const { route: candidate, path } = planner.plan(starts, goal);
           if (candidate.status !== 'complete') return result(candidate.status);
-          const pending = path.find((edge: any) => unknown.has(edge));
+          const pending = path.find((edge) => unknown.has(edge));
           if (!pending) return result('complete', { route: candidate });
           if (attempted >= maxValidations)
             return result('incomplete', { reason: 'validation-budget' });
-          const { original, index } = unknown.get(pending);
+          const { original, index } = unknown.get(pending)!;
           attempted++;
           const verified = await validate(structuredClone(original), index);
           // Cancellation or a thrown validator leaves the edge unknown for retry.

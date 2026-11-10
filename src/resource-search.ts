@@ -1,12 +1,25 @@
 import { createMinHeap } from './heap.js';
+import type { Vec3, Arrival, LocomotionOptions, Segment, Route } from './index-types.js';
+import type { LocomotionState } from './locomotion.js';
 import { createLocomotion } from './locomotion.js';
 import { routeSegment } from './motion.js';
-const distance = (a: any, b: any) =>
-  Math.hypot(...a.map((value: any, axis: any) => value - b[axis]));
+import type { RouteBase } from './routes.js';
+
+interface Label {
+  node: string;
+  cost: number;
+  arrival: Arrival;
+  state: LocomotionState;
+  previous: Label | null;
+  segments: Segment[];
+  key?: string;
+}
+
+const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((value, axis) => value - b[axis]));
 // Equal continuation states are substitutable under the existing deterministic
 // scheduling policy. More energy alone is insufficient: automatic sprint restart
 // may occur earlier and alter the entry gait at the next action.
-const stateKey = (state: any) =>
+const stateKey = (state: LocomotionState) =>
   JSON.stringify([
     state.energy,
     state.delay,
@@ -22,11 +35,11 @@ const stateKey = (state: any) =>
  * on both successful and unresolved results; it never establishes unreachability.
  */
 export function searchResources(
-  { nodes, edges, blocked }: any,
-  starts: any,
-  goals: any,
-  options: any,
-): any {
+  { nodes, edges, blocked }: RouteBase,
+  starts: Arrival[],
+  goals: Set<string>,
+  options: LocomotionOptions,
+): Route {
   const locomotion = createLocomotion(options);
   const maxLabels = options.search?.maxLabels ?? 256;
   const maxExpanded = options.search?.maxExpanded ?? 100000;
@@ -34,15 +47,15 @@ export function searchResources(
     throw new Error('Invalid resource search limits');
   }
   const search = { truncated: false, expanded: 0, maxLabels, maxExpanded };
-  const labels = new Map<any, any>(),
-    heap = createMinHeap(),
-    ids = new Set<any>();
-  let best: any = null;
-  const retain = (label: any) => {
+  const labels = new Map<string, Map<string, Label>>(),
+    heap = createMinHeap<Label>(),
+    ids = new Set<string>();
+  let best: Label | null = null;
+  const retain = (label: Label) => {
     const key = stateKey(label.state);
     let atNode = labels.get(label.node);
     if (!atNode) {
-      atNode = new Map<any, any>();
+      atNode = new Map<string, Label>();
       labels.set(label.node, atNode);
     }
     const previous = atNode.get(key);
@@ -68,7 +81,7 @@ export function searchResources(
       throw new Error('Invalid arrival');
     ids.add(start.id);
     if (start.state !== 'available' || !nodes.has(start.node)) continue;
-    const point = nodes.get(start.node);
+    const point = nodes.get(start.node)!;
     if (blocked?.(point, point)) continue;
     retain({
       node: start.node,
@@ -81,9 +94,9 @@ export function searchResources(
   }
   if (!heap.size && !best) return { status: 'unmapped', search };
   while (heap.size) {
-    const current = heap.pop();
-    if (labels.get(current.node).get(current.key) !== current) continue;
-    if (best && current.cost >= best.cost) break;
+    const current = heap.pop()!;
+    if (labels.get(current.node)!.get(current.key!) !== current) continue;
+    if (best && current.cost >= (best as Label).cost) break;
     if (search.expanded >= maxExpanded) {
       search.truncated = true;
       break;
@@ -102,27 +115,34 @@ export function searchResources(
       }
     }
   }
-  if (!best) return { status: 'no-verified-route', search };
+  const selected = best as Label | null;
+  if (!selected) return { status: 'no-verified-route', search };
   const path = [];
-  for (let label = best; label.previous; label = label.previous) path.push(label.segments);
+  for (let label = selected; label.previous; label = label.previous) path.push(label.segments);
   const segments = path.reverse().flat(),
-    points = [[...nodes.get(best.arrival.node)]];
+    points: Vec3[] = [[...nodes.get(selected.arrival.node)!]];
   for (const segment of segments)
     for (const point of segment.points.slice(1)) {
-      if (distance(points.at(-1), point) > 1e-9) points.push([...point]);
+      if (distance(points.at(-1)!, point) > 1e-9) points.push([...point]);
     }
   const energy = options.stamina?.initial ?? 0;
   return {
     status: 'complete',
-    start: best.arrival.id,
-    arrivalCost: best.arrival.cost,
-    cost: best.cost,
+    start: selected.arrival.id,
+    arrivalCost: selected.arrival.cost,
+    cost: selected.cost,
     segments,
     points,
     search,
     length: points.slice(1).reduce((sum, point, index) => sum + distance(points[index], point), 0),
     ...(options.stamina
-      ? { locomotion: { initial: energy, final: best.state.energy, minimum: best.state.minimum } }
+      ? {
+          locomotion: {
+            initial: energy,
+            final: selected.state.energy,
+            minimum: selected.state.minimum,
+          },
+        }
       : {}),
   };
 }

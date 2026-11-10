@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createBoundsIndex } from '../src/bounds.js';
+import type { JumpModel } from '../src/index-types.js';
 import { jumpDuration, jumpTravel } from '../src/jumps.js';
+import type { EnvelopeOptions } from '../src/reachability.js';
 import { createJumpEnvelope, createJumpPredecessor } from '../src/reachability.js';
 
-const model = {
+const model: JumpModel = {
   gravity: 10,
   fallingGravity: 10,
   maxJumpHeight: 2,
@@ -13,8 +15,11 @@ const model = {
   apexTime: 0.2,
   maxHorizontalSpeed: 3,
 };
-const options = { model, maxDrop: 80, maxHorizontalDistance: 100, endpointTolerance: 0.25 };
-const pointBox = (point) => ({ min: point, max: point });
+const options: Omit<EnvelopeOptions, 'reverse' | 'padding'> & {
+  sourcePadding?: readonly number[] | undefined;
+  targetPadding?: readonly number[] | undefined;
+} = { model, maxDrop: 80, maxHorizontalDistance: 100, endpointTolerance: 0.25 };
+const pointBox = (point: number[]) => ({ min: point, max: point });
 
 test('directed envelopes retain terminal falls, launch impulses, boosts and boundary witnesses', () => {
   const forward = createJumpEnvelope([0, 0, 0], options);
@@ -50,7 +55,7 @@ test('directed envelopes retain terminal falls, launch impulses, boosts and boun
 test('forward and inverse node tests enclose all witnesses admitted by the existing optimistic prefilter', () => {
   for (const maxJumpHeight of [0, 2])
     for (const impulse of [false, true]) {
-      const movement = {
+      const movement: JumpModel = {
         ...model,
         maxJumpHeight,
         ...(impulse
@@ -62,7 +67,7 @@ test('forward and inverse node tests enclose all witnesses admitted by the exist
             }
           : {}),
       };
-      const settings = { ...options, model: movement };
+      const settings: EnvelopeOptions = { ...options, model: movement };
       for (const base of [
         [0, 0, 0],
         [1e7, 1e7, -1e7],
@@ -138,8 +143,8 @@ test('BVH node pruning retains eligible leaves for both range and ordered querie
 });
 
 test('rounded shared flight tables enclose analytic limits and track model changes without changing existing envelopes', () => {
-  const movement = { ...model, startHorizontalSpeed: 9, airOverspeedDeceleration: 5 };
-  const settings = { ...options, model: movement };
+  const movement: JumpModel = { ...model, startHorizontalSpeed: 9, airOverspeedDeceleration: 5 };
+  const settings: EnvelopeOptions = { ...options, model: movement };
   const anchor = [0, 0, 0],
     forward = createJumpEnvelope(anchor, settings);
   for (let index = 0; index < 180; index++) {
@@ -188,12 +193,15 @@ test('region predecessors enclose padded boundary witnesses and reject remote or
 test('predecessor height, time and launch-speed intervals contain analytically feasible control witnesses', () => {
   for (const height of [0, 2])
     for (const impulse of [false, true]) {
-      const movement = {
+      const movement: JumpModel = {
         ...model,
         maxJumpHeight: height,
         ...(impulse ? { startHorizontalSpeed: 9, airOverspeedDeceleration: 5 } : {}),
       };
-      const settings = { ...options, model: movement };
+      const settings: Omit<EnvelopeOptions, 'reverse' | 'padding'> & {
+        sourcePadding?: readonly number[] | undefined;
+        targetPadding?: readonly number[] | undefined;
+      } = { ...options, model: movement };
       for (const drop of [-height, 0, 1, 10, 69]) {
         const mode = height > 0 ? 'jump' : 'drop';
         const duration = jumpDuration(0.25, -drop - 0.25, { ...movement, mode });
@@ -228,6 +236,7 @@ test('predecessor height, time and launch-speed intervals contain analytically f
     endpointTolerance: 0,
     model: { ...model, startHorizontalSpeed: 9, airOverspeedDeceleration: 1 },
   }).domain(pointBox([0, 0, 0]));
+  assert.ok(domain);
   assert.ok(domain.initialSpeed[0] > model.maxHorizontalSpeed);
   assert.ok(domain.initialSpeed[1] <= 9);
 });

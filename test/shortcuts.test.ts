@@ -3,10 +3,12 @@ import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.js';
 import { createGroundPlanner } from '../src/ground.js';
+import type { GroundArrival, GroundConnection, Surface, Vec3 } from '../src/index-types.js';
+import type { ShortcutCache, ShortcutOptions } from '../src/shortcuts.js';
 import { findJumpShortcuts, findJumpFrontier } from '../src/shortcuts.js';
 import { findJumpConnections } from '../src/traversal.js';
 
-const floor = (id, x0, x1, y, z0, z1) => ({
+const floor = (id: string, x0: number, x1: number, y: number, z0: number, z1: number): Surface => ({
   id,
   vertices: [
     [x0, y, z0],
@@ -15,7 +17,7 @@ const floor = (id, x0, x1, y, z0, z1) => ({
     [x0, y, z1],
   ],
 });
-const geometry = (surfaces) => {
+const geometry = (surfaces: Surface[]) => {
   const triangles = surfaces.flatMap((surface) => [
     [surface.vertices[0], surface.vertices[2], surface.vertices[1]],
     [surface.vertices[0], surface.vertices[3], surface.vertices[2]],
@@ -34,7 +36,7 @@ const movement = {
   apexTime: 0.2,
   maxHorizontalSpeed: 6.5,
 };
-const options = {
+const options: Omit<ShortcutOptions, 'from' | 'to'> = {
   profile,
   walls: [],
   speed: 7,
@@ -49,7 +51,7 @@ const options = {
 };
 
 test('finds a shorter drop across a gap even when a long ground ramp connects both sides', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('upper', 0, 4, 4, -2, 2),
     {
       id: 'ramp',
@@ -63,12 +65,12 @@ test('finds a shorter drop across a gap even when a long ground ramp connects bo
     floor('back', 0, 15, 0, 20, 24),
     floor('lower', 7, 15, 0, -2, 20),
   ];
-  const from = [2, 4, 0],
-    to = [10, 0, 0],
+  const from: Vec3 = [2, 4, 0],
+    to: Vec3 = [10, 0, 0],
     world = createCollisionWorld(geometry(surfaces));
-  const arrivals = [{ id: 'player', position: from, cost: 0, state: 'available' }];
+  const arrivals: GroundArrival[] = [{ id: 'player', position: from, cost: 0, state: 'available' }];
   const baseline = createGroundPlanner(surfaces, options).plan(arrivals, to);
-  assert.equal(baseline.status, 'complete');
+  assert.ok(baseline.status === 'complete');
   assert.equal(
     findJumpConnections(surfaces, world, { ...options, from, to }).diagnostics.reason,
     'ground-connected',
@@ -79,20 +81,20 @@ test('finds a shorter drop across a gap even when a long ground ramp connects bo
     arrivals,
     to,
   );
-  assert.equal(route.status, 'complete');
+  assert.ok(route.status === 'complete');
   assert.ok(route.cost < baseline.cost / 2, `${route.cost} must improve ${baseline.cost}`);
   assert.ok(route.segments.some((segment) => segment.mode === 'drop' || segment.mode === 'jump'));
 });
 
 test('keeps straight ground travel when its maximum speed already beats air movement', () => {
-  const surfaces = [floor('flat', 0, 20, 0, -3, 3)],
-    from = [1, 0, 0],
-    to = [19, 0, 0];
+  const surfaces: Surface[] = [floor('flat', 0, 20, 0, -3, 3)],
+    from: Vec3 = [1, 0, 0],
+    to: Vec3 = [19, 0, 0];
   const baseline = createGroundPlanner(surfaces, options).plan(
     [{ id: 'player', position: from, cost: 0, state: 'available' }],
     to,
   );
-  assert.equal(baseline.status, 'complete');
+  assert.ok(baseline.status === 'complete');
   const result = findJumpShortcuts(surfaces, createCollisionWorld(geometry(surfaces)), {
     ...options,
     from,
@@ -107,16 +109,16 @@ test('keeps straight ground travel when its maximum speed already beats air move
         from,
         to,
         baseline: { status: 'unmapped' },
-      }),
+      } as unknown as Parameters<typeof findJumpShortcuts>[2]),
     /baseline/,
   );
 });
 
 test('resumes bounded frontier batches past blocked launches to reach an opening', () => {
-  const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
+  const surfaces: Surface[] = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
   const world = createCollisionWorld(geometry(surfaces));
   for (const opening of [true, false]) {
-    const settings = {
+    const settings: ShortcutOptions = {
       ...options,
       maxCandidates: 4,
       from: [2, 0, 0],
@@ -131,7 +133,7 @@ test('resumes bounded frontier batches past blocked launches to reach an opening
     };
     const first = findJumpFrontier(surfaces, world, settings, cache);
     assert.equal(first.connections.length, 0);
-    let found = [];
+    let found: GroundConnection[] = [];
     for (let batch = 0; batch < 16 && !found.length; batch++)
       found = findJumpFrontier(surfaces, world, settings, cache).connections;
     if (opening) {
@@ -144,58 +146,58 @@ test('resumes bounded frontier batches past blocked launches to reach an opening
         settings.to,
         { connections: found },
       );
-      assert.equal(route.status, 'complete');
+      assert.ok(route.status === 'complete');
     } else assert.deepEqual(found, []);
   }
 });
 
 test('continues a blocked frontier queue with a larger budget without regenerating its seeds', () => {
-  const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
+  const surfaces: Surface[] = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
   const world = createCollisionWorld(geometry(surfaces));
-  const settings = {
+  const settings: ShortcutOptions = {
     ...options,
     maxCandidates: 4,
     from: [2, 0, 0],
     to: [9, 0, 0],
     walls: [{ min: [4.5, -1, -20], max: [6, 20, 20], state: 'active' }],
   };
-  const cache = {};
+  const cache: ShortcutCache = {};
   const first = findJumpFrontier(surfaces, world, settings, cache);
   const second = findJumpFrontier(surfaces, world, { ...settings, maxCandidates: 8 }, cache);
   assert.equal(first.connections.length, 0);
   assert.equal(second.connections.length, 0);
-  assert.equal(second.diagnostics.cursor.resumed, true);
+  assert.equal(second.diagnostics.cursor!.resumed, true);
   assert.equal(second.diagnostics.seedChecks, 0);
   assert.equal(second.diagnostics.neighbourChecks, 0);
-  assert.ok(second.diagnostics.cursor.pending < first.diagnostics.cursor.pending);
+  assert.ok(second.diagnostics.cursor!.pending < first.diagnostics.cursor!.pending);
   assert.equal(second.diagnostics.truncated, true);
 });
 
 test('a wider cost bound retries frontier candidates excluded by the earlier bound', () => {
-  const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
+  const surfaces: Surface[] = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
   const world = createCollisionWorld(geometry(surfaces));
-  const settings = {
+  const settings: ShortcutOptions = {
     ...options,
     maxCandidates: 1000,
     from: [2, 0, 0],
     to: [9, 0, 0],
     boundGoal: [9, 0, 0],
   };
-  const cache = {};
+  const cache: ShortcutCache = {};
   const tight = findJumpFrontier(surfaces, world, { ...settings, costBound: 0 }, cache);
   assert.deepEqual(tight.connections, []);
-  assert.equal(tight.diagnostics.cursor.seedExhausted, true);
+  assert.equal(tight.diagnostics.cursor!.seedExhausted, true);
   const wider = findJumpFrontier(surfaces, world, { ...settings, costBound: 20 }, cache);
   const fresh = findJumpFrontier(surfaces, world, { ...settings, costBound: 20 }, {});
   assert.ok(fresh.connections.length > 0);
-  assert.equal(wider.diagnostics.cursor.resumed, false);
+  assert.equal(wider.diagnostics.cursor!.resumed, false);
   assert.deepEqual(wider.connections, fresh.connections);
 });
 
 test('invalidates frontier reachability when an existing action changes under the same id', () => {
-  const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
+  const surfaces: Surface[] = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
   const world = createCollisionWorld(geometry(surfaces));
-  const connection = {
+  const connection: GroundConnection & { boostExpiry?: number | undefined } = {
     id: 'transfer',
     state: 'closed',
     mode: 'jump',
@@ -205,17 +207,17 @@ test('invalidates frontier reachability when an existing action changes under th
     ],
     times: [0, 2],
   };
-  const settings = {
+  const settings: ShortcutOptions = {
     ...options,
     maxCandidates: 4,
     from: [2, 0, 0],
     to: [9, 0, 0],
     connections: [connection],
   };
-  const cache = {};
+  const cache: ShortcutCache = {};
   findJumpFrontier(surfaces, world, settings, cache);
   const repeated = findJumpFrontier(surfaces, world, settings, cache);
-  assert.equal(repeated.diagnostics.cursor.resumed, true);
+  assert.equal(repeated.diagnostics.cursor!.resumed, true);
   const changed = findJumpFrontier(
     surfaces,
     world,
@@ -225,34 +227,34 @@ test('invalidates frontier reachability when an existing action changes under th
     },
     cache,
   );
-  assert.equal(changed.diagnostics.cursor.resumed, false);
+  assert.equal(changed.diagnostics.cursor!.resumed, false);
   assert.deepEqual(changed.connections, []);
-  assert.equal(changed.diagnostics.distanceFields.approach.reachableNodes, 2);
+  assert.equal(changed.diagnostics.distanceFields!.approach.reachableNodes, 2);
 });
 
 test('reverse frontiers constrain predecessors while forward frontiers retain intermediate relays', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('start', 0, 2, 0, -1, 1),
     floor('relay', 5, 7, 0, -1, 1),
     floor('goal', 20, 22, 0, -1, 1),
   ];
   const world = createCollisionWorld(geometry(surfaces));
-  const settings = {
+  const settings: ShortcutOptions = {
     ...options,
     maxCandidates: 1000,
     maxHorizontalDistance: 10,
     from: [1, 0, 0],
     to: [21, 0, 0],
   };
-  const cache = {};
+  const cache: ShortcutCache = {};
   const reverse = findJumpFrontier(surfaces, world, settings, cache, true);
   assert.deepEqual(reverse.connections, []);
   assert.ok(reverse.diagnostics.rejected.range > 0);
   assert.equal(reverse.diagnostics.neighbourChecks, 0);
-  const bounds = cache.reverseCursor.goalBounds;
+  const bounds = cache.reverseCursor!.goalBounds;
   const resumed = findJumpFrontier(surfaces, world, settings, cache, true);
-  assert.equal(resumed.diagnostics.cursor.resumed, true);
-  assert.equal(cache.reverseCursor.goalBounds, bounds);
+  assert.equal(resumed.diagnostics.cursor!.resumed, true);
+  assert.equal(cache.reverseCursor!.goalBounds, bounds);
   const forward = findJumpFrontier(surfaces, world, settings, {});
   assert.ok(
     forward.connections.some((edge) => edge.fromSurface === 'start' && edge.toSurface === 'relay'),
@@ -260,13 +262,13 @@ test('reverse frontiers constrain predecessors while forward frontiers retain in
 });
 
 test('a larger link quota rebuilds frontier pools while a larger work budget resumes', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('start', 0, 2, 0, -1, 1),
     floor('middle', 4, 6, 0, -1, 1),
     floor('goal', 9, 11, 0, -1, 1),
   ];
   const world = createCollisionWorld(geometry(surfaces));
-  const settings = {
+  const settings: ShortcutOptions = {
     ...options,
     maxCandidates: 10000,
     maxLinks: 1,
@@ -274,11 +276,11 @@ test('a larger link quota rebuilds frontier pools while a larger work budget res
     from: [1, 0, 0],
     to: [10, 0, 0],
   };
-  const cache = {};
+  const cache: ShortcutCache = {};
   const first = findJumpFrontier(surfaces, world, settings, cache);
   assert.deepEqual(first.connections, []);
   const larger = findJumpFrontier(surfaces, world, { ...settings, maxLinks: 8 }, cache);
-  assert.equal(larger.diagnostics.cursor.resumed, false);
+  assert.equal(larger.diagnostics.cursor!.resumed, false);
   assert.ok(
     larger.connections.some((edge) => edge.fromSurface === 'start' && edge.toSurface === 'middle'),
   );

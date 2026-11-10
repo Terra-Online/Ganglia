@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Capsule } from '../src/collision-types.js';
 import { createCollisionWorld } from '../src/collision.js';
+import type { Vec3, Wall } from '../src/index-types.js';
+import type { JumpOptions, RunOffOptions } from '../src/jumps.js';
 import { jumpConnection, jumpDuration, runOffConnection } from '../src/jumps.js';
 
 const profile = { radius: 0.35, height: 1.66 };
-const options = {
+const options: JumpOptions = {
   profile,
   gravity: 10,
   fallingGravity: 10,
@@ -17,13 +20,13 @@ const options = {
   sweep: () => null,
   walls: [],
 };
-const world = (triangles) =>
+const world = (triangles: Vec3[][]) =>
   createCollisionWorld({
     positions: triangles.flat(2),
     indices: Array.from({ length: triangles.length * 3 }, (_, index) => index),
   });
-const plane = (axis, position, min = -100, max = 100) => {
-  const point = (a, b) => (axis === 0 ? [position, a, b] : [a, position, b]);
+const plane = (axis: number, position: number, min = -100, max = 100): Vec3[][] => {
+  const point = (a: number, b: number): Vec3 => (axis === 0 ? [position, a, b] : [a, position, b]);
   return [
     [point(min, min), point(max, min), point(max, max)],
     [point(min, min), point(max, max), point(min, max)],
@@ -35,9 +38,10 @@ test('source height and horizontal speed bounds keep jump feasibility directed',
   assert.equal(jumpConnection([0, 0, 0], [1, 1, 0], { ...options, mode: 'drop' }), null);
   assert.equal(jumpConnection([0, 0, 0], [100, 0, 0], options), null);
   const drop = jumpConnection([100, 69, 200], [105, 0, 201], { ...options, mode: 'drop' });
+  assert.ok(drop);
   assert.equal(drop.mode, 'drop');
   assert.equal(drop.motionValidation, 'model-based');
-  assert.equal(drop.state, undefined);
+  assert.ok(!('state' in drop));
   assert.deepEqual(drop.points[0], [100, 69, 200]);
   assert.deepEqual(drop.points.at(-1), [105, 0, 201]);
   assert.equal(jumpConnection([105, 0, 201], [100, 69, 200], options), null);
@@ -45,7 +49,8 @@ test('source height and horizontal speed bounds keep jump feasibility directed',
 
 test('descent reaches terminal speed analytically and preserves phase boundaries', () => {
   const drop = jumpConnection([0, 69, 0], [0, 0, 0], { ...options, mode: 'drop' });
-  assert.ok(Math.abs(drop.times.at(-1) - 7.4) < 1e-12);
+  assert.ok(drop);
+  assert.ok(Math.abs(drop.times.at(-1)! - 7.4) < 1e-12);
   const terminal = drop.times.findIndex((time) => time === 1);
   assert.ok(terminal > 0);
   assert.equal(drop.points[terminal][1], 64);
@@ -55,8 +60,10 @@ test('descent reaches terminal speed analytically and preserves phase boundaries
     assert.ok((drop.points[i - 1][1] - drop.points[i][1]) / dt <= 10 + 1e-10);
   }
   const short = jumpConnection([0, 1, 0], [0, 0, 0], { ...options, mode: 'drop' });
-  assert.ok(Math.abs(short.times.at(-1) - Math.sqrt(0.2)) < 1e-12);
+  assert.ok(short);
+  assert.ok(Math.abs(short.times.at(-1)! - Math.sqrt(0.2)) < 1e-12);
   const jump = jumpConnection([0, 0, 0], [1, 0, 0], options);
+  assert.ok(jump);
   const apexStart = Math.sqrt(40) / 10;
   assert.ok(jump.times.some((time) => Math.abs(time - apexStart) < 1e-12));
   assert.ok(jump.times.some((time) => Math.abs(time - apexStart - 0.2) < 1e-12));
@@ -66,8 +73,8 @@ test('descent reaches terminal speed analytically and preserves phase boundaries
 test('continuous capsule sweeps catch a thin obstacle between clear sample endpoints', () => {
   const collision = world(plane(0, 0.03));
   const body = { radius: 0.001, height: 0.01 };
-  const start = [0, 1, 0],
-    end = [5, 1, 0];
+  const start: Vec3 = [0, 1, 0],
+    end: Vec3 = [5, 1, 0];
   assert.equal(collision.sweepCapsule(start, start, body), null);
   assert.equal(collision.sweepCapsule(end, end, body), null);
   assert.equal(
@@ -77,7 +84,7 @@ test('continuous capsule sweeps catch a thin obstacle between clear sample endpo
 });
 
 test('curved intervals inflate the full body and include sphere, headroom and floor contacts', () => {
-  const seen = [];
+  const seen: { a: Vec3; b: Vec3; capsule: Capsule }[] = [];
   assert.ok(
     jumpConnection([0, 0.02, 0], [1, 0.02, 0], {
       ...options,
@@ -87,7 +94,7 @@ test('curved intervals inflate the full body and include sphere, headroom and fl
       },
     }),
   );
-  assert.ok(seen.some(({ capsule }) => capsule.inflation > 0));
+  assert.ok(seen.some(({ capsule }) => capsule.inflation! > 0));
   assert.ok(
     seen.every(
       ({ capsule }) => capsule.radius === profile.radius && capsule.height === profile.height,
@@ -135,12 +142,13 @@ test('curved intervals inflate the full body and include sphere, headroom and fl
 
 test('quadratic deviation inflation catches an arc contact missed by every sample and uninflated chord', () => {
   const body = { radius: 0.00001, height: 0.00002 };
-  const start = [0, 1, 0],
-    end = [5, 1, 0];
+  const start: Vec3 = [0, 1, 0],
+    end: Vec3 = [5, 1, 0];
   const arc = jumpConnection(start, end, { ...options, profile: body });
+  assert.ok(arc);
   const time = arc.times[1] / 2;
-  const point = [
-    (5 * time) / arc.times.at(-1),
+  const point: Vec3 = [
+    (5 * time) / arc.times.at(-1)!,
     1 + Math.sqrt(40) * time - 5 * time * time + body.radius,
     0,
   ];
@@ -156,8 +164,8 @@ test('quadratic deviation inflation catches an arc contact missed by every sampl
 });
 
 test('active and unresolved air walls block each curved segment with body clearance', () => {
-  const wall = { min: [0.4, -10, -0.2], max: [0.6, 10, 0.2], state: 'unknown' };
-  for (const state of ['active', 'unknown']) {
+  const wall: Wall = { min: [0.4, -10, -0.2], max: [0.6, 10, 0.2], state: 'unknown' };
+  for (const state of ['active', 'unknown'] as const) {
     assert.equal(
       jumpConnection([0, 0.02, 0], [1, 0.02, 0], { ...options, walls: [{ ...wall, state }] }),
       null,
@@ -185,7 +193,11 @@ test('invalid parameters and unsupported sweep budgets cannot create candidates'
     { sweep: null },
     { walls: [{}] },
   ])
-    assert.throws(() => jumpConnection([0, 0, 0], [1, 0, 0], { ...options, ...changed }));
+    assert.throws(() =>
+      jumpConnection([0, 0, 0], [1, 0, 0], { ...options, ...changed } as unknown as Parameters<
+        typeof jumpConnection
+      >[2]),
+    );
   assert.throws(() => jumpConnection([0, NaN, 0], [1, 0, 0], options));
   assert.throws(
     () => jumpConnection([0, 1e8, 0], [0, 0, 0], { ...options, mode: 'drop' }),
@@ -198,9 +210,10 @@ test('analytic duration reuses the complete jump and terminal-fall phase model',
     [0, 0, 'jump'],
     [69, 0, 'drop'],
     [0, 1, 'jump'],
-  ]) {
-    const model = { ...options, mode };
+  ] as [number, number, 'jump' | 'drop'][]) {
+    const model: JumpOptions = { ...options, mode };
     const connection = jumpConnection([0, startHeight, 0], [0, endHeight, 0], model);
+    assert.ok(connection);
     assert.equal(jumpDuration(startHeight, endHeight, model), connection.times.at(-1));
   }
   // Frozen phase-sum result: a sampled phase endpoint's multiply/divide can
@@ -218,7 +231,7 @@ test('analytic duration reuses the complete jump and terminal-fall phase model',
 });
 
 test('walk-off drops preserve support before free fall under low headroom', () => {
-  const rectangle = (left, right, height) => [
+  const rectangle = (left: number, right: number, height: number): Vec3[][] => [
     [
       [left, height, -3],
       [right, height, 3],
@@ -231,7 +244,7 @@ test('walk-off drops preserve support before free fall under low headroom', () =
     ],
   ];
   for (const angle of [0, Math.PI / 3, Math.PI / 2]) {
-    const transform = ([x, y, z]) => [
+    const transform: (value: readonly number[]) => Vec3 = ([x, y, z]: readonly number[]): Vec3 => [
       -1024.8 + x * Math.cos(angle) - z * Math.sin(angle),
       y,
       512.4 + x * Math.sin(angle) + z * Math.cos(angle),
@@ -241,7 +254,7 @@ test('walk-off drops preserve support before free fall under low headroom', () =
         triangle.map(transform),
       ),
     );
-    const model = {
+    const model: RunOffOptions = {
       ...options,
       gravity: 40,
       fallingGravity: 38,
@@ -253,8 +266,8 @@ test('walk-off drops preserve support before free fall under low headroom', () =
       world: collision,
       maxSlope: 46,
     };
-    const start = transform([3.5, 5.005, 0]),
-      end = transform([6, 0.005, 0]);
+    const start: Vec3 = transform([3.5, 5.005, 0]),
+      end: Vec3 = transform([6, 0.005, 0]);
     assert.equal(jumpConnection(start, end, { ...model, mode: 'jump' }), null);
     assert.equal(jumpConnection(start, end, { ...model, mode: 'drop' }), null);
     const connection = runOffConnection(start, end, model);
@@ -275,8 +288,8 @@ test('walk-off drops preserve support before free fall under low headroom', () =
         ...model,
         walls: [
           {
-            min: barrier.map((value) => value - 0.05),
-            max: barrier.map((value) => value + 0.05),
+            min: barrier.map((value) => value - 0.05) as Vec3,
+            max: barrier.map((value) => value + 0.05) as Vec3,
             state: 'unknown',
           },
         ],
@@ -287,7 +300,7 @@ test('walk-off drops preserve support before free fall under low headroom', () =
 });
 
 test('bounded air control clears an opening before descending under an overhang', () => {
-  const rectangle = (left, right, height) => [
+  const rectangle = (left: number, right: number, height: number): Vec3[][] => [
     [
       [left, height, -3],
       [right, height, 3],
@@ -304,7 +317,7 @@ test('bounded air control clears an opening before descending under an overhang'
     ...rectangle(1.7, 5, 20),
     ...rectangle(0.6, 6, 0),
   ]);
-  const model = {
+  const model: JumpOptions = {
     ...options,
     gravity: 40,
     fallingGravity: 38,
@@ -316,12 +329,12 @@ test('bounded air control clears an opening before descending under an overhang'
     airDeceleration: 10,
     sweep: collision.sweepCapsule,
   };
-  const start = [0, 20.005, 0],
-    end = [2.5, 0.005, 0];
+  const start: Vec3 = [0, 20.005, 0],
+    end: Vec3 = [2.5, 0.005, 0];
   assert.equal(jumpConnection(start, end, model), null);
   const arc = jumpConnection(start, end, { ...model, horizontalSplit: 0.5 });
   assert.ok(arc);
-  assert.ok(arc.peakHorizontalSpeed <= model.maxHorizontalSpeed);
+  assert.ok(arc.peakHorizontalSpeed! <= model.maxHorizontalSpeed);
   assert.ok(arc.points.slice(1).some((point, index) => point[0] === arc.points[index][0]));
   for (let index = 1; index < arc.points.length; index++) {
     const speed =
@@ -341,7 +354,7 @@ test('bounded air control clears an opening before descending under an overhang'
 });
 
 test('jump impulse decays above sustained air speed and remains collision checked', () => {
-  const impulse = {
+  const impulse: JumpOptions = {
     ...options,
     maxHorizontalSpeed: 3,
     startHorizontalSpeed: 9,
@@ -350,10 +363,16 @@ test('jump impulse decays above sustained air speed and remains collision checke
   assert.equal(jumpConnection([0, 0, 0], [7, 0, 0], { ...options, maxHorizontalSpeed: 3 }), null);
   const arc = jumpConnection([0, 0, 0], [7, 0, 0], impulse);
   assert.ok(arc);
-  assert.ok(arc.peakHorizontalSpeed > 3 && arc.peakHorizontalSpeed <= 9);
-  const speed = (index) =>
+  assert.ok(arc.peakHorizontalSpeed! > 3 && arc.peakHorizontalSpeed! <= 9);
+  const speed = (index: number) =>
     (arc.points[index][0] - arc.points[index - 1][0]) / (arc.times[index] - arc.times[index - 1]);
   assert.ok(speed(1) > speed(arc.times.length - 1));
   assert.equal(jumpConnection([0, 0, 0], [20, 0, 0], impulse), null);
-  assert.equal(jumpConnection([0, 0, 0], [7, 0, 0], { ...impulse, sweep: () => ({}) }), null);
+  assert.equal(
+    jumpConnection([0, 0, 0], [7, 0, 0], {
+      ...impulse,
+      sweep: () => ({ triangle: 0, distance: 0 }),
+    }),
+    null,
+  );
 });

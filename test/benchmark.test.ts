@@ -2,13 +2,32 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { runBenchmark } from '../bench/run.js';
+import type { RouteQuery, RouteResult } from '../src/solver/index-types.js';
 
 test('the benchmark submits a whole batch and accepts asynchronous out-of-order execution', async () => {
-  const cases = [1, 2, 3].map((id) => ({ id: String(id), query: { goal: [id, 0, 0] } }));
-  const result = (query) => ({
-    route: { status: 'complete', cost: query.goal[0] },
+  const cases: readonly { id: string; query: RouteQuery }[] = [1, 2, 3].map((id) => ({
+    id: String(id),
+    query: { starts: [], goal: [id, 0, 0] },
+  }));
+  const result = (query: RouteQuery): RouteResult | PromiseLike<RouteResult> => ({
+    route: {
+      status: 'complete',
+      cost: query.goal[0],
+      start: 'player',
+      arrivalCost: 0,
+      length: 0,
+      points: [query.goal],
+      segments: [],
+    },
     connections: [],
-    diagnostics: { truncated: false },
+    diagnostics: {
+      truncated: false,
+      strategy: 'surface-action-graph',
+      groundStatus: 'complete',
+      baselineCost: null,
+      selectedCost: query.goal[0],
+      searches: [],
+    },
   });
   let preparations = 0,
     closes = 0,
@@ -54,11 +73,14 @@ test('the benchmark closes the adapter after a failed solve', async () => {
         async solve() {
           throw new Error('worker failed');
         },
+        async solveBatch() {
+          throw new Error('worker failed');
+        },
         async close() {
           closed = true;
         },
       }),
-      [{ id: 'failure', query: {} }],
+      [{ id: 'failure', query: { starts: [], goal: [0, 0, 0] } }],
     ),
     /worker failed/,
   );

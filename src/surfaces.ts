@@ -1,29 +1,64 @@
+import type { Bounds } from './bounds.js';
 import { createBoundsIndex } from './bounds.js';
+import type { Vec3, Surface, Portal, Graph, Edge, Node } from './index-types.js';
+
+export interface SharedPortal {
+  from: string;
+  to: string;
+  fromEdge: number;
+  toEdge: number;
+  start: Vec3;
+  end: Vec3;
+}
+export interface DirectedPortal extends SharedPortal {
+  points: [Vec3, Vec3];
+  exitStart: Vec3;
+  exitEnd: Vec3;
+}
+interface Owner {
+  surface: string;
+  edge: number;
+  from: string;
+  to: string;
+}
+interface Group extends Bounds {
+  id: number;
+  a: Vec3;
+  b: Vec3;
+  owners: Owner[];
+  blocked: boolean;
+}
+interface Interval {
+  near: number;
+  far: number;
+  opposite: boolean;
+  start: Vec3;
+  end: Vec3;
+}
+
 const portalTolerance = 1e-4;
-const vertexKey = (point: any): any =>
-  point.map((value: any) => Math.round(value * 10000)).join(',');
-const distance = (a: any, b: any) =>
-  Math.hypot(...a.map((value: any, axis: any) => value - b[axis]));
-const onSegment = (point: any, a: any, b: any) => {
-  const direction = b.map((value: any, axis: any) => value - a[axis]);
-  const lengthSquared = direction.reduce((sum: any, value: any): any => sum + value * value, 0);
+const vertexKey = (point: readonly number[]) =>
+  point.map((value) => Math.round(value * 10000)).join(',');
+const distance = (a: readonly number[], b: readonly number[]) =>
+  Math.hypot(...a.map((value, axis) => value - b[axis]));
+const onSegment = (point: readonly number[], a: readonly number[], b: readonly number[]) => {
+  const direction = b.map((value, axis) => value - a[axis]);
+  const lengthSquared = direction.reduce((sum, value) => sum + value * value, 0);
   if (lengthSquared === 0) return distance(point, a) <= portalTolerance;
   const t =
-    point.reduce(
-      (sum: any, value: any, axis: any): any => sum + (value - a[axis]) * direction[axis],
-      0,
-    ) / lengthSquared;
+    point.reduce((sum, value, axis) => sum + (value - a[axis]) * direction[axis], 0) /
+    lengthSquared;
   return (
     t >= -1e-8 &&
     t <= 1 + 1e-8 &&
     distance(
       point,
-      a.map((value: any, axis: any): any => value + t * direction[axis]),
+      a.map((value, axis) => value + t * direction[axis]),
     ) <= portalTolerance
   );
 };
-const boundaryEdge = (surface: any, point: any, interval: any = [point]): any =>
-  surface.vertices.findIndex((a: any, index: any) =>
+const boundaryEdge = (surface: Surface, point: Vec3, interval: Vec3[] = [point]) =>
+  surface.vertices.findIndex((a, index) =>
     [point, ...interval].every((value) =>
       onSegment(value, a, surface.vertices[(index + 1) % surface.vertices.length]),
     ),
@@ -32,15 +67,16 @@ const boundaryEdge = (surface: any, point: any, interval: any = [point]): any =>
  * by graph search, ground tracing and exposed-boundary discovery. Old point-only
  * transfers retain their exact crossing location.
  */
-export function directedPortals(surfaces: any, portals: any = []): any {
+export function directedPortals(surfaces: Surface[], portals: Portal[] = []): DirectedPortal[] {
   if (!Array.isArray(portals)) throw new Error('Invalid imported portals');
-  const byId = new Map<any, any>(surfaces.map((surface: any): any => [surface.id, surface]));
-  const horizontal = (a: any, b: any) => Math.hypot(a[0] - b[0], a[2] - b[2]);
-  return portals.map((portal): any => {
+  const byId = new Map<string, Surface>(surfaces.map((surface) => [surface.id, surface]));
+  const horizontal = (a: readonly number[], b: readonly number[]) =>
+    Math.hypot(a[0] - b[0], a[2] - b[2]);
+  return portals.map((portal) => {
     const from = byId.get(portal.from),
       to = byId.get(portal.to),
       points = portal.points;
-    const valid = (surface: any, point: any): any =>
+    const valid = (surface: Surface, point: Vec3) =>
       Array.isArray(point) &&
       point.length === 3 &&
       point.every(Number.isFinite) &&
@@ -79,11 +115,11 @@ export function directedPortals(surfaces: any, portals: any = []): any {
     for (const [surface, edge, interval, point] of [
       [from, fromEdge, entry, points[0]],
       [to, toEdge, exit, points[1]],
-    ]) {
+    ] as const) {
       const a = surface.vertices[edge],
         b = surface.vertices[(edge + 1) % surface.vertices.length];
       if (
-        interval.some((value: any) => !onSegment(value, a, b)) ||
+        interval.some((value) => !onSegment(value, a, b)) ||
         !onSegment(point, interval[0], interval[1])
       ) {
         throw new Error('Invalid imported portal interval');
@@ -102,28 +138,26 @@ export function directedPortals(surfaces: any, portals: any = []): any {
     };
   });
 }
-const portalIndex = (entries: any): any => {
+const portalIndex = (entries: Group[]) => {
   const query = createBoundsIndex(entries);
-  return (bounds: any): any =>
+  return (bounds: Bounds) =>
     query({
-      min: bounds.min.map((value: any) => value - portalTolerance),
-      max: bounds.max.map((value: any): any => value + portalTolerance),
+      min: bounds.min.map((value) => value - portalTolerance),
+      max: bounds.max.map((value) => value + portalTolerance),
     });
 };
-const sharedInterval = (a: any, b: any): any => {
-  const direction = a.b.map((value: any, axis: any) => value - a.a[axis]);
-  const lengthSquared = direction.reduce((sum: any, value: any): any => sum + value * value, 0);
-  const fraction = (point: any) =>
-    point.reduce(
-      (sum: any, value: any, axis: any): any => sum + (value - a.a[axis]) * direction[axis],
-      0,
-    ) / lengthSquared;
+const sharedInterval = (a: Group, b: Group): Interval | null => {
+  const direction = a.b.map((value, axis) => value - a.a[axis]);
+  const lengthSquared = direction.reduce((sum, value) => sum + value * value, 0);
+  const fraction = (point: Vec3) =>
+    point.reduce((sum, value, axis) => sum + (value - a.a[axis]) * direction[axis], 0) /
+    lengthSquared;
   const first = fraction(b.a),
     last = fraction(b.b);
-  const onLine = (point: any, t: any) =>
+  const onLine = (point: Vec3, t: number) =>
     distance(
       point,
-      a.a.map((value: any, axis: any): any => value + t * direction[axis]),
+      a.a.map((value, axis) => value + t * direction[axis]),
     ) <= portalTolerance;
   if (!onLine(b.a, first) || !onLine(b.b, last)) return null;
   const near = Math.max(0, Math.min(first, last)),
@@ -133,17 +167,17 @@ const sharedInterval = (a: any, b: any): any => {
     near,
     far,
     opposite: last < first,
-    start: a.a.map((value: any, axis: any): any => value + near * direction[axis]),
-    end: a.a.map((value: any, axis: any): any => value + far * direction[axis]),
+    start: a.a.map((value, axis) => value + near * direction[axis]) as Vec3,
+    end: a.a.map((value, axis) => value + far * direction[axis]) as Vec3,
   };
 };
 /** Internal shared portal construction for graph search and ground ray traversal.
  * Split boundaries connect only over their collinear 3D overlap. Author-supplied
  * portal masks remain authoritative, and point contacts or positive gaps do not join.
  */
-export function surfacePortals(surfaces: any): any {
-  const groups = new Map<any, any>(),
-    ids = new Set<any>();
+export function surfacePortals(surfaces: Surface[]): SharedPortal[] {
+  const groups = new Map<string, Group>(),
+    ids = new Set<string>();
   for (const surface of surfaces) {
     if (
       typeof surface.id !== 'string' ||
@@ -151,7 +185,7 @@ export function surfacePortals(surfaces: any): any {
       !Array.isArray(surface.vertices) ||
       surface.vertices.length < 3 ||
       surface.vertices.some(
-        (point: any) =>
+        (point: Vec3) =>
           !Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite),
       )
     )
@@ -160,7 +194,7 @@ export function surfacePortals(surfaces: any): any {
       surface.portals !== undefined &&
       (!Array.isArray(surface.portals) ||
         surface.portals.some(
-          (index: any) => !Number.isInteger(index) || index < 0 || index >= surface.vertices.length,
+          (index) => !Number.isInteger(index) || index < 0 || index >= surface.vertices.length,
         ))
     )
       throw new Error('Invalid surface portals');
@@ -181,8 +215,8 @@ export function surfacePortals(surfaces: any): any {
           b,
           owners: [],
           blocked: false,
-          min: a.map((value: any, axis: any) => Math.min(value, b[axis])),
-          max: a.map((value: any, axis: any) => Math.max(value, b[axis])),
+          min: a.map((value, axis) => Math.min(value, b[axis])),
+          max: a.map((value, axis) => Math.max(value, b[axis])),
         };
         groups.set(key, group);
       }
@@ -191,8 +225,8 @@ export function surfacePortals(surfaces: any): any {
   }
   const entries = [...groups.values()],
     singles = entries.filter((group) => group.owners.length === 1);
-  const candidates = [],
-    intervals = new Map<any, any>();
+  const candidates: (Interval & { a: Group; b: Group })[] = [],
+    intervals = new Map<number, (Interval & { other: Group })[]>();
   // Full shared edges already have exact partners. Only unmatched boundaries need
   // spatial queries, including checks against full edges for ambiguous overlap.
   if (singles.length) {
@@ -214,7 +248,7 @@ export function surfacePortals(surfaces: any): any {
       intervals.set(a.id, overlaps);
     }
     for (const a of singles) {
-      const overlaps = intervals.get(a.id).sort((a: any, b: any) => a.near - b.near);
+      const overlaps = intervals.get(a.id)!.sort((a, b) => a.near - b.near);
       const length = distance(a.a, a.b);
       for (let index = 1; index < overlaps.length; index++) {
         for (let previous = index - 1; previous >= 0; previous--) {
@@ -228,8 +262,8 @@ export function surfacePortals(surfaces: any): any {
       }
     }
   }
-  const portals: any = [];
-  const add = (a: any, b: any, start: any, end: any): any =>
+  const portals: SharedPortal[] = [];
+  const add = (a: Owner, b: Owner, start: Vec3, end: Vec3) =>
     portals.push({ from: a.surface, fromEdge: a.edge, to: b.surface, toEdge: b.edge, start, end });
   for (const group of entries) {
     if (group.blocked || group.owners.length !== 2) continue;
@@ -248,26 +282,27 @@ export function surfacePortals(surfaces: any): any {
  * interval. No gap, stair, off-mesh or proximity links are inferred.
  */
 export function surfaceGraph(
-  surfaces: any,
-  { speed, portals: importedPortals = [] }: any,
-  sharedPortals?: any,
-): any {
+  surfaces: Surface[],
+  { speed, portals: importedPortals = [] }: { speed: number; portals?: Portal[] },
+  sharedPortals?: SharedPortal[],
+): Graph {
   if (!Number.isFinite(speed) || speed <= 0) throw new Error('Invalid walking speed');
   const portals = sharedPortals ?? surfacePortals(surfaces);
-  const nodes = surfaces.map((surface: any): any => ({
+  const nodes: Node[] = surfaces.map((surface) => ({
     id: surface.id,
     position: [0, 1, 2].map(
       (axis) =>
-        surface.vertices.reduce((sum: any, point: any): any => sum + point[axis], 0) /
-        surface.vertices.length,
-    ),
+        surface.vertices.reduce((sum, point) => sum + point[axis], 0) / surface.vertices.length,
+    ) as Vec3,
   }));
-  const positions = new Map<any, any>(nodes.map((node: any): any => [node.id, node.position]));
-  const edges = [];
+  const positions = new Map<string, Vec3>(nodes.map((node) => [node.id, node.position]));
+  const edges: Edge[] = [];
   for (const portal of portals) {
-    const a = positions.get(portal.from),
-      b = positions.get(portal.to);
-    const midpoint = portal.start.map((value: any, axis: any) => (value + portal.end[axis]) / 2);
+    const a = positions.get(portal.from)!,
+      b = positions.get(portal.to)!;
+    const midpoint: Vec3 = portal.start.map(
+      (value, axis) => (value + portal.end[axis]) / 2,
+    ) as Vec3;
     const cost = (distance(a, midpoint) + distance(b, midpoint)) / speed;
     edges.push({ from: portal.from, to: portal.to, cost, state: 'open', points: [a, midpoint, b] });
     edges.push({ from: portal.to, to: portal.from, cost, state: 'open', points: [b, midpoint, a] });
@@ -276,15 +311,14 @@ export function surfaceGraph(
     const points = portal.points;
     // An imported transfer is directed. Its authoring/state and climb authorization
     // belong to the importer; the runtime never supplies the reverse step implicitly.
-    const corridor = [
-      positions.get(portal.from),
-      ...points.map((point: any): any => [...point]),
-      positions.get(portal.to),
+    const corridor: Vec3[] = [
+      positions.get(portal.from)!,
+      ...points.map((point): Vec3 => [...point]),
+      positions.get(portal.to)!,
     ];
     const cost =
-      corridor
-        .slice(1)
-        .reduce((sum, point, index): any => sum + distance(corridor[index], point), 0) / speed;
+      corridor.slice(1).reduce((sum, point, index) => sum + distance(corridor[index], point), 0) /
+      speed;
     edges.push({ from: portal.from, to: portal.to, cost, state: 'open', points: corridor });
   }
   return { nodes, edges };
@@ -292,7 +326,11 @@ export function surfaceGraph(
 /** Project vertically onto a convex polygon's triangulated surface, without crossing a gap
  * or choosing a floor outside maxVertical. Detail-height meshes are the importer's responsibility.
  */
-export function projectPoint(surfaces: any, position: any, { maxVertical }: any): any {
+export function projectPoint(
+  surfaces: Surface[],
+  position: Vec3,
+  { maxVertical }: { maxVertical: number },
+): { surface: string; position: Vec3 } | null {
   if (
     !Array.isArray(position) ||
     position.length !== 3 ||
@@ -301,7 +339,7 @@ export function projectPoint(surfaces: any, position: any, { maxVertical }: any)
     maxVertical < 0
   )
     throw new Error('Invalid ground projection');
-  let best = null,
+  let best: { surface: string; position: Vec3 } | null = null,
     error = Infinity;
   for (const surface of surfaces) {
     const a = surface.vertices[0];

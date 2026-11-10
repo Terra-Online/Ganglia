@@ -2,8 +2,17 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { groundPreparation } from '../src/ground.js';
+import type {
+  GroundArrival,
+  GroundConnection,
+  GroundOptions,
+  Portal,
+  Surface,
+  Vec3,
+  Wall,
+} from '../src/index-types.js';
 import { planGroundRoute, route, createGroundPlanner } from '../src/index.js';
-const surfaces = [
+const surfaces: Surface[] = [
   {
     id: 'a',
     vertices: [
@@ -44,7 +53,7 @@ test('compares grounded teleport arrivals and preserves the actual endpoints', (
     [3.8, 0.1, 1],
     options,
   );
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
   assert.equal(result.start, 'base');
   assert.deepEqual(result.points[0], [0.2, 0, 1]);
   assert.deepEqual(result.points.at(-1), [3.8, 0, 1]);
@@ -52,9 +61,10 @@ test('compares grounded teleport arrivals and preserves the actual endpoints', (
   assert.equal(planGroundRoute(surfaces, [], [4.5, 0, 1], options).status, 'unmapped');
 });
 test('same-polygon shortcuts and stationary paths still obey wall exclusions', () => {
-  const wall = { min: [0.9, -1, 0], max: [1.1, 3, 2], state: 'unknown' };
-  const start = { id: 'player', position: [0.2, 0, 1], cost: 0, state: 'available' };
+  const wall: Wall = { min: [0.9, -1, 0], max: [1.1, 3, 2], state: 'unknown' };
+  const start: GroundArrival = { id: 'player', position: [0.2, 0, 1], cost: 0, state: 'available' };
   const result = planGroundRoute(surfaces, [start], [1.8, 0, 1], options);
+  assert.ok(result.status === 'complete');
   assert.deepEqual(result.points, [
     [0.2, 0, 1],
     [1.8, 0, 1],
@@ -73,7 +83,13 @@ test('same-polygon shortcuts and stationary paths still obey wall exclusions', (
 });
 
 test('continuous support corridors can bypass blocked graph centres while retaining exclusions', () => {
-  const rectangle = (id, left, right, near, far) => ({
+  const rectangle = (
+    id: string,
+    left: number,
+    right: number,
+    near: number,
+    far: number,
+  ): Surface => ({
     id,
     vertices: [
       [left, 0, near],
@@ -82,19 +98,21 @@ test('continuous support corridors can bypass blocked graph centres while retain
       [left, 0, far],
     ],
   });
-  const ground = [
+  const ground: Surface[] = [
     rectangle('entry', 0, 4, 0, 2),
     rectangle('turn', 4, 6, 0, 2),
     rectangle('exit', 4, 6, 2, 6),
   ];
-  const starts = [{ id: 'player', position: [0.5, 0, 0.5], cost: 0, state: 'available' }];
-  const constraints = {
+  const starts: GroundArrival[] = [
+    { id: 'player', position: [0.5, 0, 0.5], cost: 0, state: 'available' },
+  ];
+  const constraints: GroundOptions = {
     ...options,
     profile: { radius: 0.1, height: 2 },
     walls: [{ min: [1.8, -1, 0.9], max: [2.2, 3, 1.1], state: 'unknown' }],
   };
   const result = planGroundRoute(ground, starts, [5.5, 0, 5.5], constraints);
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
   assert.ok(result.points.some((point) => point[0] >= 4 && point[2] <= 2));
   assert.equal(
     planGroundRoute(ground, starts, [5.5, 0, 5.5], {
@@ -106,7 +124,13 @@ test('continuous support corridors can bypass blocked graph centres while retain
 });
 
 test('prepared action queries preserve explicit support faces across overlapping navigation', () => {
-  const floor = (id, left, right, height, portals) => ({
+  const floor = (
+    id: string,
+    left: number,
+    right: number,
+    height: number,
+    portals?: number[],
+  ): Surface => ({
     id,
     portals,
     vertices: [
@@ -116,14 +140,16 @@ test('prepared action queries preserve explicit support faces across overlapping
       [left, height, 2],
     ],
   });
-  const scene = [
+  const scene: Surface[] = [
     floor('shadow', 2, 4, 0.3, []),
     floor('source', 0, 4, 0),
     floor('target', 7, 11, 4),
   ];
   const planner = createGroundPlanner(scene, options);
-  const starts = [{ id: 'player', position: [1, 0, 1], state: 'available', cost: 0 }];
-  const connection = {
+  const starts: GroundArrival[] = [
+    { id: 'player', position: [1, 0, 1], state: 'available', cost: 0 },
+  ];
+  const connection: GroundConnection = {
     id: 'jump',
     mode: 'jump',
     state: 'open',
@@ -156,15 +182,20 @@ test('prepared queries straighten arbitrary endpoints and apply continuous sprin
     locomotion: { speed: 1, sprintSpeed: 2, sprintAcceleration: 4 },
   });
   for (const z of [0.2, 0.7, 1.5]) {
-    const start = { id: 'player', position: [0.2, 0, z], cost: 0, state: 'available' };
+    const start: GroundArrival = {
+      id: 'player',
+      position: [0.2, 0, z],
+      cost: 0,
+      state: 'available',
+    };
     const result = planner.plan([start], [3.8, 0, z]);
-    assert.equal(result.status, 'complete');
+    assert.ok(result.status === 'complete');
     assert.ok(result.points.every((p) => Math.abs(p[2] - z) < 1e-7));
     assert.ok(Math.abs(result.length - 3.6) < 1e-7);
     assert.ok(result.cost < 3.6);
     assert.equal(result.segments[0].gait, 'sprint');
     const stationary = planner.plan([start], start.position);
-    assert.equal(stationary.status, 'complete');
+    assert.ok(stationary.status === 'complete');
     assert.equal(stationary.cost, 0);
     assert.deepEqual(stationary.points, [start.position]);
   }
@@ -195,16 +226,24 @@ test('interaction queries end on reachable standing ground within an explicit vo
     ],
     options,
   );
-  const starts = [{ id: 'player', position: [0.5, 0, 0.5], cost: 0, state: 'available' }];
+  const starts: GroundArrival[] = [
+    { id: 'player', position: [0.5, 0, 0.5], cost: 0, state: 'available' },
+  ];
   assert.equal(planner.plan(starts, [1.5, 1, 1.5]).status, 'no-verified-route');
   const result = planner.plan(starts, [1.5, 1, 1.5], { interaction: { radius: 1.5 } });
-  assert.equal(result.status, 'complete');
-  assert.equal(result.points.at(-1)[1], 0);
-  assert.ok(Math.hypot(...result.points.at(-1).map((v, i) => v - [1.5, 1, 1.5][i])) <= 1.5);
+  assert.ok(result.status === 'complete');
+  assert.equal(result.points.at(-1)![1], 0);
+  assert.ok(Math.hypot(...result.points.at(-1)!.map((v, i) => v - [1.5, 1, 1.5][i])) <= 1.5);
 });
 
 test('an initially unmapped query still permits later tracing on overlapping supports', () => {
-  const rectangle = (id, left, right, near, far) => ({
+  const rectangle = (
+    id: string,
+    left: number,
+    right: number,
+    near: number,
+    far: number,
+  ): Surface => ({
     id,
     vertices: [
       [left, 0, near],
@@ -217,16 +256,18 @@ test('an initially unmapped query still permits later tracing on overlapping sup
     [rectangle('small', 0, 2, -0.5, 0.5), rectangle('large', -1, 10, -2, 2)],
     { ...options, speed: 5 },
   );
-  const starts = [{ id: 'player', position: [1, 0, 0], cost: 0, state: 'available' }];
+  const starts: GroundArrival[] = [
+    { id: 'player', position: [1, 0, 0], cost: 0, state: 'available' },
+  ];
   assert.equal(planner.plan(starts, [9, 10, 0]).status, 'unmapped');
   const result = planner.plan(starts, [9, 0, 0]);
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
   assert.equal(result.cost, 1.6);
   assert.deepEqual(result.points, [
     [1, 0, 0],
     [9, 0, 0],
   ]);
-  const idle = {
+  const idle: GroundConnection = {
     id: 'idle',
     mode: 'rope',
     state: 'open',
@@ -237,12 +278,12 @@ test('an initially unmapped query still permits later tracing on overlapping sup
     times: [0, 1],
   };
   const withActions = planner.plan(starts, [9, 0, 0], { connections: [idle] });
-  assert.equal(withActions.status, 'complete');
+  assert.ok(withActions.status === 'complete');
   assert.equal(withActions.cost, 1.6);
 });
 
 test('many disconnected device supports retain only the supplied transfers between islands', () => {
-  const islands = Array.from({ length: 80 }, (_, i) => ({
+  const islands: Surface[] = Array.from({ length: 80 }, (_, i) => ({
     id: String(i),
     vertices: [
       [i * 3, 0, 0],
@@ -251,7 +292,7 @@ test('many disconnected device supports retain only the supplied transfers betwe
       [i * 3, 0, 1],
     ],
   }));
-  const connections = islands.slice(1).map((_, i) => ({
+  const connections: GroundConnection[] = islands.slice(1).map((_, i) => ({
     id: 'ride/' + i,
     mode: 'rope',
     state: 'open',
@@ -262,9 +303,11 @@ test('many disconnected device supports retain only the supplied transfers betwe
     times: [0, 1],
   }));
   const planner = createGroundPlanner(islands, options);
-  const starts = [{ id: 'first', position: [0.5, 0, 0.5], cost: 0, state: 'available' }];
+  const starts: GroundArrival[] = [
+    { id: 'first', position: [0.5, 0, 0.5], cost: 0, state: 'available' },
+  ];
   const result = planner.plan(starts, [237.5, 0, 0.5], { connections });
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
   assert.equal(result.cost, 79);
   assert.equal(
     planner.plan(starts, [237.5, 0, 0.5], { connections: connections.slice(1) }).status,
@@ -272,9 +315,9 @@ test('many disconnected device supports retain only the supplied transfers betwe
   );
 });
 
-const observeVisibility = (planner) => {
-  const { straighten } = groundPreparation(planner),
-    calls = [];
+const observeVisibility = (planner: ReturnType<typeof createGroundPlanner>) => {
+  const { straighten } = groundPreparation(planner)!,
+    calls: { from: number[]; to: number[]; result: Vec3[] | null }[] = [];
   const trace = straighten.trace;
   straighten.trace = (from, to) => {
     const result = trace(from, to);
@@ -285,7 +328,7 @@ const observeVisibility = (planner) => {
 };
 
 test('failed visibility is reused for live endpoints across target changes', () => {
-  const square = (id, x, z) => ({
+  const square = (id: string, x: number, z: number): Surface => ({
     id,
     vertices: [
       [x, 0, z],
@@ -294,7 +337,7 @@ test('failed visibility is reused for live endpoints across target changes', () 
       [x, 0, z + 2],
     ],
   });
-  const scene = [
+  const scene: Surface[] = [
     square('left', 0, 0),
     square('left-turn', 0, 2),
     square('bridge', 2, 2),
@@ -303,11 +346,19 @@ test('failed visibility is reused for live endpoints across target changes', () 
   ];
   const planner = createGroundPlanner(scene, options),
     calls = observeVisibility(planner);
-  const starts = [{ id: 'player', position: [1, 0, 1], cost: 0, state: 'available' }];
-  const goal = [5, 0, 1],
-    point = [0.5, 0, 0.5];
-  const idle = { id: 'idle', mode: 'rope', state: 'open', points: [point, point], times: [0, 1] };
-  const extra = {
+  const starts: GroundArrival[] = [
+    { id: 'player', position: [1, 0, 1], cost: 0, state: 'available' },
+  ];
+  const goal: Vec3 = [5, 0, 1],
+    point: Vec3 = [0.5, 0, 0.5];
+  const idle: GroundConnection = {
+    id: 'idle',
+    mode: 'rope',
+    state: 'open',
+    points: [point, point],
+    times: [0, 1],
+  };
+  const extra: GroundConnection = {
     ...idle,
     id: 'extra',
     points: [
@@ -315,15 +366,15 @@ test('failed visibility is reused for live endpoints across target changes', () 
       [1.5, 0, 0.5],
     ],
   };
-  const check = (connections, target = goal) => {
-    const query = { connections };
+  const check = (connections: GroundConnection[], target = goal) => {
+    const query: Parameters<typeof planner.plan>[2] = { connections };
     const actual = planner.plan(starts, target, query);
     assert.deepEqual(actual, createGroundPlanner(scene, options).plan(starts, target, query));
-    assert.equal(actual.status, 'complete');
+    assert.ok(actual.status === 'complete');
     return actual;
   };
   // Both ends share one weak component, but their straight line crosses the gap.
-  assert.equal(groundPreparation(planner).straighten.mayConnect(starts[0].position, goal), true);
+  assert.equal(groundPreparation(planner)!.straighten.mayConnect(starts[0].position, goal), true);
   assert.ok(check([idle]).cost > 4);
   assert.equal(calls.length, 4);
   assert.ok(calls.every((call) => call.result === null));
@@ -350,7 +401,7 @@ test('failed visibility is reused for live endpoints across target changes', () 
 });
 
 test('a cached reverse visibility failure preserves the valid one-way ground passage', () => {
-  const scene = [
+  const scene: Surface[] = [
     {
       id: 'lower',
       vertices: [
@@ -372,7 +423,7 @@ test('a cached reverse visibility failure preserves the valid one-way ground pas
       portals: [],
     },
   ];
-  const portal = {
+  const portal: Portal = {
     from: 'lower',
     to: 'upper',
     points: [
@@ -388,21 +439,23 @@ test('a cached reverse visibility failure preserves the valid one-way ground pas
       [1, 0.2, 1],
     ],
   };
-  const constraints = { ...options, portals: [portal] };
+  const constraints: GroundOptions = { ...options, portals: [portal] };
   const planner = createGroundPlanner(scene, constraints),
     calls = observeVisibility(planner);
-  const starts = [{ id: 'player', position: [0.5, 0, 0.5], cost: 0, state: 'available' }];
-  const goal = [1.5, 0.2, 0.5];
-  const idle = {
+  const starts: GroundArrival[] = [
+    { id: 'player', position: [0.5, 0, 0.5], cost: 0, state: 'available' },
+  ];
+  const goal: Vec3 = [1.5, 0.2, 0.5];
+  const idle: GroundConnection = {
     id: 'idle',
     mode: 'rope',
     state: 'open',
     points: [starts[0].position, starts[0].position],
     times: [0, 1],
   };
-  const query = { connections: [idle] };
+  const query: Parameters<typeof planner.plan>[2] = { connections: [idle] };
   const expected = createGroundPlanner(scene, constraints).plan(starts, goal, query);
-  assert.equal(expected.status, 'complete');
+  assert.ok(expected.status === 'complete');
   assert.deepEqual(planner.plan(starts, goal, query), expected);
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[0], { from: goal, to: starts[0].position, result: null });
@@ -417,27 +470,29 @@ test('a cached reverse visibility failure preserves the valid one-way ground pas
 });
 
 test('fixed device transfers survive target changes and expire with removed endpoints', () => {
-  const scene = surfaces.slice(0, 2);
-  const starts = [{ id: 'player', position: [0.5, 0, 1], state: 'available', cost: 0 }];
-  const a = [1, 0, 0.5],
-    b = [3, 0, 0.5];
-  const idle = (id, point) => ({
+  const scene: Surface[] = surfaces.slice(0, 2);
+  const starts: GroundArrival[] = [
+    { id: 'player', position: [0.5, 0, 1], state: 'available', cost: 0 },
+  ];
+  const a: Vec3 = [1, 0, 0.5],
+    b: Vec3 = [3, 0, 0.5];
+  const idle = (id: string, point: Vec3): GroundConnection => ({
     id,
     mode: 'rope',
     state: 'open',
     points: [point, point],
     times: [0, 1],
   });
-  const connections = [idle('a', a), idle('b', b)];
+  const connections: GroundConnection[] = [idle('a', a), idle('b', b)];
   const planner = createGroundPlanner(scene, options),
     calls = observeVisibility(planner);
-  const check = (target, edges = connections) => {
+  const check = (target: Vec3, edges = connections) => {
     const actual = planner.plan(starts, target, { connections: edges });
     assert.deepEqual(
       actual,
       createGroundPlanner(scene, options).plan(starts, target, { connections: edges }),
     );
-    assert.equal(actual.status, 'complete');
+    assert.ok(actual.status === 'complete');
   };
   const fixed = () =>
     calls.filter(

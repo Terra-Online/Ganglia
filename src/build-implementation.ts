@@ -7,9 +7,40 @@ import {
   markWalkableTriangles,
 } from '@recast-navigation/core';
 
+import type {
+  CollisionGeometry,
+  BuildOptions,
+  buildGroundTiles as BuildTiles,
+} from './build-types.js';
 import { clipSurface, tolerance } from './clip-surface.js';
+import type { Vec3, Surface, Portal } from './index-types.js';
 import { buildSupportField } from './support-field.js';
-function validateGeometry(geometry: any, allowEmpty = false) {
+
+type Rect = NonNullable<BuildOptions['bounds']>;
+interface Settings {
+  cs: number;
+  ch: number;
+  walkableSlopeAngle: number;
+  walkableHeight: number;
+  walkableRadius: number;
+  walkableClimb: number;
+  maxSimplificationError: number;
+}
+interface BoundaryEdge {
+  id: string;
+  a: Vec3;
+  b: Vec3;
+  min: number;
+  max: number;
+}
+interface Tile {
+  x: number;
+  z: number;
+  bounds: Rect;
+  surfaces: Surface[];
+}
+
+function validateGeometry(geometry: CollisionGeometry, allowEmpty = false) {
   const { positions, indices } = geometry ?? {};
   if (
     !positions ||
@@ -27,7 +58,7 @@ function validateGeometry(geometry: any, allowEmpty = false) {
       throw new Error('Invalid collision index');
   }
 }
-function validateOptions(options: any) {
+function validateOptions(options: BuildOptions) {
   const { profile, maxSlope, stepUp, stepDown, cellSize, cellHeight } = options ?? {};
   if (
     !profile ||
@@ -47,7 +78,7 @@ function validateOptions(options: any) {
   if (height < 3 || height > 255 || radius > 255 || climb > 255)
     throw new Error('Unsupported ground build voxel profile');
 }
-function validateBounds(bounds: any) {
+function validateBounds(bounds: Rect) {
   if (
     !bounds ||
     !Array.isArray(bounds.min) ||
@@ -55,15 +86,15 @@ function validateBounds(bounds: any) {
     bounds.min.length !== 2 ||
     bounds.max.length !== 2 ||
     ![...bounds.min, ...bounds.max].every(Number.isFinite) ||
-    bounds.min.some((value: any, axis: any) => value >= bounds.max[axis])
+    bounds.min.some((value, axis) => value >= bounds.max[axis])
   ) {
     throw new Error('Invalid ground build bounds');
   }
 }
-function clipHeight(vertices: any, low: any, high: any): any {
+function clipHeight(vertices: Vec3[], low: number, high: number): Vec3[] {
   // World-grid arithmetic can place a source vertex a double-precision ulp
   // outside a boundary. The rasterizer sees Float32, so retain that same plane.
-  let clipped = vertices.map((point: any): any => {
+  let clipped = vertices.map((point): Vec3 => {
     for (const boundary of [low, high]) {
       if (Math.fround(point[1]) === Math.fround(boundary)) return [point[0], boundary, point[2]];
     }
@@ -72,8 +103,8 @@ function clipHeight(vertices: any, low: any, high: any): any {
   for (const [boundary, keepAbove] of [
     [low, true],
     [high, false],
-  ]) {
-    const output = [];
+  ] as const) {
+    const output: Vec3[] = [];
     for (let i = 0; i < clipped.length; i++) {
       const from = clipped[i],
         to = clipped[(i + 1) % clipped.length];
@@ -82,21 +113,21 @@ function clipHeight(vertices: any, low: any, high: any): any {
       if (fromInside) output.push(from);
       if (fromInside !== toInside) {
         const ratio = (boundary - from[1]) / (to[1] - from[1]);
-        const point = from.map((value: any, axis: any): any => value + ratio * (to[axis] - value));
+        const point = from.map((value, axis) => value + ratio * (to[axis] - value)) as Vec3;
         point[1] = boundary;
         output.push(point);
       }
     }
     clipped = output;
   }
-  return clipped.filter((point: any, index: any): any =>
+  return clipped.filter((point, index) =>
     point.some(
-      (value: any, axis: any) =>
+      (value, axis) =>
         Math.abs(value - clipped[(index + clipped.length - 1) % clipped.length][axis]) > 1e-9,
     ),
   );
 }
-function supportHeightRanges(vertices: any, settings: any): any {
+function supportHeightRanges(vertices: number[], settings: Settings) {
   const context = new RecastBuildContext();
   const points = new VerticesArray(),
     indices = new TrianglesArray(),
@@ -142,7 +173,12 @@ function supportHeightRanges(vertices: any, settings: any): any {
     context.destroy();
   }
 }
-function buildHeightLayers(vertices: any, min: any, max: any, settings: any): any {
+function buildHeightLayers(
+  vertices: number[],
+  min: Vec3,
+  max: Vec3,
+  settings: Settings,
+): Surface[] {
   // Headroom and radius erosion need neighboring support even when it belongs to
   // another core. Chamfer-distance diagonals traverse two support connections,
   // so reserve two climb steps per erosion-radius cell plus boundary neighbors.
@@ -164,7 +200,7 @@ function buildHeightLayers(vertices: any, min: any, max: any, settings: any): an
   let start = first;
   while (last - start > coreCells) {
     let end = start + coreCells;
-    const crossing = ranges.find(([low, high]: any) => low <= end && end <= high);
+    const crossing = ranges.find(([low, high]) => low <= end && end <= high);
     if (crossing) end = crossing[0] - 1;
     if (end <= start || boundaries.length >= 512) {
       throw new Error(
@@ -187,9 +223,9 @@ function buildHeightLayers(vertices: any, min: any, max: any, settings: any): an
       top = -Infinity;
     for (let i = 0; i < vertices.length; i += 9) {
       const triangle = [
-        vertices.slice(i, i + 3),
-        vertices.slice(i + 3, i + 6),
-        vertices.slice(i + 6, i + 9),
+        vertices.slice(i, i + 3) as Vec3,
+        vertices.slice(i + 3, i + 6) as Vec3,
+        vertices.slice(i + 6, i + 9) as Vec3,
       ];
       if (
         triangle.every((point) => Math.fround(point[1]) < Math.fround(paddedLow)) ||
@@ -224,9 +260,9 @@ function buildHeightLayers(vertices: any, min: any, max: any, settings: any): an
       settings,
       selectedAreas,
     );
-    for (const surface of built) {
-      const bottom = Math.min(...surface.vertices.map((point: any): any => point[1]));
-      const top = Math.max(...surface.vertices.map((point: any): any => point[1]));
+    for (const surface of built!) {
+      const bottom = Math.min(...surface.vertices.map((point) => point[1]));
+      const top = Math.max(...surface.vertices.map((point) => point[1]));
       // Independently simplified detail meshes do not share an exact contour at
       // arbitrary height cuts. Only empty support gaps may separate the cores.
       if (
@@ -251,13 +287,16 @@ function buildHeightLayers(vertices: any, min: any, max: any, settings: any): an
  * proof. Ordinary links use the smaller step limit in both directions. Drops and
  * jumps need separately validated directed connections, never automatic gap links.
  */
-export async function buildGroundSurfaces(geometry: any, options: any): Promise<any> {
+export async function buildGroundSurfaces(
+  geometry: CollisionGeometry,
+  options: BuildOptions,
+): Promise<Surface[]> {
   validateGeometry(geometry);
   validateOptions(options);
   const { positions, indices } = geometry;
   const { profile, maxSlope, stepUp, stepDown, cellSize, cellHeight } = options;
-  const min = [Infinity, Infinity, Infinity],
-    max = [-Infinity, -Infinity, -Infinity];
+  const min: Vec3 = [Infinity, Infinity, Infinity],
+    max: Vec3 = [-Infinity, -Infinity, -Infinity];
   // Expand selected indexed collision to a triangle soup for the native rasterizer.
   const vertices = [];
   for (const i of indices) {
@@ -305,7 +344,7 @@ export async function buildGroundSurfaces(geometry: any, options: any): Promise<
   if ((max[1] - min[1]) / cellHeight > 8190) return buildHeightLayers(vertices, min, max, settings);
   return buildSupportField(vertices, [min, max], settings);
 }
-function boundaryEdges(surfaces: any, axis: any, boundary: any): any {
+function boundaryEdges(surfaces: Surface[], axis: 0 | 2, boundary: number): BoundaryEdge[] {
   const other = axis === 0 ? 2 : 0,
     edges = [];
   for (const surface of surfaces) {
@@ -329,23 +368,21 @@ function boundaryEdges(surfaces: any, axis: any, boundary: any): any {
   }
   return edges.sort((a, b) => a.min - b.min);
 }
-function joinTiles(from: any, to: any, axis: any, options: any): any {
+function joinTiles(from: Tile, to: Tile, axis: 0 | 2, options: BuildOptions): Portal[] {
   const boundary = from.bounds.max[axis === 0 ? 0 : 1],
     other = axis === 0 ? 2 : 0;
   const a = boundaryEdges(from.surfaces, axis, boundary),
     b = boundaryEdges(to.surfaces, axis, boundary);
-  const portals: any = [];
+  const portals: Portal[] = [];
   let first = 0;
-  const pointAt = (edge: any, position: any): any => {
+  const pointAt = (edge: BoundaryEdge, position: number): Vec3 => {
     const ratio = (position - edge.a[other]) / (edge.b[other] - edge.a[other]);
-    const point = edge.a.map(
-      (value: any, index: any): any => value + ratio * (edge.b[index] - value),
-    );
+    const point = edge.a.map((value, index) => value + ratio * (edge.b[index] - value)) as Vec3;
     point[axis] = boundary;
     point[other] = position;
     return point;
   };
-  const connect = (from: any, to: any, near: any, far: any) => {
+  const connect = (from: BoundaryEdge, to: BoundaryEdge, near: number, far: number) => {
     const rise = pointAt(to, near)[1] - pointAt(from, near)[1];
     const delta = pointAt(to, far)[1] - pointAt(from, far)[1] - rise;
     let low = 0,
@@ -361,8 +398,8 @@ function joinTiles(from: any, to: any, axis: any, options: any): any {
     const start = near + low * (far - near),
       end = near + high * (far - near);
     if (end - start <= tolerance) return;
-    const entry = [pointAt(from, start), pointAt(from, end)];
-    const exit = [pointAt(to, start), pointAt(to, end)];
+    const entry: [Vec3, Vec3] = [pointAt(from, start), pointAt(from, end)];
+    const exit: [Vec3, Vec3] = [pointAt(to, start), pointAt(to, end)];
     portals.push({
       from: from.id,
       to: to.id,
@@ -388,7 +425,10 @@ function joinTiles(from: any, to: any, axis: any, options: any): any {
  * neighboring core boundaries receive directed, step-limited seam transfers.
  * Complete collision geometry and the same state/profile must cover every pad.
  */
-export async function buildGroundTiles(geometry: any, options: any): Promise<any> {
+export async function buildGroundTiles(
+  geometry: CollisionGeometry,
+  options: Parameters<typeof BuildTiles>[1],
+): ReturnType<typeof BuildTiles> {
   validateGeometry(geometry, true);
   validateOptions(options);
   validateBounds(options.bounds);
@@ -397,7 +437,7 @@ export async function buildGroundTiles(geometry: any, options: any): Promise<any
     throw new Error('Invalid ground tile cell count');
   const size = tileCells * cellSize;
   if (!Number.isFinite(size)) throw new Error('Invalid ground tile size');
-  const gridIndex = (value: any, round: any): any => {
+  const gridIndex = (value: number, round: (value: number) => number) => {
     const coordinate = value / size,
       nearest = Math.round(coordinate);
     return Math.abs(value - nearest * size) <= tolerance ? nearest : round(coordinate);
@@ -418,7 +458,7 @@ export async function buildGroundTiles(geometry: any, options: any): Promise<any
     throw new Error('Ground build exceeds the 512 tile limit');
   }
   const coordinates = [],
-    seen = new Set<any>();
+    seen = new Set<string>();
   if (selected !== undefined) {
     for (const tile of selected) {
       if (
@@ -444,7 +484,7 @@ export async function buildGroundTiles(geometry: any, options: any): Promise<any
   const patches =
     selected === undefined
       ? null
-      : coordinates.map(({ x, z }): any => [
+      : coordinates.map(({ x, z }) => [
           x * size - padding,
           z * size - padding,
           (x + 1) * size + padding,
@@ -480,23 +520,24 @@ export async function buildGroundTiles(geometry: any, options: any): Promise<any
       )
     )
       continue;
-    const vertices = Array.from(indices.slice(i, i + 3) as ArrayLike<number>, (index): any =>
-      Array.from(positions.slice(index * 3, index * 3 + 3)),
+    const vertices = Array.from(
+      indices.slice(i, i + 3) as ArrayLike<number>,
+      (index): Vec3 => Array.from(positions.slice(index * 3, index * 3 + 3)) as Vec3,
     );
     triangles.push({ vertices, min: [left, near], max: [right, far] });
   }
   const tiles = [],
-    surfaces: any = [],
+    surfaces: Surface[] = [],
     portals = [],
-    byPosition = new Map<any, any>();
+    byPosition = new Map<string, Tile>();
   for (const { x, z } of coordinates) {
     const started = performance.now();
     let cached = false;
-    const core = {
+    const core: Rect = {
       min: [Math.max(bounds.min[0], x * size), Math.max(bounds.min[1], z * size)],
       max: [Math.min(bounds.max[0], (x + 1) * size), Math.min(bounds.max[1], (z + 1) * size)],
     };
-    const padded = {
+    const padded: Rect = {
       min: [x * size - padding, z * size - padding],
       max: [(x + 1) * size + padding, (z + 1) * size + padding],
     };
@@ -509,7 +550,7 @@ export async function buildGroundTiles(geometry: any, options: any): Promise<any
         continue;
       vertices.push(...triangle.vertices.flat());
     }
-    const tile = { x, z, bounds: core, surfaces: [] as any[] };
+    const tile = { x, z, bounds: core, surfaces: [] as Surface[] };
     if (vertices.length) {
       let built;
       try {
@@ -538,7 +579,7 @@ export async function buildGroundTiles(geometry: any, options: any): Promise<any
           { cause },
         );
       }
-      for (const surface of built) {
+      for (const surface of built!) {
         const clipped = clipSurface(surface.vertices, core);
         if (clipped) tile.surfaces.push({ id: `${x},${z}/${surface.id}`, vertices: clipped });
       }
@@ -558,7 +599,7 @@ export async function buildGroundTiles(geometry: any, options: any): Promise<any
     for (const [neighborX, neighborZ, axis] of [
       [x - 1, z, 0],
       [x, z - 1, 2],
-    ]) {
+    ] as const) {
       const neighbor = byPosition.get(`${neighborX},${neighborZ}`);
       if (neighbor) portals.push(...joinTiles(neighbor, tile, axis, options));
     }

@@ -1,18 +1,31 @@
 import { groundComponents, condenseComponents, canReach } from './connectivity.js';
 import { groundPreparation } from './ground.js';
+import type {
+  Vec3,
+  Segment,
+  Route,
+  LocomotionOptions,
+  createGroundPlanner,
+} from './index-types.js';
 import { retimeGroundRoute } from './locomotion.js';
-const distance = (a: any, b: any) => Math.hypot(...a.map((v: any, i: any) => v - b[i]));
-const pointsOf = (segments: any, start?: any): any =>
+import type { GroundStraightener } from './straighten.js';
+
+type CompleteRoute = Extract<Route, { status: 'complete' }>;
+
+const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((v, i) => v - b[i]));
+const pointsOf = (segments: Segment[], start?: Vec3): Vec3[] =>
   segments.length
-    ? [segments[0].points[0], ...segments.flatMap((s: any): any => s.points.slice(1))]
-    : [start];
-const lengthOf = (points: any): any =>
-  points
-    .slice(1)
-    .reduce((sum: any, point: any, index: any): any => sum + distance(points[index], point), 0);
-const straightenWalking = (route: any, straighten: any, speed: any): any => {
-  const segments = [],
-    pending: any = [];
+    ? [segments[0].points[0], ...segments.flatMap((s) => s.points.slice(1))]
+    : [start!];
+const lengthOf = (points: Vec3[]) =>
+  points.slice(1).reduce((sum, point: Vec3, index) => sum + distance(points[index], point), 0);
+const straightenWalking = (
+  route: CompleteRoute,
+  straighten: GroundStraightener,
+  speed: number,
+): CompleteRoute => {
+  const segments: Segment[] = [],
+    pending: Segment[] = [];
   const goalSegment = route.goalHit?.segment;
   let changed = false,
     goalHit = route.goalHit;
@@ -36,7 +49,7 @@ const straightenWalking = (route: any, straighten: any, speed: any): any => {
       continue;
     }
     flush();
-    if (goalSegment === i) goalHit = { ...goalHit, segment: segments.length };
+    if (goalSegment === i) goalHit = { ...goalHit!, segment: segments.length };
     segments.push(segment);
   }
   flush();
@@ -47,13 +60,13 @@ const straightenWalking = (route: any, straighten: any, speed: any): any => {
 // Sampling only route-segment ends misses a nearby return inside a long walk
 // polyline. Split only ground motion at regular distances and real sharp turns;
 // the original air/device trajectories stay indivisible.
-const splitWalking = (route: any, interval = 4): any => {
-  const segments = [];
+const splitWalking = (route: CompleteRoute, interval = 4): CompleteRoute => {
+  const segments: Segment[] = [];
   const goalSegment = route.goalHit?.segment;
   let goalHit = route.goalHit;
   for (let ordinal = 0; ordinal < route.segments.length; ordinal++) {
     const segment = route.segments[ordinal];
-    if (goalSegment === ordinal) goalHit = { ...goalHit, segment: segments.length };
+    if (goalSegment === ordinal) goalHit = { ...goalHit!, segment: segments.length };
     if (segment.mode !== 'walk') {
       segments.push(segment);
       continue;
@@ -64,7 +77,7 @@ const splitWalking = (route: any, interval = 4): any => {
       elapsed = 0;
     const flush = () => {
       if (points.length > 1) segments.push({ ...segment, points, times });
-      points = [points.at(-1)];
+      points = [points.at(-1)!];
       times = [0];
       remaining = interval;
     };
@@ -77,10 +90,10 @@ const splitWalking = (route: any, interval = 4): any => {
         const step = Math.min(remaining, length - offset);
         offset += step;
         const fraction = offset / length;
-        const point =
+        const point: Vec3 =
           length - offset < 1e-9
             ? b
-            : a.map((value: any, axis: any): any => value + fraction * (b[axis] - value));
+            : (a.map((value, axis) => value + fraction * (b[axis] - value)) as Vec3);
         const time = segment.times[i - 1] + fraction * (segment.times[i] - segment.times[i - 1]);
         points.push(point);
         times.push(times.at(-1)! + time - elapsed);
@@ -93,11 +106,7 @@ const splitWalking = (route: any, interval = 4): any => {
           next = distance(b, c);
         const alignment =
           next > 1e-9
-            ? a.reduce(
-                (sum: any, value: any, axis: any): any =>
-                  sum + (b[axis] - value) * (c[axis] - b[axis]),
-                0,
-              ) /
+            ? a.reduce((sum, value, axis) => sum + (b[axis] - value) * (c[axis] - b[axis]), 0) /
               (length * next)
             : 1;
         if (alignment < Math.cos(Math.PI / 6)) flush();
@@ -112,14 +121,14 @@ const splitWalking = (route: any, interval = 4): any => {
  * ground planner must cover each replacement and use the same walls/body constraints.
  * This bounded improvement pass does not establish global optimality. */
 export function pruneGroundDetours(
-  route: any,
-  planner: any,
-  locomotion: any,
-  { maxQueries = 48 }: any = {},
-): any {
+  route: Route,
+  planner: ReturnType<typeof createGroundPlanner>,
+  locomotion: LocomotionOptions,
+  { maxQueries = 48 }: { maxQueries?: number } = {},
+): { route: Route; replacements: number; queries: number } {
   if (!Number.isInteger(maxQueries) || maxQueries < 0)
     throw new Error('Invalid detour query budget');
-  let best = route,
+  let best: Route = route,
     replacements = 0,
     queries = 0;
   // Boost expiry is tied to the original event timeline. Keep that evidence until
@@ -127,7 +136,7 @@ export function pruneGroundDetours(
   if (
     route.status !== 'complete' ||
     route.boosts?.length ||
-    route.segments.some((s: any): any => s.boost || s.boostExpiry !== undefined) ||
+    route.segments.some((s) => s.boost || s.boostExpiry !== undefined) ||
     (route.goalHit && route.segments[route.goalHit.segment]?.mode === 'walk')
   ) {
     return { route, replacements, queries };
@@ -153,24 +162,24 @@ export function pruneGroundDetours(
     }
     if (queries >= maxQueries) break;
     const comparison = splitWalking(best);
-    const samples: { index: number; point: any; supports?: string[] }[] = [],
+    const samples: { index: number; point: Vec3; supports?: string[] }[] = [],
       elapsed = [0],
       actions = [0];
     for (let i = 0; i < comparison.segments.length; i++) {
       const segment = comparison.segments[i];
-      elapsed.push(elapsed[i] + segment.times.at(-1));
+      elapsed.push(elapsed[i] + segment.times.at(-1)!);
       actions.push(actions[i] + (segment.mode === 'walk' ? 0 : 1));
       if (segment.mode !== 'walk') continue;
       if (i === 0 || comparison.segments[i - 1].mode !== 'walk') {
         samples.push({ index: i, point: segment.points[0] });
       }
-      samples.push({ index: i + 1, point: segment.points.at(-1) });
+      samples.push({ index: i + 1, point: segment.points.at(-1)! });
     }
     if (topology)
       for (const sample of samples) {
         sample.supports = planner
           .project(sample.point, { maxVertical: 1e-7 })
-          .map((hit: any): any => hit.surface);
+          .map((hit) => hit.surface);
       }
     const pairs = [];
     for (let i = 0; i < samples.length; i++)
@@ -188,7 +197,7 @@ export function pruneGroundDetours(
           topology &&
           (!from.supports!.length ||
             !to.supports!.length ||
-            !canReach(topology, [], from.supports, new Set<any>(to.supports)))
+            !canReach(topology, [], from.supports!, new Set<string>(to.supports)))
         )
           continue;
         const bound =
@@ -211,14 +220,14 @@ export function pruneGroundDetours(
       if (
         walk.status !== 'complete' ||
         distance(walk.points[0], from.point) > 1e-7 ||
-        distance(walk.points.at(-1), to.point) > 1e-7
+        distance(walk.points.at(-1)!, to.point) > 1e-7
       )
         continue;
       const segments = [
         ...comparison.segments.slice(0, from.index),
         ...walk.segments,
         ...comparison.segments.slice(to.index),
-      ].map(({ gait: _gait, ...segment }): any => segment);
+      ].map(({ gait: _gait, ...segment }) => segment);
       const points = pointsOf(segments, best.points[0]);
       let goalHit = comparison.goalHit;
       if (goalHit && goalHit.segment >= to.index)
@@ -232,9 +241,7 @@ export function pruneGroundDetours(
           points,
           segments,
           goalHit,
-          length: points
-            .slice(1)
-            .reduce((sum: any, p: any, i: any): any => sum + distance(points[i], p), 0),
+          length: points.slice(1).reduce((sum, p, i) => sum + distance(points[i], p), 0),
         },
         locomotion,
       );

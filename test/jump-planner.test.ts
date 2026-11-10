@@ -2,9 +2,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.js';
+import type {
+  GroundArrival,
+  GroundConnection,
+  JumpRouteOptions,
+  Route,
+  Surface,
+  Vec3,
+  Wall,
+} from '../src/index-types.js';
 import { planJumpRoute, createGroundPlanner, findJumpConnections } from '../src/index.js';
 
-const floor = (id, x0, x1, y, z0 = -2, z1 = 2) => ({
+const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
   id,
   vertices: [
     [x0, y, z0],
@@ -13,7 +22,7 @@ const floor = (id, x0, x1, y, z0 = -2, z1 = 2) => ({
     [x0, y, z1],
   ],
 });
-const geometry = (surfaces) => {
+const geometry = (surfaces: Surface[]) => {
   const triangles = surfaces.flatMap((surface) => [
     [surface.vertices[0], surface.vertices[2], surface.vertices[1]],
     [surface.vertices[0], surface.vertices[3], surface.vertices[2]],
@@ -23,7 +32,7 @@ const geometry = (surfaces) => {
     indices: Array.from({ length: triangles.length * 3 }, (_, index) => index),
   };
 };
-const options = {
+const options: JumpRouteOptions = {
   profile: { radius: 0.3, height: 1.7 },
   walls: [],
   speed: 7,
@@ -44,12 +53,14 @@ const options = {
     maxHorizontalSpeed: 6.5,
   },
 };
-const arrival = (position) => [{ id: 'player', position, state: 'available', cost: 0 }];
+const arrival = (position: Vec3): GroundArrival[] => [
+  { id: 'player', position, state: 'available', cost: 0 },
+];
 
 test('a complete initial goal probe is handed to the next phase without a second unchanged solve', () => {
-  const surfaces = [floor('flat', 0, 20, 0)],
-    starts = arrival([2, 0, 0]),
-    goal = [18, 0, 0];
+  const surfaces: Surface[] = [floor('flat', 0, 20, 0)],
+    starts: GroundArrival[] = arrival([2, 0, 0]),
+    goal: Vec3 = [18, 0, 0];
   const planner = createGroundPlanner(surfaces, options),
     plan = planner.plan;
   let calls = 0;
@@ -63,13 +74,17 @@ test('a complete initial goal probe is handed to the next phase without a second
     waypoints: [[10, 0, 0]],
     maxShortcutCandidates: 0,
   });
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.equal(calls, 1);
   assert.deepEqual(result.route, createGroundPlanner(surfaces, options).plan(starts, goal));
 });
 
 test('jointly selects multiple jumps through surfaces missing from the ground-only route', () => {
-  const surfaces = [floor('start', 0, 4, 0), floor('step', 7, 11, 0), floor('goal', 14, 18, 0)];
+  const surfaces: Surface[] = [
+    floor('start', 0, 4, 0),
+    floor('step', 7, 11, 0),
+    floor('goal', 14, 18, 0),
+  ];
   const result = planJumpRoute(
     surfaces,
     createCollisionWorld(geometry(surfaces)),
@@ -77,29 +92,34 @@ test('jointly selects multiple jumps through surfaces missing from the ground-on
     [16, 0, 0],
     options,
   );
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.equal(result.route.segments.filter((segment) => segment.mode === 'jump').length, 2);
   assert.equal(result.diagnostics.strategy, 'surface-action-graph');
   assert.equal(result.diagnostics.groundStatus, 'no-verified-route');
 });
 
 test('shares discovered actions with a cheaper later arrival in the same solve', () => {
-  const surfaces = [floor('start', 0, 4, 0), floor('goal', 7, 11, 0)];
+  const surfaces: Surface[] = [floor('start', 0, 4, 0), floor('goal', 7, 11, 0)];
   const world = createCollisionWorld(geometry(surfaces)),
-    goal = [9, 0, 0];
-  const expensive = { id: 'expensive', position: [2, 0, 0], state: 'available', cost: 5 };
-  const cheap = { ...expensive, id: 'cheap', cost: 0 };
-  const settings = { ...options, maxCandidates: 16, maxShortcutCandidates: 0 };
+    goal: Vec3 = [9, 0, 0];
+  const expensive: GroundArrival = {
+    id: 'expensive',
+    position: [2, 0, 0],
+    state: 'available',
+    cost: 5,
+  };
+  const cheap: GroundArrival = { ...expensive, id: 'cheap', cost: 0 };
+  const settings: JumpRouteOptions = { ...options, maxCandidates: 16, maxShortcutCandidates: 0 };
   const combined = planJumpRoute(surfaces, world, [expensive, cheap], goal, settings);
   const alone = planJumpRoute(surfaces, world, [cheap], goal, settings);
-  assert.equal(alone.route.status, 'complete');
-  assert.equal(combined.route.status, 'complete');
+  assert.ok(alone.route.status === 'complete');
+  assert.ok(combined.route.status === 'complete');
   assert.equal(combined.route.start, 'cheap');
   assert.ok(Math.abs(combined.route.cost - alone.route.cost) < 1e-7);
 });
 
 test('optimizes a successful ground route by combining jumps across an isolated intermediate top', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('left', 0, 4, 0),
     floor('middle', 7, 11, 0),
     floor('right', 14, 18, 0),
@@ -107,10 +127,10 @@ test('optimizes a successful ground route by combining jumps across an isolated 
     floor('back', 4, 14, 0, 20, 24),
     floor('right-detour', 14, 18, 0, 2, 24),
   ];
-  const starts = arrival([2, 0, 0]),
-    goal = [16, 0, 0];
+  const starts: GroundArrival[] = arrival([2, 0, 0]),
+    goal: Vec3 = [16, 0, 0];
   const baseline = createGroundPlanner(surfaces, options).plan(starts, goal);
-  assert.equal(baseline.status, 'complete');
+  assert.ok(baseline.status === 'complete');
   const result = planJumpRoute(
     surfaces,
     createCollisionWorld(geometry(surfaces)),
@@ -118,13 +138,13 @@ test('optimizes a successful ground route by combining jumps across an isolated 
     goal,
     options,
   );
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.equal(result.route.segments.filter((segment) => segment.mode === 'jump').length, 2);
   assert.ok(result.route.cost < baseline.cost / 2);
 });
 
 test('lands inside a lower surface and preserves a feasible incumbent under air-wall constraints', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('upper', 0, 4, 4),
     {
       id: 'ramp',
@@ -137,10 +157,10 @@ test('lands inside a lower surface and preserves a feasible incumbent under air-
     },
     floor('lower', -20, 20, 0, -20, 20),
   ];
-  const starts = arrival([2, 4, 0]),
-    goal = [10, 0, 0],
+  const starts: GroundArrival[] = arrival([2, 4, 0]),
+    goal: Vec3 = [10, 0, 0],
     world = createCollisionWorld(geometry(surfaces));
-  const settings = {
+  const settings: JumpRouteOptions = {
     ...options,
     portals: [
       {
@@ -154,23 +174,23 @@ test('lands inside a lower surface and preserves a feasible incumbent under air-
     ],
   };
   const result = planJumpRoute(surfaces, world, starts, goal, settings);
-  assert.equal(result.route.status, 'complete');
-  assert.ok(result.route.cost < result.diagnostics.baselineCost / 2);
+  assert.ok(result.route.status === 'complete');
+  assert.ok(result.route.cost < result.diagnostics.baselineCost! / 2);
   const air = result.route.segments.find((segment) => segment.mode !== 'walk');
   assert.ok(air);
-  assert.ok(air.points.at(-1)[0] > -19 && air.points.at(-1)[0] < 19);
+  assert.ok(air.points.at(-1)![0] > -19 && air.points.at(-1)![0] < 19);
   const blocked = planJumpRoute(surfaces, world, starts, goal, {
     ...settings,
     walls: [{ min: [4.5, 3, -20], max: [5, 20, 19], state: 'unknown' }],
   });
-  assert.equal(blocked.route.status, 'complete');
-  assert.ok(blocked.route.cost <= blocked.diagnostics.baselineCost + 1e-7);
+  assert.ok(blocked.route.status === 'complete');
+  assert.ok(blocked.route.cost <= blocked.diagnostics.baselineCost! + 1e-7);
 });
 
 test('does not replace a direct walk with a slower jump and handles unavailable arrivals', () => {
-  const surfaces = [floor('flat', 0, 20, 0, -4, 4)],
-    starts = arrival([2, 0, 0]),
-    goal = [18, 0, 0];
+  const surfaces: Surface[] = [floor('flat', 0, 20, 0, -4, 4)],
+    starts: GroundArrival[] = arrival([2, 0, 0]),
+    goal: Vec3 = [18, 0, 0];
   const result = planJumpRoute(
     surfaces,
     createCollisionWorld(geometry(surfaces)),
@@ -178,7 +198,7 @@ test('does not replace a direct walk with a slower jump and handles unavailable 
     goal,
     options,
   );
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.ok(result.route.segments.every((segment) => segment.mode === 'walk'));
   assert.equal(result.route.cost, result.diagnostics.baselineCost);
   const locked = planJumpRoute(
@@ -194,12 +214,12 @@ test('does not replace a direct walk with a slower jump and handles unavailable 
 
 test('removes a long corner detour with a small improvement budget and retains blocked alternatives', () => {
   for (const angle of [0, Math.PI / 3]) {
-    const transform = ([x, y, z]) => [
+    const transform = ([x, y, z]: readonly number[]): Vec3 => [
       300 + x * Math.cos(angle) - z * Math.sin(angle),
       y,
       -500 + x * Math.sin(angle) + z * Math.cos(angle),
     ];
-    const surfaces = [
+    const surfaces: Surface[] = [
       floor('left', 0, 4, 0, 0, 60),
       floor('back', 4, 12, 0, 56, 60),
       floor('right', 12, 16, 0, 0, 60),
@@ -207,17 +227,19 @@ test('removes a long corner detour with a small improvement budget and retains b
         floor(`decoration/${index}`, -3 - index * 2, -2 - index * 2, 0, 0, 1),
       ),
     ].map((surface) => ({ ...surface, vertices: surface.vertices.map(transform) }));
-    const starts = arrival(transform([3.5, 0, 20])),
-      goal = transform([12.5, 0, 20]);
-    const settings = { ...options, maxShortcutCandidates: 16 };
+    const starts: GroundArrival[] = arrival(transform([3.5, 0, 20])),
+      goal: Vec3 = transform([12.5, 0, 20]);
+    const settings: JumpRouteOptions = { ...options, maxShortcutCandidates: 16 };
     const world = createCollisionWorld(geometry(surfaces));
     const baseline = createGroundPlanner(surfaces, settings).plan(starts, goal);
+    assert.ok(baseline.status === 'complete');
     const result = planJumpRoute(surfaces, world, starts, goal, settings);
     const broadOnly = planJumpRoute(surfaces, world, starts, goal, {
       ...settings,
       maxCandidates: 16,
     });
-    assert.equal(result.route.status, 'complete');
+    assert.ok(broadOnly.route.status === 'complete');
+    assert.ok(result.route.status === 'complete');
     assert.ok(result.route.cost <= broadOnly.route.cost + 1e-7);
     assert.ok(
       result.route.cost < baseline.cost / 2,
@@ -239,7 +261,7 @@ test('removes a long corner detour with a small improvement budget and retains b
       [10, 55],
       [6, 55],
     ].map(([x, z]) => transform([x, 0, z]));
-    const walls = [
+    const walls: Wall[] = [
       {
         state: 'active',
         min: [Math.min(...ring.map((p) => p[0])), -1, Math.min(...ring.map((p) => p[2]))],
@@ -248,16 +270,20 @@ test('removes a long corner detour with a small improvement budget and retains b
       },
     ];
     const blocked = planJumpRoute(surfaces, world, starts, goal, { ...settings, walls });
-    assert.equal(blocked.route.status, 'complete');
+    assert.ok(blocked.route.status === 'complete');
     assert.ok(blocked.route.cost <= baseline.cost + 1e-7);
   }
 });
 
 test('combines previously discovered partial connections without colliding with their identifiers', () => {
-  const surfaces = [floor('start', 0, 4, 0), floor('middle', 7, 11, 0), floor('goal', 14, 18, 0)];
+  const surfaces: Surface[] = [
+    floor('start', 0, 4, 0),
+    floor('middle', 7, 11, 0),
+    floor('goal', 14, 18, 0),
+  ];
   const world = createCollisionWorld(geometry(surfaces)),
-    starts = arrival([2, 0, 0]),
-    goal = [16, 0, 0];
+    starts: GroundArrival[] = arrival([2, 0, 0]),
+    goal: Vec3 = [16, 0, 0];
   const existing = findJumpConnections(surfaces, world, {
     ...options,
     from: starts[0].position,
@@ -268,7 +294,7 @@ test('combines previously discovered partial connections without colliding with 
     ...options,
     connections: existing,
   });
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.equal(result.route.segments.filter((segment) => segment.mode === 'jump').length, 2);
   assert.equal(
     new Set(result.connections.map((connection) => connection.id)).size,
@@ -277,8 +303,12 @@ test('combines previously discovered partial connections without colliding with 
 });
 
 test('retains valid partial actions without claiming that an unresolved goal is reachable', () => {
-  const surfaces = [floor('start', 0, 4, 0), floor('middle', 7, 11, 0), floor('goal', 30, 34, 0)];
-  const starts = arrival([2, 0, 0]),
+  const surfaces: Surface[] = [
+    floor('start', 0, 4, 0),
+    floor('middle', 7, 11, 0),
+    floor('goal', 30, 34, 0),
+  ];
+  const starts: GroundArrival[] = arrival([2, 0, 0]),
     world = createCollisionWorld(geometry(surfaces));
   const result = planJumpRoute(surfaces, world, starts, [32, 0, 0], {
     ...options,
@@ -299,14 +329,14 @@ test('retains valid partial actions without claiming that an unresolved goal is 
 });
 
 test('uses coarse directions to discover physical action chains while jointly solving the actual endpoint', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('start', 0, 4, 0, 0, 4),
     floor('middle', 7, 11, 0, 0, 4),
     floor('turn', 7, 11, 1.5, 7, 11),
     floor('goal', 14, 18, 3, 7, 11),
   ];
-  const starts = arrival([2, 0, 2]),
-    goal = [16, 3, 9],
+  const starts: GroundArrival[] = arrival([2, 0, 2]),
+    goal: Vec3 = [16, 3, 9],
     world = createCollisionWorld(geometry(surfaces));
   const events = [];
   const result = planJumpRoute(surfaces, world, starts, goal, {
@@ -317,7 +347,7 @@ test('uses coarse directions to discover physical action chains while jointly so
     ],
     onProgress: (progress) => events.push(progress),
   });
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.deepEqual(result.route.points.at(-1), goal);
   assert.ok(result.route.segments.filter((segment) => segment.mode === 'jump').length >= 2);
   assert.ok(events.length > 0);
@@ -332,7 +362,7 @@ test('uses coarse directions to discover physical action chains while jointly so
 });
 
 test('keeps shortcut bounds valid when an existing movement edge is faster than running', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('origin', 0, 4, 4),
     floor('upper', 100, 104, 4),
     {
@@ -347,7 +377,7 @@ test('keeps shortcut bounds valid when an existing movement edge is faster than 
     floor('back', 100, 115, 0, 20, 24),
     floor('lower', 107, 115, 0, -2, 20),
   ];
-  const connection = {
+  const connection: GroundConnection = {
     id: 'authored',
     mode: 'launch',
     state: 'open',
@@ -357,11 +387,11 @@ test('keeps shortcut bounds valid when an existing movement edge is faster than 
     ],
     times: [0, 1],
   };
-  const settings = { ...options, connections: [connection] },
-    starts = arrival([2, 4, 0]),
-    goal = [110, 0, 0];
+  const settings: JumpRouteOptions = { ...options, connections: [connection] },
+    starts: GroundArrival[] = arrival([2, 4, 0]),
+    goal: Vec3 = [110, 0, 0];
   const baseline = createGroundPlanner(surfaces, settings).plan(starts, goal);
-  assert.equal(baseline.status, 'complete');
+  assert.ok(baseline.status === 'complete');
   const result = planJumpRoute(
     surfaces,
     createCollisionWorld(geometry(surfaces)),
@@ -369,7 +399,7 @@ test('keeps shortcut bounds valid when an existing movement edge is faster than 
     goal,
     settings,
   );
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.ok(result.route.cost < baseline.cost);
   assert.ok(result.route.segments.some((segment) => segment.mode === 'launch'));
   assert.ok(
@@ -378,16 +408,16 @@ test('keeps shortcut bounds valid when an existing movement edge is faster than 
 });
 
 test('discovers a multi-jump approach after a known launch without spending its improvement budget', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('origin', 0, 4, 0),
     floor('landing', 100, 104, 0),
     floor('box', 107, 111, 1.5),
     floor('goal', 114, 118, 3),
   ];
   const world = createCollisionWorld(geometry(surfaces)),
-    starts = arrival([2, 0, 0]),
-    goal = [116, 3, 0];
-  const launch = {
+    starts: GroundArrival[] = arrival([2, 0, 0]),
+    goal: Vec3 = [116, 3, 0];
+  const launch: GroundConnection = {
     id: 'launch',
     mode: 'launch',
     state: 'open',
@@ -397,12 +427,20 @@ test('discovers a multi-jump approach after a known launch without spending its 
     ],
     times: [0, 1],
   };
-  const settings = { ...options, connections: [launch], maxShortcutCandidates: 0 };
+  const settings: JumpRouteOptions = {
+    ...options,
+    connections: [launch],
+    maxShortcutCandidates: 0,
+  };
   const result = planJumpRoute(surfaces, world, starts, goal, settings);
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.equal(result.route.segments.filter((segment) => segment.mode === 'jump').length, 2);
   assert.ok(result.route.segments.some((segment) => segment.connection === launch.id));
-  assert.equal(result.diagnostics.searches[0].targetReached, true);
+  assert.equal(
+    'targetReached' in result.diagnostics.searches[0] &&
+      result.diagnostics.searches[0].targetReached,
+    true,
+  );
   const closed = planJumpRoute(surfaces, world, starts, goal, {
     ...settings,
     connections: [{ ...launch, state: 'closed' }],
@@ -412,12 +450,12 @@ test('discovers a multi-jump approach after a known launch without spending its 
 
 test('reaches floors beneath a platform using outward and returning air control', () => {
   for (const angle of [0, Math.PI / 3, Math.PI / 2]) {
-    const transform = ([x, y, z]) => [
+    const transform = ([x, y, z]: readonly number[]): Vec3 => [
       -512.8 + x * Math.cos(angle) - z * Math.sin(angle),
       y,
       1024.8 + x * Math.sin(angle) + z * Math.cos(angle),
     ];
-    const transformSurface = (surface) => ({
+    const transformSurface = (surface: Surface) => ({
       ...surface,
       vertices: surface.vertices.map(transform),
     });
@@ -432,7 +470,7 @@ test('reaches floors beneath a platform using outward and returning air control'
         ),
       ),
     );
-    const settings = {
+    const settings: JumpRouteOptions = {
       ...options,
       maxDrop: 30,
       maxCandidates: 1000,
@@ -448,10 +486,10 @@ test('reaches floors beneath a platform using outward and returning air control'
         airDeceleration: 10,
       },
     };
-    const starts = arrival(transform([2, 20, 0])),
-      goal = transform([2, 0, 0]);
+    const starts: GroundArrival[] = arrival(transform([2, 20, 0])),
+      goal: Vec3 = transform([2, 0, 0]);
     const result = planJumpRoute(surfaces, collision, starts, goal, settings);
-    assert.equal(result.route.status, 'complete');
+    assert.ok(result.route.status === 'complete');
     const drop = result.route.segments.find((segment) => segment.mode === 'drop');
     assert.ok(drop);
     assert.ok(drop.points.some((point) => Math.hypot(point[0] - goal[0], point[2] - goal[2]) > 2));
@@ -485,8 +523,8 @@ test('searches distant openings before exhausting nearby tessellation refinement
         1.6,
       ),
     );
-    const surfaces = [...upper, floor('lower', 0.4, 79.6, 0, -1.6, 1.6)];
-    const wall = (id, x0, x1, z) => ({
+    const surfaces: Surface[] = [...upper, floor('lower', 0.4, 79.6, 0, -1.6, 1.6)];
+    const wall = (id: string, x0: number, x1: number, z: number): Surface => ({
       id,
       vertices: [
         [x0, 20, z],
@@ -537,7 +575,7 @@ test('searches distant openings before exhausting nearby tessellation refinement
 });
 
 test('uses continuous ground approaches across overlapping patches before jumping', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('arrival', 0.4, 4.4, 20, -1.6, 1.6),
     floor('extension', 3.4, 7.6, 20, -1.6, 1.6),
     floor('goal', 8, 12, 0, -1.6, 1.6),
@@ -545,7 +583,7 @@ test('uses continuous ground approaches across overlapping patches before jumpin
   const collision = createCollisionWorld(
     geometry([floor('upper', 0, 8, 20), floor('lower', 8, 12, 0)]),
   );
-  const walls = [-2, 2].map((z) => ({
+  const walls: Wall[] = [-2, 2].map((z) => ({
     min: [-1, 10, z - 0.05],
     max: [9, 30, z + 0.05],
     state: 'unknown',
@@ -556,19 +594,19 @@ test('uses continuous ground approaches across overlapping patches before jumpin
     maxDrop: 30,
     maxCandidates: 1500,
   });
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   const air = result.route.segments.find((segment) => segment.mode !== 'walk');
   assert.ok(air);
   assert.ok(air.points[0][0] > 4.4);
 });
 
 test('reuses prepared walking topology while admitting connections added after preparation', () => {
-  const surfaces = [floor('left', 0, 4, 0), floor('right', 14, 18, 0)];
-  const starts = arrival([2, 0, 0]),
-    goal = [16, 0, 0];
+  const surfaces: Surface[] = [floor('left', 0, 4, 0), floor('right', 14, 18, 0)];
+  const starts: GroundArrival[] = arrival([2, 0, 0]),
+    goal: Vec3 = [16, 0, 0];
   const groundPlanner = createGroundPlanner(surfaces, options);
   assert.equal(groundPlanner.plan(starts, goal).status, 'no-verified-route');
-  const connection = {
+  const connection: GroundConnection = {
     id: 'rope',
     mode: 'rope',
     state: 'open',
@@ -584,21 +622,21 @@ test('reuses prepared walking topology while admitting connections added after p
     connections: [connection],
     maxCandidates: 0,
   });
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.equal(result.route.cost, 2);
   assert.ok(result.route.segments.some((segment) => segment.connection === 'rope'));
   assert.equal(groundPlanner.plan(starts, goal).status, 'no-verified-route');
 });
 
 test('coalesces coarse goals by directed ground connectivity without merging floors', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('left', 0, 4, 0),
     floor('right', 4, 8, 0),
     floor('upper', 0, 4, 5),
     floor('unreachable', 30, 34, 20),
   ];
   const world = createCollisionWorld(geometry(surfaces));
-  const settings = {
+  const settings: JumpRouteOptions = {
     ...options,
     maxCandidates: 80,
     maxShortcutCandidates: 0,
@@ -613,8 +651,8 @@ test('coalesces coarse goals by directed ground connectivity without merging flo
       },
     ],
   };
-  const starts = arrival([2, 0, 0]),
-    goal = [32, 20, 0];
+  const starts: GroundArrival[] = arrival([2, 0, 0]),
+    goal: Vec3 = [32, 20, 0];
   const unique = planJumpRoute(surfaces, world, starts, goal, {
     ...settings,
     waypoints: [
@@ -632,32 +670,36 @@ test('coalesces coarse goals by directed ground connectivity without merging flo
     ],
   });
   assert.notEqual(duplicated.route.status, 'complete');
-  assert.equal(duplicated.diagnostics.directions.regions, 2);
-  assert.equal(duplicated.diagnostics.directions.requestedGoals, 4);
+  assert.equal(duplicated.diagnostics.directions!.regions, 2);
+  assert.equal(duplicated.diagnostics.directions!.requestedGoals, 4);
   assert.deepEqual(duplicated.connections, unique.connections);
   assert.equal(
-    duplicated.diagnostics.directions.budgetPerGoal,
-    unique.diagnostics.directions.budgetPerGoal,
+    duplicated.diagnostics.directions!.budgetPerGoal,
+    unique.diagnostics.directions!.budgetPerGoal,
   );
 });
 
 test('reuses static discovery geometry without carrying goal or collision proofs between queries', () => {
-  const surfaces = [floor('start', 0, 4, 0), floor('step', 7, 11, 0), floor('goal', 14, 18, 0)];
+  const surfaces: Surface[] = [
+    floor('start', 0, 4, 0),
+    floor('step', 7, 11, 0),
+    floor('goal', 14, 18, 0),
+  ];
   const world = createCollisionWorld(geometry(surfaces));
-  const starts = arrival([2, 0, 0]);
+  const starts: GroundArrival[] = arrival([2, 0, 0]);
   const planner = createGroundPlanner(surfaces, options);
-  const settings = { ...options, groundPlanner: planner };
+  const settings: JumpRouteOptions = { ...options, groundPlanner: planner };
   for (const goal of [
     [16, 0, 0],
     [9, 0, 0],
     [16, 0, 0],
-  ]) {
+  ] satisfies Vec3[]) {
     const reused = planJumpRoute(surfaces, world, starts, goal, settings);
     const fresh = planJumpRoute(surfaces, world, starts, goal, options);
     assert.deepEqual(reused, fresh);
   }
   const obstructed = {
-    groundAt: (...args) => world.groundAt(...args),
+    groundAt: (...args: Parameters<typeof world.groundAt>) => world.groundAt(...args),
     sweepCapsule: () => ({ triangle: 0, distance: 0 }),
   };
   assert.notEqual(
@@ -671,7 +713,7 @@ test('reuses static discovery geometry without carrying goal or collision proofs
 });
 
 test('resolves a jump approach to a causal launch entry after the primary goal search fails', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('origin', 0, 4, 0),
     floor('step', 7, 11, 1.5),
     floor('entry', 14, 18, 3),
@@ -685,7 +727,7 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
       ),
     ),
   ];
-  const launch = {
+  const launch: GroundConnection = {
     id: 'launch',
     mode: 'launch',
     state: 'open',
@@ -695,7 +737,7 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
     ],
     times: [0, 1],
   };
-  const settings = {
+  const settings: JumpRouteOptions = {
     ...options,
     speed: 4,
     profile: { radius: 0.2, height: 1.6 },
@@ -705,12 +747,17 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
     connections: [launch],
   };
   const world = createCollisionWorld(geometry(surfaces)),
-    starts = arrival([2, 0, 0]),
-    goal = [102, 20, 0];
+    starts: GroundArrival[] = arrival([2, 0, 0]),
+    goal: Vec3 = [102, 20, 0];
   const planner = createGroundPlanner(surfaces, settings),
     plan = planner.plan;
-  const progress = [],
-    queries = [];
+  const progress: Parameters<NonNullable<JumpRouteOptions['onProgress']>>[0][] = [],
+    queries: {
+      causal: boolean;
+      target: Vec3;
+      connections: GroundConnection[];
+      status: Route['status'];
+    }[] = [];
   let causal = false;
   planner.plan = (...args) => {
     const result = plan(...args);
@@ -718,7 +765,7 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
       queries.push({
         causal,
         target: args[1],
-        connections: [...args[2].connections],
+        connections: [...args[2]!.connections!],
         status: result.status,
       });
     return result;
@@ -731,13 +778,13 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
       if (value.phase === 'device-entry-search') causal = true;
     },
   });
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.equal(result.route.segments.filter((segment) => segment.mode === 'jump').length, 2);
   assert.ok(result.route.segments.some((segment) => segment.connection === launch.id));
   // Lazy screening retains the authored entry and the discovered partial entry.
-  assert.equal(result.diagnostics.deviceApproaches.goals, 2);
-  assert.equal(result.diagnostics.deviceApproaches.budgetPerGoal, settings.maxCandidates);
-  assert.equal(result.diagnostics.deviceApproaches.searches[0].device, launch.id);
+  assert.equal(result.diagnostics.deviceApproaches!.goals, 2);
+  assert.equal(result.diagnostics.deviceApproaches!.budgetPerGoal, settings.maxCandidates);
+  assert.equal(result.diagnostics.deviceApproaches!.searches[0].device, launch.id);
   assert.ok(
     progress.some(
       (value) =>
@@ -747,14 +794,14 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
   // Observe the real planner without replacing its results. The small budget
   // leaves one valid primary jump which the entry search must continue using.
   const primary = queries.filter((query) => !query.causal).at(-1);
-  assert.equal(primary.status, 'no-verified-route');
-  const partial = primary.connections.find((connection) => connection.mode === 'jump');
+  assert.equal(primary!.status, 'no-verified-route');
+  const partial = primary!.connections.find((connection) => connection.mode === 'jump');
   assert.ok(partial);
   const entry = queries.find(
     (query) =>
       query.causal && query.target.every((value, axis) => value === launch.points[0][axis]),
   );
-  assert.ok(entry.connections.includes(partial));
+  assert.ok(entry!.connections.includes(partial));
   assert.ok(result.connections.includes(partial));
   assert.equal(
     new Set(result.connections.map((connection) => connection.id)).size,
@@ -763,7 +810,7 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
 
   const failed = planJumpRoute(surfaces, world, starts, goal, { ...settings, maxCandidates: 2 });
   assert.equal(failed.route.status, 'no-verified-route');
-  assert.equal(failed.diagnostics.deviceApproaches.searches[0].status, 'no-verified-route');
+  assert.equal(failed.diagnostics.deviceApproaches!.searches[0].status, 'no-verified-route');
   assert.ok(
     failed.connections.some(
       (connection) => connection.fromSurface === 'origin' && connection.toSurface === 'step',
@@ -788,7 +835,7 @@ test('resolves a jump approach to a causal launch entry after the primary goal s
 });
 
 test('returns a complete device approach before probing every other known entry', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     floor('origin', 0, 4, 0),
     floor('step', 7, 11, 1.5),
     floor('entry', 14, 18, 3),
@@ -802,7 +849,7 @@ test('returns a complete device approach before probing every other known entry'
       ),
     ),
   ];
-  const connections = Array.from({ length: 12 }, (_, index) => ({
+  const connections: GroundConnection[] = Array.from({ length: 12 }, (_, index) => ({
     id: `launch/${index}`,
     mode: 'launch',
     state: 'open',
@@ -812,7 +859,7 @@ test('returns a complete device approach before probing every other known entry'
     ],
     times: [0, 1],
   }));
-  const settings = {
+  const settings: JumpRouteOptions = {
     ...options,
     speed: 4,
     profile: { radius: 0.2, height: 1.6 },
@@ -835,7 +882,7 @@ test('returns a complete device approach before probing every other known entry'
     [102, 20, 0],
     { ...settings, groundPlanner: planner },
   );
-  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.status === 'complete');
   assert.ok(result.route.segments.some((segment) => segment.connection === connections[0].id));
   // Each probe executes the real ground planner with the full action overlay.
   // A useful first entry must yield its result before unrelated pairwise probes.
@@ -843,5 +890,5 @@ test('returns a complete device approach before probing every other known entry'
     probes < connections.length,
     `probed ${probes} entries before returning the first route`,
   );
-  assert.equal(result.diagnostics.deviceApproaches.searches.length, 1);
+  assert.equal(result.diagnostics.deviceApproaches!.searches.length, 1);
 });

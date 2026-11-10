@@ -1,14 +1,34 @@
+import type { Bounds } from './bounds.js';
+import type { JumpModel, Vec3, Surface } from './index-types.js';
 import { jumpDuration } from './jumps.js';
+
+interface FaceBounds {
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+  x0: number;
+  y0: number;
+  z0: number;
+  x1: number;
+  y1: number;
+  z1: number;
+  scale: number;
+}
+export type Face = Surface & Bounds;
+
 const epsilon = Number.EPSILON;
 const maximumCells = 16;
 const pointDistance = (
-  point: any,
-  minX: any,
-  minY: any,
-  minZ: any,
-  maxX: any,
-  maxY: any,
-  maxZ: any,
+  point: Vec3,
+  minX: number,
+  minY: number,
+  minZ: number,
+  maxX: number,
+  maxY: number,
+  maxZ: number,
 ) =>
   Math.hypot(
     Math.max(minX - point[0], 0, point[0] - maxX),
@@ -17,7 +37,7 @@ const pointDistance = (
   );
 // Landing witnesses use bounded affine interpolation of these vertices. Keep
 // their rounding allowance outside the box, including the averaged inset centre.
-const padding = (surface: any, axis: any) => {
+const padding = (surface: Face, axis: number) => {
   const low = surface.min[axis],
     high = surface.max[axis];
   if (low === high) {
@@ -42,10 +62,23 @@ export function createCandidateBounds({
   departure,
   pairs,
   limit,
-}: any): any {
-  const vertical = { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' };
-  const faces = new WeakMap<any, any>();
-  const boundsFor = (surface: any): any => {
+}: {
+  model: JumpModel;
+  endpointTolerance?: number;
+  diversity: number;
+  speed: number;
+  to: Vec3;
+  centers: Map<string, Vec3>;
+  departure: Map<string, number>;
+  pairs: Map<string, { uncertain: boolean; score: number }[]>;
+  limit: number;
+}) {
+  const vertical = {
+    ...model,
+    mode: model.maxJumpHeight > 0 ? ('jump' as const) : ('drop' as const),
+  };
+  const faces = new WeakMap<Face, FaceBounds | false>();
+  const boundsFor = (surface: Face): FaceBounds | false => {
     const previous = faces.get(surface);
     if (previous !== undefined) return previous;
     const padX = padding(surface, 0),
@@ -102,12 +135,12 @@ export function createCandidateBounds({
     faces.set(surface, value);
     return value;
   };
-  return (start: any, surface: any) => {
+  return (start: { cell?: string; position: Vec3; walk: number }, surface: Face) => {
     const bounds = boundsFor(surface);
     if (!bounds) return false;
     const { minX, minY, minZ, maxX, maxY, maxZ, x0, y0, z0, x1, y1, z1 } = bounds;
     const cell =
-      start.cell ?? start.position.map((value: any) => Math.floor(value / diversity)).join('/');
+      start.cell ?? start.position.map((value) => Math.floor(value / diversity)).join('/');
     for (let x = x0; x <= x1; x++)
       for (let y = y0; y <= y1; y++)
         for (let z = z0; z <= z1; z++) {
@@ -115,7 +148,7 @@ export function createCandidateBounds({
             worst = group?.at(-1);
           // A face might contain a certain witness. Its score cannot dominate an
           // uncertain bucket tail because uncertainty sorts before numerical score.
-          if (!worst || group.length < limit || worst.uncertain) return false;
+          if (!worst || group!.length < limit || worst.uncertain) return false;
         }
     const peak = start.position[1] + model.maxJumpHeight;
     // Nominal flight time decreases with landing height. Above the whole
@@ -129,7 +162,7 @@ export function createCandidateBounds({
         vertical,
       ) ?? 0;
     const connected = departure.has(surface.id),
-      remaining = connected ? departure.get(surface.id) : 0;
+      remaining = connected ? departure.get(surface.id)! : 0;
     const reference = connected ? centers.get(surface.id) : to;
     if (!reference) return false;
     const scale = Math.max(
@@ -144,7 +177,7 @@ export function createCandidateBounds({
     for (let x = x0; x <= x1; x++)
       for (let y = y0; y <= y1; y++)
         for (let z = z0; z <= z1; z++) {
-          const worst = pairs.get(`${cell}:${x}/${y}/${z}`).at(-1);
+          const worst = pairs.get(`${cell}:${x}/${y}/${z}`)!.at(-1)!;
           const distance = pointDistance(
             reference,
             Math.max(minX, x * diversity - cellPadding),

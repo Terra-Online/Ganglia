@@ -1,10 +1,10 @@
-export function createMinHeap(): any {
-  const heap: any = [];
+export function createMinHeap<T extends { cost: number }>() {
+  const heap: T[] = [];
   return {
     get size() {
       return heap.length;
     },
-    push(item: any) {
+    push(item: T) {
       let index = heap.length;
       heap.push(item);
       while (index > 0) {
@@ -15,7 +15,7 @@ export function createMinHeap(): any {
       }
       heap[index] = item;
     },
-    pop(): any {
+    pop(): T | undefined {
       const first = heap[0],
         last = heap.pop();
       if (heap.length) {
@@ -23,11 +23,11 @@ export function createMinHeap(): any {
         while (index * 2 + 1 < heap.length) {
           let child = index * 2 + 1;
           if (child + 1 < heap.length && heap[child + 1].cost < heap[child].cost) child++;
-          if (heap[child].cost >= last.cost) break;
+          if (heap[child].cost >= last!.cost) break;
           heap[index] = heap[child];
           index = child;
         }
-        heap[index] = last;
+        heap[index] = last!;
       }
       return first;
     },

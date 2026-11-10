@@ -1,21 +1,52 @@
-const distance = (a: any, b: any) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-const compare = (a: any, b: any) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3];
+import type { GroundTopology } from './connectivity.js';
+import type { Surface, Vec3 } from './index-types.js';
+interface Occurrence {
+  surface: string;
+  ordinal: number;
+}
+interface Vertex extends Occurrence {
+  component: number;
+  position: Vec3;
+  x: number;
+  z: number;
+  retained: boolean;
+  repeats?: Occurrence[];
+}
+interface Group {
+  sources: Vertex[];
+  retained: Vertex[];
+  positions?: Map<string, Vertex>;
+}
+interface Proposal {
+  key: string;
+  rank: number[];
+  first: number[];
+  from: string;
+  to: string;
+  points: Vec3[];
+  length: number;
+  unresolved: boolean;
+}
+const distance = (a: readonly number[], b: readonly number[]) =>
+  Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const compare = (a: readonly number[], b: readonly number[]) =>
+  a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3];
 /** Index vertices once, then materialize transfers only for expanded components.
  * A bucket still chooses the same shortest proposal as the eager input-order pass.
  * Both sides of an encounter are indexed because its later vertex owns the bucket.
  */
 export function createTransferQuery(
-  surfaces: any,
-  topology: any,
-  radius: any,
-  verticalRange: any,
-): any {
-  const cells = new Map<any, any>(),
-    components = new Map<any, any>();
-  const cellKey = (x: any, z: any) => `${x},${z}`;
+  surfaces: Surface[],
+  topology: GroundTopology,
+  radius: number,
+  verticalRange: number,
+) {
+  const cells = new Map<string, { groups: Map<number, Group> }>(),
+    components = new Map<number, Vertex[]>();
+  const cellKey = (x: number, z: number) => `${x},${z}`;
   let ordinal = 0;
   for (const surface of surfaces) {
-    const component = topology.components[topology.ids.get(surface.id)];
+    const component = topology.components[topology.ids.get(surface.id)!];
     const vertices = components.get(component) ?? [];
     components.set(component, vertices);
     for (const position of surface.vertices) {
@@ -24,26 +55,24 @@ export function createTransferQuery(
       const key = cellKey(x, z);
       let cell = cells.get(key);
       if (!cell) {
-        cell = { groups: new Map<any, any>() };
+        cell = { groups: new Map<number, Group>() };
         cells.set(key, cell);
       }
       let group = cell.groups.get(component);
       if (!group) {
-        group = { sources: [], retained: [], positions: new Map<any, any>() };
+        group = { sources: [], retained: [], positions: new Map<string, Vertex>() };
         cell.groups.set(component, group);
       }
       const positionKey = position.join('/'),
         occurrence = { surface: surface.id, ordinal: ordinal++ };
-      const duplicate = group.positions.get(positionKey);
+      const duplicate = group.positions!.get(positionKey);
       if (duplicate) {
         (duplicate.repeats ??= []).push(occurrence);
         continue;
       }
-      const retained = !group.retained.some(
-        (other: any) => distance(position, other.position) < 0.001,
-      );
-      const vertex = { ...occurrence, component, position, x, z, retained };
-      group.positions.set(positionKey, vertex);
+      const retained = !group.retained.some((other) => distance(position, other.position) < 0.001);
+      const vertex: Vertex = { ...occurrence, component, position, x, z, retained };
+      group.positions!.set(positionKey, vertex);
       vertices.push(vertex);
       group.sources.push(vertex);
       if (retained) group.retained.push(vertex);
@@ -51,9 +80,9 @@ export function createTransferQuery(
   }
   for (const cell of cells.values())
     for (const group of cell.groups.values()) delete group.positions;
-  return (component: any): any => {
-    const proposals = new Map<any, any>();
-    const consider = (later: any, earlier: any) => {
+  return (component: number): Proposal[] => {
+    const proposals = new Map<string, Proposal>();
+    const consider = (later: Vertex, earlier: Vertex) => {
       if (
         later.component === earlier.component ||
         Math.abs(later.position[1] - earlier.position[1]) > verticalRange ||
@@ -65,7 +94,7 @@ export function createTransferQuery(
         return;
       // Duplicate source vertices share geometry, but the first occurrence after
       // this retained neighbour determines the original encounter and surface id.
-      let occurrence = later;
+      let occurrence: Occurrence = later;
       if (later.ordinal <= earlier.ordinal) {
         const repeats = later.repeats ?? [];
         let low = 0,

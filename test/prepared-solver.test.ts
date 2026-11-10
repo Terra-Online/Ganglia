@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.js';
+import type { Surface } from '../src/index-types.js';
 import { planJumpRoute } from '../src/jump-planner.js';
+import type { RouteQuery } from '../src/solver/index-types.js';
 import { prepareSurfaceActionSolver } from '../src/solver/index.js';
 
-const surfaces = [0, 7, 14].map((x, i) => ({
+const surfaces: Surface[] = [0, 7, 14].map((x, i) => ({
   id: `floor/${i}`,
   vertices: [
     [x, 0, -2],
@@ -44,7 +46,7 @@ const options = {
     maxHorizontalSpeed: 6.5,
   },
 };
-const query = {
+const query: RouteQuery = {
   starts: [{ id: 'player', position: [2, 0, 0], state: 'available', cost: 0 }],
   goal: [16, 0, 0],
 };
@@ -59,7 +61,7 @@ test('a new prepared query preserves the existing solver result across interveni
       query.goal,
       options,
     );
-    assert.equal(expected.route.status, 'complete');
+    assert.ok(expected.route.status === 'complete');
     assert.equal(expected.route.segments.filter((s) => s.mode === 'jump').length, 2);
     assert.deepEqual(await solver.solve(query), expected);
     await solver.solve({ ...query, goal: [102, 0, 0] });
@@ -70,7 +72,7 @@ test('a new prepared query preserves the existing solver result across interveni
 });
 
 test('a same-scene batch preserves order, budgets and independent search state', async () => {
-  const queries = [
+  const queries: readonly RouteQuery[] = [
     query,
     { ...query, options: { maxCandidates: 0 } },
     { starts: [{ ...query.starts[0], position: query.goal }], goal: query.starts[0].position },

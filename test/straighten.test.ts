@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Portal, Surface, Vec3, Wall } from '../src/index-types.js';
 import { createGroundStraightener } from '../src/straighten.js';
 
 const options = { walls: [], profile: { radius: 0.3, height: 1.7 } };
-const rectangle = (id, x, z, width = 1, depth = 1, height = () => 0) => ({
+const rectangle = (
+  id: string,
+  x: number,
+  z: number,
+  width = 1,
+  depth = 1,
+  height: (x: number, z: number) => number = () => 0,
+): Surface => ({
   id,
   vertices: [
     [x, height(x, z), z],
@@ -13,12 +21,12 @@ const rectangle = (id, x, z, width = 1, depth = 1, height = () => 0) => ({
     [x, height(x, z + depth), z + depth],
   ],
 });
-const closePoint = (actual, expected) =>
+const closePoint = (actual: Vec3, expected: number[]) =>
   actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 1e-6));
 
 test('removes centre and portal zigzags across an arbitrary planar strip', () => {
-  const surfaces = Array.from({ length: 12 }, (_, i) => rectangle(String(i), i, 0));
-  const points = [[0.1, 0, 0.2]];
+  const surfaces: Surface[] = Array.from({ length: 12 }, (_, i) => rectangle(String(i), i, 0));
+  const points: Vec3[] = [[0.1, 0, 0.2]];
   for (let i = 0; i < 11; i++) points.push([i + 0.5, 0, 0.5], [i + 1, 0, 0.5]);
   points.push([11.9, 0, 0.8]);
   const original = structuredClone(points);
@@ -29,14 +37,14 @@ test('removes centre and portal zigzags across an arbitrary planar strip', () =>
 });
 
 test('retains required corners around an unsupported inside corner', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     rectangle('a', 0, 0),
     rectangle('b', 1, 0),
     rectangle('c', 2, 0),
     rectangle('d', 2, 1),
     rectangle('e', 2, 2),
   ];
-  const input = [
+  const input: Vec3[] = [
     [0.1, 0, 0.5],
     [0.5, 0, 0.5],
     [1, 0, 0.5],
@@ -61,10 +69,10 @@ test('retains required corners around an unsupported inside corner', () => {
 });
 
 test('preserves a closed portal and a gap even where endpoints share a height', () => {
-  const closed = rectangle('a', 0, 0);
+  const closed: Surface = rectangle('a', 0, 0);
   closed.portals = [0, 2, 3];
-  const surfaces = [closed, rectangle('b', 1, 0), rectangle('far', 2.1, 0)];
-  const input = [
+  const surfaces: Surface[] = [closed, rectangle('b', 1, 0), rectangle('far', 2.1, 0)];
+  const input: Vec3[] = [
     [0.2, 0, 0.2],
     [0.5, 0, 0.7],
     [1.5, 0, 0.7],
@@ -76,8 +84,11 @@ test('preserves a closed portal and a gap even where endpoints share a height', 
 });
 
 test('never projects a ground shortcut onto a stacked floor', () => {
-  const surfaces = [rectangle('lower', 0, 0, 4, 1), rectangle('upper', 0, 0, 4, 1, () => 3)];
-  const input = [
+  const surfaces: Surface[] = [
+    rectangle('lower', 0, 0, 4, 1),
+    rectangle('upper', 0, 0, 4, 1, () => 3),
+  ];
+  const input: Vec3[] = [
     [0.2, 0, 0.2],
     [1.2, 0, 0.8],
     [1.2, 3, 0.8],
@@ -90,12 +101,12 @@ test('never projects a ground shortcut onto a stacked floor', () => {
 });
 
 test('reconstructs changes in ground slope but collapses coplanar crossings', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     rectangle('a', 0, 0, 1, 1, (x) => x),
     rectangle('b', 1, 0, 1, 1, () => 1),
     rectangle('c', 2, 0, 1, 1, () => 1),
   ];
-  const input = [
+  const input: Vec3[] = [
     [0.1, 0.1, 0.2],
     [0.5, 0.5, 0.5],
     [1, 1, 0.5],
@@ -111,9 +122,9 @@ test('reconstructs changes in ground slope but collapses coplanar crossings', ()
 });
 
 test('keeps a wall-avoiding bend and checks body clearance', () => {
-  const surface = rectangle('floor', 0, 0, 4, 4);
-  const wall = { min: [1.8, -1, 1.2], max: [2.2, 3, 2.8], state: 'unknown' };
-  const input = [
+  const surface: Surface = rectangle('floor', 0, 0, 4, 4);
+  const wall: Wall = { min: [1.8, -1, 1.2], max: [2.2, 3, 2.8], state: 'unknown' };
+  const input: Vec3[] = [
     [0.5, 0, 2],
     [1, 0, 3.5],
     [3, 0, 3.5],
@@ -121,7 +132,7 @@ test('keeps a wall-avoiding bend and checks body clearance', () => {
   ];
   const result = createGroundStraightener([surface], { ...options, walls: [wall] })(input);
   assert.ok(result.length > 2);
-  const length = (points) =>
+  const length = (points: Vec3[]) =>
     points
       .slice(1)
       .reduce(
@@ -149,8 +160,8 @@ test('rejects malformed inputs and preserves stationary paths', () => {
 });
 
 test('does not pass through a vertex shared by disconnected polygons', () => {
-  const surfaces = [rectangle('a', 0, 0), rectangle('b', 1, 1)];
-  const input = [
+  const surfaces: Surface[] = [rectangle('a', 0, 0), rectangle('b', 1, 1)];
+  const input: Vec3[] = [
     [0.2, 0, 0.2],
     [0.2, 0, 0.8],
     [1.8, 0, 1.8],
@@ -159,13 +170,13 @@ test('does not pass through a vertex shared by disconnected polygons', () => {
 });
 
 test('traverses connected triangle fans at a shared vertex', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     rectangle('a', 0, 0),
     rectangle('b', 1, 0),
     rectangle('c', 0, 1),
     rectangle('d', 1, 1),
   ];
-  const input = [
+  const input: Vec3[] = [
     [0.2, 0, 0.2],
     [0.5, 0, 0.5],
     [1, 0, 0.5],
@@ -177,10 +188,10 @@ test('traverses connected triangle fans at a shared vertex', () => {
 });
 
 test('straightens through split portals and stays inside their overlap', () => {
-  const a = rectangle('a', 0, 0, 1, 2);
-  const b = rectangle('b', 1, 0),
-    c = rectangle('c', 1, 1);
-  const input = [
+  const a: Surface = rectangle('a', 0, 0, 1, 2);
+  const b: Surface = rectangle('b', 1, 0),
+    c: Surface = rectangle('c', 1, 1);
+  const input: Vec3[] = [
     [0.2, 0, 0.3],
     [0.5, 0, 1],
     [1, 0, 0.5],
@@ -190,7 +201,7 @@ test('straightens through split portals and stays inside their overlap', () => {
 });
 
 test('shared support primitives rebuild independent portal neighbours and global traversal order', () => {
-  const base = [];
+  const base: Surface[] = [];
   for (let group = 0; group < 8; group++) {
     const x = group * 20;
     base.push(
@@ -200,7 +211,7 @@ test('shared support primitives rebuild independent portal neighbours and global
     );
   }
   const before = createGroundStraightener(base, options);
-  const path = [
+  const path: Vec3[] = [
     [1, 0, 1],
     [3, 0, 1],
     [4, 0, 1],
@@ -224,18 +235,18 @@ test('shared support primitives rebuild independent portal neighbours and global
         [4, 0, 3],
         [7, 0, 3],
       ],
-    ]) {
+    ] satisfies Vec3[][]) {
       assert.deepEqual(shared(run), fresh(run));
-      assert.deepEqual(shared.trace(run[0], run.at(-1)), fresh.trace(run[0], run.at(-1)));
+      assert.deepEqual(shared.trace(run[0], run.at(-1)!), fresh.trace(run[0], run.at(-1)!));
     }
     assert.deepEqual(before(path), expected);
   }
 });
 
 test('shared primitives retain one-way imported steps without sharing planner neighbour state', () => {
-  const lower = rectangle('lower', 0, 0),
-    upper = rectangle('upper', 1, 0, 1, 1, () => 0.3);
-  const portal = {
+  const lower: Surface = rectangle('lower', 0, 0),
+    upper: Surface = rectangle('upper', 1, 0, 1, 1, () => 0.3);
+  const portal: Portal = {
     from: 'lower',
     to: 'upper',
     points: [
@@ -251,9 +262,9 @@ test('shared primitives retain one-way imported steps without sharing planner ne
       [1, 0.3, 1],
     ],
   };
-  const surfaces = [lower, upper],
-    start = [0.2, 0, 0.5],
-    end = [1.8, 0.3, 0.5];
+  const surfaces: Surface[] = [lower, upper],
+    start: Vec3 = [0.2, 0, 0.5],
+    end: Vec3 = [1.8, 0.3, 0.5];
   const forward = createGroundStraightener(surfaces, { ...options, portals: [portal] });
   const reverse = createGroundStraightener([...surfaces, rectangle('far', 100, 100)], {
     ...options,
@@ -261,7 +272,7 @@ test('shared primitives retain one-way imported steps without sharing planner ne
       {
         from: portal.to,
         to: portal.from,
-        points: [...portal.points].reverse(),
+        points: [portal.points[1], portal.points[0]],
         entry: portal.exit,
         exit: portal.entry,
       },
@@ -285,8 +296,8 @@ test('weak support rejection retains overlapping faces and rechecks mutated endp
     ],
     options,
   );
-  const start = [0.5, 0, 0.5],
-    end = [20.5, 0, 0.5];
+  const start: Vec3 = [0.5, 0, 0.5],
+    end: Vec3 = [20.5, 0, 0.5];
   assert.equal(ground.mayConnect(start, end), false);
   assert.equal(ground.trace(start, end), null);
   end[0] = 9;
@@ -295,8 +306,8 @@ test('weak support rejection retains overlapping faces and rechecks mutated endp
 });
 
 test('rebuilding mutated supports revalidates geometry and masks while previous traces stay owned', () => {
-  const surface = rectangle('floor', 0, 0, 2, 2),
-    path = [
+  const surface: Surface = rectangle('floor', 0, 0, 2, 2),
+    path: Vec3[] = [
       [0.2, 0, 0.2],
       [1, 0, 1],
       [1.8, 0, 1.8],
@@ -305,7 +316,7 @@ test('rebuilding mutated supports revalidates geometry and masks while previous 
   for (const point of surface.vertices) point[1] = 5;
   const updated = createGroundStraightener([surface], options);
   assert.deepEqual(original(path), [path[0], path.at(-1)]);
-  assert.equal(updated.trace(path[0], path.at(-1)), null);
+  assert.equal(updated.trace(path[0], path.at(-1)!), null);
   assert.ok(updated.trace([0.2, 5, 0.2], [1.8, 5, 1.8]));
   surface.vertices[1][0] = NaN;
   assert.throws(() => createGroundStraightener([surface], options, []), /Invalid surface/);
@@ -316,20 +327,20 @@ test('rebuilding mutated supports revalidates geometry and masks while previous 
 });
 
 test('fan neighbours stay local to each face when identical polygons overlap', () => {
-  const a = { ...rectangle('floor"/0', 0, 0, 2, 2), portals: [] };
-  const b = { ...structuredClone(a), id: 'floor/"0' };
-  const input = [
+  const a: Surface = { ...rectangle('floor"/0', 0, 0, 2, 2), portals: [] };
+  const b: Surface = { ...structuredClone(a), id: 'floor/"0' };
+  const input: Vec3[] = [
     [0.2, 0, 0.3],
     [0.8, 0, 0.7],
     [1.8, 0, 1.7],
   ];
   const trace = createGroundStraightener([a, b], options);
-  assert.deepEqual(trace.trace(input[0], input.at(-1)), [input[0], input.at(-1)]);
+  assert.deepEqual(trace.trace(input[0], input.at(-1)!), [input[0], input.at(-1)]);
   assert.deepEqual(trace(input), [input[0], input.at(-1)]);
 });
 
 test('duplicate IDs are rejected even when the first face has no support triangles', () => {
-  const empty = {
+  const empty: Surface = {
     id: 'floor',
     vertices: [
       [0, 0, 0],

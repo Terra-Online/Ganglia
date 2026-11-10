@@ -1,13 +1,15 @@
+import type { Vec3 } from './index-types.js';
+import type { JumpOptions, MotionControl } from './jumps.js';
 import { jumpDuration, jumpVerticalRange } from './jumps.js';
 // Only the constant-horizontal jump family has this inverse time interval.
 // Other controls retain their complete trajectory and goal checks.
 export function mayReachGoal(
-  start: any,
-  end: any,
-  goal: any,
-  radius: any,
-  model: any,
-  control: any,
+  start: Vec3,
+  end: Vec3,
+  goal: Vec3,
+  radius: number,
+  model: Omit<JumpOptions, 'mode' | 'profile' | 'walls' | 'sweep'>,
+  control: MotionControl,
 ) {
   if (
     control.mode !== 'jump' ||

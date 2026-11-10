@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { BuildOptions } from '../src/build-types.js';
 import { buildGroundSurfaces, buildGroundTiles } from '../src/build.js';
+import type { Portal, Surface, Vec3 } from '../src/index-types.js';
 import { planGroundRoute, surfaceGraph } from '../src/index.js';
 import { createGroundStraightener } from '../src/straighten.js';
 import { exposedBoundaries } from '../src/traversal.js';
 
-const options = {
+const options: BuildOptions = {
   profile: { radius: 0.35, height: 1.66 },
   maxSlope: 46,
   stepUp: 0.4,
@@ -14,7 +16,7 @@ const options = {
   cellSize: 0.15,
   cellHeight: 0.05,
 };
-const quad = (x0, x1, z0, z1, y) => [
+const quad = (x0: number, x1: number, z0: number, z1: number, y: number): Vec3[] => [
   [x0, y, z0],
   [x0, y, z1],
   [x1, y, z1],
@@ -22,8 +24,8 @@ const quad = (x0, x1, z0, z1, y) => [
   [x1, y, z1],
   [x1, y, z0],
 ];
-const staircase = (depth, rise = 0.2) => {
-  const points = quad(0, 3, 0, 2, 0);
+const staircase = (depth: number, rise = 0.2): Vec3[] => {
+  const points: Vec3[] = quad(0, 3, 0, 2, 0);
   for (let i = 0; i < 12; i++) {
     const x = 3 + i * depth,
       y = (i + 1) * rise;
@@ -40,8 +42,11 @@ const staircase = (depth, rise = 0.2) => {
   points.push(...quad(3 + 12 * depth, 6 + 12 * depth, 0, 2, 12 * rise));
   return points;
 };
-const geometry = (points) => ({ positions: points.flat(), indices: points.map((_, i) => i) });
-const plan = (surfaces, start, end, portals = []) =>
+const geometry = (points: Vec3[]) => ({
+  positions: points.flat(),
+  indices: points.map((_, i) => i),
+});
+const plan = (surfaces: Surface[], start: Vec3, end: Vec3, portals: Portal[] = []) =>
   planGroundRoute(surfaces, [{ id: 'player', position: start, cost: 0, state: 'available' }], end, {
     profile: options.profile,
     speed: 5,
@@ -53,7 +58,7 @@ const plan = (surfaces, start, end, portals = []) =>
 test('continuous local steps remain walkable across tread depths, rotation and grid offsets', async () => {
   for (const depth of [0.2, 0.25, 0.3, 0.45])
     for (const angle of [0, Math.PI / 8, Math.PI / 4]) {
-      const transform = ([x, y, z]) => [
+      const transform = ([x, y, z]: readonly number[]): Vec3 => [
         x * Math.cos(angle) - z * Math.sin(angle) - 4.13,
         y,
         x * Math.sin(angle) + z * Math.cos(angle) + 0.07,
@@ -81,14 +86,14 @@ test('stair topology preserves tile crossings and rejects excessive rise and low
   for (const [points, goalHeight] of [
     [staircase(0.3, 0.5), 6],
     [[...staircase(0.3), ...quad(4, 5, 0, 2, 2.1)], 2.4],
-  ]) {
+  ] satisfies [Vec3[], number][]) {
     const surfaces = await buildGroundSurfaces(geometry(points), options);
     assert.equal(plan(surfaces, [1, 0, 1], [8, goalHeight, 1]).status, 'no-verified-route');
   }
 });
 
 test('directed passage intervals are shared by tracing, search and exposed boundaries', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     {
       id: 'lower',
       vertices: [
@@ -110,7 +115,7 @@ test('directed passage intervals are shared by tracing, search and exposed bound
       portals: [],
     },
   ];
-  const portal = {
+  const portal: Portal = {
     from: 'lower',
     to: 'upper',
     points: [
@@ -154,7 +159,7 @@ test('directed passage intervals are shared by tracing, search and exposed bound
   );
   assert.equal(edges.filter((edge) => edge.surface === 'upper' && edge.edge === 3).length, 1);
   // A short interval near a corner must select the edge containing its full width.
-  const corner = {
+  const corner: Portal = {
     ...portal,
     points: [
       [1, 0, 0.000075],

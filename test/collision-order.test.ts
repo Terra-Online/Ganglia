@@ -1,19 +1,31 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { CollisionWorld } from '../src/collision-types.js';
 import { createCollisionWorld } from '../src/collision.js';
+import type { Vec3 } from '../src/index-types.js';
 
-const overlaps = (a, b) =>
+interface Entry {
+  id: number;
+  box: number[];
+  world: CollisionWorld;
+}
+type Tree = { box: number[] } & (
+  | { entries: Entry[]; left?: never; right?: never }
+  | { entries?: never; left: Tree; right: Tree }
+);
+
+const overlaps = (a: number[], b: number[]) =>
   a.every((value, axis) => axis >= 3 || (value <= b[axis + 3] && a[axis + 3] >= b[axis]));
-const faceBounds = (face) =>
+const faceBounds = (face: number[][]) =>
   [0, 1, 2]
     .map((axis) => Math.min(...face.map((point) => point[axis])))
     .concat([0, 1, 2].map((axis) => Math.max(...face.map((point) => point[axis]))));
 
 // Full sorting is the reference contract: ties retain the original triangle ID,
 // right nodes are queried first, and a leaf keeps its parent's ordered entries.
-const sortedReference = (entries) => {
-  const build = (entries) => {
+const sortedReference = (entries: { id: number; box: number[]; world: CollisionWorld }[]) => {
+  const build = (entries: Entry[]): Tree => {
     const box = [0, 1, 2]
       .map((axis) => Math.min(...entries.map((entry) => entry.box[axis])))
       .concat([0, 1, 2].map((axis) => Math.max(...entries.map((entry) => entry.box[axis + 3]))));
@@ -29,10 +41,10 @@ const sortedReference = (entries) => {
     return { box, left: build(sorted.slice(0, middle)), right: build(sorted.slice(middle)) };
   };
   const root = entries.length ? build(entries) : null;
-  return function* (box) {
+  return function* (box: number[]) {
     const stack = root ? [root] : [];
     while (stack.length) {
-      const node = stack.pop();
+      const node = stack.pop()!;
       if (!overlaps(box, node.box)) continue;
       if (node.entries) {
         for (const entry of node.entries) if (overlaps(box, entry.box)) yield entry;
@@ -41,12 +53,16 @@ const sortedReference = (entries) => {
   };
 };
 
-const geometry = (faces) => ({
+const geometry = (faces: number[][][]) => ({
   positions: faces.flat(2),
   indices: Array.from({ length: faces.length * 3 }, (_, id) => id),
 });
 
-const groundReference = (entries, position, options) => {
+const groundReference = (
+  entries: (box: number[]) => Generator<Entry>,
+  position: Vec3,
+  options: { maxUp: number; maxDown: number; maxSlope: number; radius: number },
+) => {
   const { maxUp, maxDown, radius = 0 } = options;
   const box = [
     position[0] - radius,
@@ -56,7 +72,7 @@ const groundReference = (entries, position, options) => {
     position[1] + maxUp + radius,
     position[2] + radius,
   ];
-  let best = null,
+  let best: ReturnType<CollisionWorld['groundAt']> = null,
     bestOffset = Infinity;
   for (const entry of entries(box)) {
     const hit = entry.world.groundAt(position, options);
@@ -65,8 +81,8 @@ const groundReference = (entries, position, options) => {
       offset = Math.abs(height - position[1]);
     if (
       radius > 0
-        ? !best || height > best.position[1]
-        : offset < bestOffset || (offset === bestOffset && height > best.position[1])
+        ? !best || height > best!.position[1]
+        : offset < bestOffset || (offset === bestOffset && height > best!.position[1])
     ) {
       best = { ...hit, triangle: entry.id };
       bestOffset = offset;
@@ -74,7 +90,12 @@ const groundReference = (entries, position, options) => {
   }
   return best;
 };
-const sweepReference = (entries, start, end, profile) => {
+const sweepReference = (
+  entries: (box: number[]) => Generator<Entry>,
+  start: Vec3,
+  end: Vec3,
+  profile: { radius: number; height: number; inflation: number },
+) => {
   const { radius, height, inflation = 0 } = profile,
     r = radius + inflation;
   const box = [
@@ -137,7 +158,9 @@ test('median preparation preserves sorted-BVH first contacts and tied support id
   );
   for (const faces of cases)
     for (const scoped of [false, true]) {
-      const scope = scoped ? { min: [-5, -5], max: [5, 5] } : undefined;
+      const scope: { min: [number, number]; max: [number, number] } | undefined = scoped
+        ? { min: [-5, -5], max: [5, 5] }
+        : undefined;
       const world = createCollisionWorld(geometry(faces), scope && { bounds: scope });
       const entries = faces
         .map((face, id) => ({
@@ -155,12 +178,12 @@ test('median preparation preserves sorted-BVH first contacts and tied support id
         );
       const query = sortedReference(entries);
       for (let sample = 0; sample < 12; sample++) {
-        const start = [
+        const start: Vec3 = [
           Math.round(next() * 6) - 3,
           Math.round(next() * 4) - 2,
           Math.round(next() * 6) - 3,
         ];
-        const end = [
+        const end: Vec3 = [
           Math.round(next() * 6) - 3,
           Math.round(next() * 4) - 2,
           Math.round(next() * 6) - 3,

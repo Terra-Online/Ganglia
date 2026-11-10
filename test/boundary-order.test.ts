@@ -4,11 +4,12 @@ import { test } from 'node:test';
 import { boundaryTree, boundaryOrder } from '../src/boundary-order.js';
 import { interleave } from '../src/traversal.js';
 
+type Entry = { index: number; score: number; midpoint: number[] };
 // The reference is the original full-list ordering. New construction may avoid
 // unconsumed suffixes, but every consumed item and tie must retain its place.
-const reference = (entries, size, height, diversity) => {
+const reference = (entries: Entry[], size: number, height: number, diversity: number): Entry[] => {
   if (entries.length < 2 || size <= diversity) return entries;
-  const regions = new Map();
+  const regions = new Map<string, Entry[]>();
   for (const entry of entries) {
     const p = entry.midpoint;
     const key = [Math.floor(p[0] / size), Math.floor(p[1] / height), Math.floor(p[2] / size)].join(
@@ -47,11 +48,11 @@ test('hierarchical boundary ordering preserves full-list prefixes, stable ties a
     const tree = boundaryTree(entries, size, height, diversity);
     for (const eligible of [
       () => true,
-      (entry) => entry.index % 3 === 0,
-      (entry) => entry.midpoint[1] >= 0,
+      (entry: Entry) => entry.index % 3 === 0,
+      (entry: Entry) => entry.midpoint[1] >= 0,
       () => false,
     ]) {
-      const compare = (a, b) => a.score - b.score || a.index - b.index;
+      const compare = (a: Entry, b: Entry) => a.score - b.score || a.index - b.index;
       const expected = reference(entries.filter(eligible).sort(compare), size, height, diversity);
       for (const limit of [0, 1, 7, 128, 2048]) {
         assert.deepEqual(boundaryOrder(tree, eligible, compare, limit), expected.slice(0, limit));
@@ -73,7 +74,7 @@ test('lazy prefix handles repeated entry references and uneven exhausted groups'
       midpoint: [30 + index, 0, 0],
     })),
   ];
-  const compare = (a, b) => a.score - b.score || a.index - b.index;
+  const compare = (a: Entry, b: Entry) => a.score - b.score || a.index - b.index;
   const expected = reference([...entries].sort(compare), 16, 2, 0.6);
   const tree = boundaryTree(entries, 16, 2, 0.6);
   for (const count of [1, 2, 3, 7, 24, 100])

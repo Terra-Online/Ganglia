@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { Edge, Graph, Surface } from '../src/index-types.js';
 import { route, planGroundRoute } from '../src/index.js';
+import { expectStatus } from './assertions.js';
 const locomotion = {
   speed: 1,
   sprintSpeed: 2,
@@ -15,8 +17,12 @@ const locomotion = {
     reserve: 0,
   },
 };
-const constraints = { walls: [], profile: { radius: 0.3, height: 1.7 }, locomotion };
-const ordinary = {
+const constraints: NonNullable<Parameters<typeof route>[3]> = {
+  walls: [],
+  profile: { radius: 0.3, height: 1.7 },
+  locomotion,
+};
+const ordinary: Edge & { mode: 'jump'; times: number[] } = {
   from: 'a',
   to: 'b',
   mode: 'jump',
@@ -28,26 +34,31 @@ const ordinary = {
   cost: 6,
   state: 'open',
 };
-const fast = { ...ordinary, requiredGait: 'sprint', times: [0, 1], cost: 1 };
+const fast: Edge & { mode: 'jump'; times: number[] } = {
+  ...ordinary,
+  requiredGait: 'sprint',
+  times: [0, 1],
+  cost: 1,
+};
 
 test('adding a resource-infeasible fast edge preserves the six-second route', () => {
-  const graph = {
+  const graph: Graph = {
     nodes: [
       { id: 'a', position: [0, 0, 0] },
       { id: 'b', position: [4, 0, 0] },
     ],
     edges: [ordinary],
   };
-  assert.equal(route(graph, 'a', 'b', constraints).cost, 6);
+  assert.equal(expectStatus(route(graph, 'a', 'b', constraints), 'complete').cost, 6);
   graph.edges.push(fast);
   const result = route(graph, 'a', 'b', constraints);
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
   assert.equal(result.cost, 6);
-  assert.equal(result.search.truncated, false);
+  assert.equal(result.search!.truncated, false);
 });
 
 test('the ordinary ground entry falls back to a resource-feasible corridor', () => {
-  const surfaces = [
+  const surfaces: Surface[] = [
     {
       id: 'left',
       vertices: [
@@ -81,13 +92,13 @@ test('the ordinary ground entry falls back to a resource-feasible corridor', () 
       ],
     },
   );
-  assert.equal(result.status, 'complete');
+  assert.ok(result.status === 'complete');
   assert.equal(result.cost, 6);
   assert.ok(result.segments.some((segment) => segment.connection === 'ordinary'));
 });
 
 test('bounded search reports unfinished work on unresolved output', () => {
-  const graph = {
+  const graph: Graph = {
     nodes: [
       { id: 'a', position: [0, 0, 0] },
       { id: 'b', position: [1, 0, 0] },
@@ -121,5 +132,5 @@ test('bounded search reports unfinished work on unresolved output', () => {
     locomotion: { ...locomotion, search: { maxExpanded: 1 } },
   });
   assert.equal(result.status, 'no-verified-route');
-  assert.equal(result.search.truncated, true);
+  assert.equal(result.search!.truncated, true);
 });
