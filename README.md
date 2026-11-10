@@ -435,3 +435,11 @@ horizontal hit-time interval before constructing a full sampled arc. Curvature
 padding preserves hits on the existing sampled chords, and supported run-off uses
 its separate motion bound. Verified nonterminal actions remain available to other
 origins in the same query, without spending their independent discovery quotas.
+
+Shortcut improvement queries bound a landing face against every covered candidate
+bucket before producing its point witnesses. They skip it only when all buckets
+are full and the optimistic flight/remaining-distance score is strictly worse
+than their certain tails. The original neighbour budget is still charged, and
+frontier queries retain their exact witness history. Goal projections are reused
+within one query, while bounded candidate buckets admit competitive witnesses in
+stable order without repeatedly sorting or allocating discarded candidates.

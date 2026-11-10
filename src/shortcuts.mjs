@@ -3,8 +3,9 @@ import { createJumpEnvelope, createJumpPredecessor } from './reachability.mjs';
 import { createMotionBounds } from './motion-bounds.mjs';
 import { advanceDistanceField } from './distance-field.mjs';
 import { boundaryTree, boundaryOrder } from './boundary-order.mjs';
-import { landingCandidates, boundaryLanding } from './landings.mjs';
+import { landingCandidates, boundaryLanding, createLandingGoalCache } from './landings.mjs';
 import { createBoundsIndex } from './bounds.mjs';
+import { createCandidateBounds } from './candidate-bounds.mjs';
 import { createGroundStraightener } from './straighten.mjs';
 import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.mjs';
 import { interleave, standingFoot, validateDiscovery } from './traversal.mjs';
@@ -95,7 +96,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     throw new Error('Invalid shortcut baseline or ground speed');
   }
   const diagnostics = { reason: frontier ? (reverse ? 'goal-frontier' : 'reachable-frontier') : 'searched', baselineCost: baseline?.cost ?? null, boundaryEdges: 0,
-    seedChecks: 0, candidatePairs: 0, neighbourChecks: 0, endpointChecks: 0,
+    seedChecks: 0, candidatePairs: 0, neighbourChecks: 0, dominatedFaces: 0, endpointChecks: 0,
     attempted: 0, accepted: 0, truncated: false, goalFaces: 0,
     rejected: { support: 0, projection: 0, clearance: 0, range: 0, motion: 0, groundDominated: 0 },
     limits: { seedChecks: maxCandidates * 16, neighbourChecks: maxCandidates * 64,
@@ -331,7 +332,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       diagnostics.rejected.range++;
       continue;
     }
-    takeoffs.push({ ...nav, exit: next.value.exit, walk: approach.has(nav.surface)
+    takeoffs.push({ ...nav, cell: cellOf(nav.position), exit: next.value.exit, walk: approach.has(nav.surface)
       ? approach.get(nav.surface) + distance(centers.get(nav.surface), nav.position) : distance(from, nav.position) });
   }
   const eligible = id => !frontier || (reverse ? departure.has(id) : !approach.has(id));
@@ -347,6 +348,10 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   const rejectedPairs = cursor?.rejected ?? new Set();
   const pairKey = (start, end) => JSON.stringify([start.surface, start.position, start.exit, end.surface, end.position]);
   const pairs = cursor?.pairs ?? new Map();
+  const fullSources = new Set();
+  const dominated = frontier ? null : createCandidateBounds({ model, endpointTolerance, diversity,
+    speed, to, centers, departure, pairs, limit: insets.length });
+  const goalWitness = frontier ? undefined : createLandingGoalCache(to);
   const active = cursor?.active ?? [];
   for (const start of takeoffs) {
     const bounds = {
@@ -382,9 +387,12 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     diagnostics.neighbourChecks++;
 
     const start = query.start, surface = next.value;
+    if (dominated && !query.boundary && fullSources.has(start.cell) && dominated(start, surface)) {
+      diagnostics.dominatedFaces++; continue;
+    }
     const ends = query.boundary
       ? project(boundaryLanding(surface, start.position, profile.radius / 2), { maxVertical })
-      : landingCandidates(surface, start.position, to, model, profile.radius);
+      : landingCandidates(surface, start.position, to, model, profile.radius, goalWitness);
     for (const end of ends) {
       if (!end || end.surface === start.surface) continue;
       const identity = cursor ? pairKey(start, end) : null;
@@ -402,19 +410,32 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       const remaining = departure.has(end.surface)
         ? departure.get(end.surface) + distance(centers.get(end.surface), end.position) : distance(end.position, to);
       const score = (start.walk + remaining) / speed + (nominal ?? duration);
-      const key = `${cellOf(start.position)}:${cellOf(end.position)}`;
+      const key = `${start.cell}:${cellOf(end.position)}`;
       const group = pairs.get(key) ?? [];
       cursor?.pairSeen.add(identity);
-      group.push({ start, end, score, connected: approach.has(start.surface) && departure.has(end.surface),
-        uncertain: nominal === null || span > nominal * model.maxHorizontalSpeed });
-      group.sort((a, b) => Number(a.uncertain) - Number(b.uncertain) || a.score - b.score);
+      const uncertain = nominal === null || span > nominal * model.maxHorizontalSpeed;
+      const compare = entry => (Number(uncertain) - Number(entry.uncertain) || score - entry.score) || 0;
       // Retain fine pullbacks for railings without letting one dense triangle
-      // patch displace transfers elsewhere in the scene.
-      if (group.length > insets.length) {
+      // patch displace transfers elsewhere in the scene. Admit only competitive
+      // witnesses, preserving stable ties without sorting the whole bucket again.
+      if (!frontier && group.length === insets.length) {
+        if (compare(group.at(-1)) >= 0) continue;
         group.pop();
-        if (cursor) cursor.representativeLimited = true;
+      }
+      const candidate = { start, end, cell: key, score,
+        connected: approach.has(start.surface) && departure.has(end.surface), uncertain };
+      if (frontier) {
+        group.push(candidate);
+        group.sort((a, b) => Number(a.uncertain) - Number(b.uncertain) || a.score - b.score);
+        if (group.length > insets.length) { group.pop(); cursor.representativeLimited = true; }
+      } else {
+        let index = group.length;
+        group.push(candidate);
+        while (index > 0 && compare(group[index - 1]) < 0) { group[index] = group[index - 1]; index--; }
+        group[index] = candidate;
       }
       pairs.set(key, group);
+      if (dominated && group.length === insets.length && !group.at(-1).uncertain) fullSources.add(start.cell);
     }
   }
   if (cursor) {
@@ -428,7 +449,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
   const orderLaunches = groups => {
     const launches = new Map();
     for (const group of groups) {
-      const key = cellOf(group[0].start.position), destinations = launches.get(key) ?? [];
+      const key = group[0].start.cell, destinations = launches.get(key) ?? [];
       destinations.push(group); launches.set(key, destinations);
     }
     const batches = [...launches.values()].map(destinations =>
@@ -484,7 +505,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       const { candidate } = entry;
       const pool = candidate.connected ? 0 : 1, entries = retained[pool];
       if (!capacity[pool] || (entries.length >= capacity[pool] && (frontier || candidate.score >= entries.at(-1).score))) continue;
-      const cell = `${cellOf(candidate.start.position)}:${cellOf(candidate.end.position)}`;
+      const cell = candidate.cell;
       if (accepted.has(cell)) continue;
       if (!entry.variants) {
         const start = standing(candidate.start);

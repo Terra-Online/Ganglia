@@ -397,3 +397,60 @@ surface pipeline, the lost polygon/detail ownership, measured binary payloads,
 full-scene coverage estimates and a scoped WASM prototype. The next structural
 work is persistent regional geometry/topology and directed transfers, with detail
 support and collision loaded for required validations.
+
+## Alpha.76 jump candidate generation (2026-11-10)
+
+The target for this round is at most 20 percent of the original cost. It is **not
+met**. Changes are limited to improvement discovery: conservative face/bucket
+dominance before landing-witness generation, per-query goal projections, stable
+bounded insertion and reusable spatial cell keys. Frontier discovery retains its
+previous candidate sorting and witness generation. Physics and route retiming
+are unchanged.
+
+The face bound accounts for every covered endpoint cell, remaining-distance and
+nominal/tolerance flight-time bounds. It requires full buckets with certain tails
+and strict score separation; ties and unsupported numerical ranges retain the
+original enumeration. Skipped faces still consume their original neighbour slots.
+This preserves existing bounded-search representatives rather than using the
+heuristic score as a lower bound on the final resource-timed route.
+
+Fresh-process retained-input runs used Node v26.13.0 and a 4 GiB heap limit.
+Times below are command total / extractor search stage, in seconds. Search
+includes route planning and physical action discovery, and is nested in total.
+
+| Case | Original alpha.70 | Previous alpha.72/73 algorithm | This round |
+| --- | ---: | ---: | ---: |
+| Heavy action | 158.36 / 153.90 | 121.10 / 116.64 | 102.56 / 98.04 |
+| Failed window, trial before frontier restoration | 23.19 / 16.02 | 24.98 / 17.10 | 24.40 / 16.66 |
+| Direction, final installed alpha.76 | 44.41 / 24.38 | 48.13 / 24.63 | 61.05 / 34.48 |
+
+Heavy-action total/search cost is 64.8/63.7 percent of the original, or
+84.7/84.1 percent of the previous algorithm. Its fourteen improvement queries
+still charge 1,792,000 seed slots and 7,168,000 neighbour slots. The bound skips
+landing generation for 708,159 faces (9.88 percent of charged neighbours), while
+retaining 4,629,386 bucket candidates across queries and performing 6,238 uncached
+shortcut trajectory attempts. Those counts do not include airborne-terminal
+trajectory attempts or establish fewer spatial-node visits. Point-pair generation
+and complete per-function costs were not reprofiled in this round.
+
+The heavy-action route and the trial failure outcome match alpha.70 exactly.
+All direction runs return the exact reference route. Direction trials ranged
+from 47.99 to 61.05 seconds total and 26.18 to 34.48 seconds search, including
+the final replay after restoring frontier processing. These measurements show
+no direction-search benefit, and the final replay is slower than the retained
+baseline. They do not establish a stable speedup across windows.
+
+A shared local spatial-tree prototype took 125.97 seconds on the heavy case,
+against 121.10 seconds previously. Almost every local iterator still started
+the global traversal, so that prototype was removed. Exact collinear boundary
+merging reduces 61,264 scene boundaries to 60,610, only 1.07 percent, and was not
+adopted. No approximate face merging or motion-validation shortcut was enabled.
+
+The remaining structural cost is repeated source/landing enumeration, especially
+the fourteen full improvement batches. Search-directed regional transfers and
+lazy validation of route-relevant actions remain necessary work toward the target;
+the current measurements cannot predict their eventual speedup. The SDK's 271
+tests and Atlos's 10 route worker/server tests passed. Packaged and installed SDK
+sources match the checkout byte for byte. Local raw artifacts are retained under
+`endfield-noclip/.research/stage123/action-search-20261110/`, including comparison,
+timing, result and per-query work JSON.

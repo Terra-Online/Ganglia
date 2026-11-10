@@ -23,6 +23,24 @@ const metadataFor = surface => {
 
 const copyWitness = witness => ({ ...witness, position: [...witness.position] });
 
+/** Reuse only one query goal's nearest witness on each immutable surface.
+ * Each result remains caller-owned. A changed goal bypasses this query cache,
+ * including a caller mutating its original coordinate array between queries.
+ */
+export function createLandingGoalCache(goal) {
+  const target = [...goal], witnesses = new WeakMap();
+  return (surface, requested = target) => {
+    if (!Object.is(requested[0], target[0]) || !Object.is(requested[1], target[1]) ||
+        !Object.is(requested[2], target[2])) return closestOnSurface(surface, requested);
+    let witness = witnesses.get(surface);
+    if (witness === undefined) {
+      witness = closestOnSurface(surface, target);
+      witnesses.set(surface, witness);
+    }
+    return witness ? copyWitness(witness) : null;
+  };
+}
+
 function* reachWitnesses(surface, start, model, radius) {
   const { center, height, edges } = metadataFor(surface);
   const duration = jumpDuration(start[1], height, { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' });
@@ -57,11 +75,11 @@ function* reachWitnesses(surface, start, model, radius) {
  * optimistic horizontal flight envelope. Every witness still needs corrected
  * support, actual flight timing and a complete swept-body collision check.
  */
-export function* landingCandidates(surface, start, goal, model, radius) {
-  for (const reference of [start, goal]) {
-    const point = closestOnSurface(surface, reference);
-    if (point) yield point;
-  }
+export function* landingCandidates(surface, start, goal, model, radius, goalWitness) {
+  const source = closestOnSurface(surface, start);
+  if (source) yield source;
+  const target = goalWitness ? goalWitness(surface, goal) : closestOnSurface(surface, goal);
+  if (target) yield target;
   const center = metadataFor(surface).centerWitness;
   if (center) yield copyWitness(center);
   yield* reachWitnesses(surface, start, model, radius);

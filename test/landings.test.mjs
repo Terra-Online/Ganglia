@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { landingCandidates } from '../src/landings.mjs';
+import { landingCandidates, createLandingGoalCache } from '../src/landings.mjs';
 import { jumpConnection } from '../src/jumps.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
 
@@ -52,4 +52,37 @@ test('static landing metadata preserves witness order and fresh output as the go
   first[2].position[1] = -100;
   first.at(-1).surface = 'changed';
   assert.deepEqual([...query(surface, start, [4, 0, 1])], expected);
+});
+
+test('query goal witnesses cache each face projection and return fresh output without binding changed goals', () => {
+  const vertices = [[-2, 0, -2], [2, 0, -2], [2, 0, 2], [-2, 0, 2]];
+  let reads = 0;
+  const surface = { id: 'floor', get vertices() { reads++; return vertices; } };
+  const goal = [4, 0, 1], cached = createLandingGoalCache(goal);
+  const first = cached(surface, goal), initialReads = reads;
+  assert.ok(initialReads > 0);
+  first.position[0] = 100;
+  first.surface = 'changed';
+  assert.deepEqual(cached(surface, [...goal]), { surface: 'floor', position: [2, 0, 1], distance: 2 });
+  assert.equal(reads, initialReads);
+  goal[0] = 0; goal[1] = 1; goal[2] = 3;
+  assert.deepEqual(cached(surface, goal), { surface: 'floor', position: [0, 0, 2], distance: Math.sqrt(2) });
+  assert.ok(reads > initialReads);
+  const degenerate = { id: 'empty', vertices: [[0, 0, 0], [1, 0, 0], [2, 0, 0]] };
+  assert.equal(cached(degenerate, [4, 0, 1]), null);
+  assert.equal(cached(degenerate, [4, 0, 1]), null);
+});
+
+test('optional goal cache preserves every landing witness in order while start-dependent witnesses change', () => {
+  const surface = { id: 'floor', vertices: [[-2, 0, -2], [2, 0, -2], [2, 0, 2], [-2, 0, 2]] };
+  const goal = [4, 0, 1], cache = createLandingGoalCache(goal);
+  const model = { gravity: 10, fallingGravity: 10, maxJumpHeight: 2,
+    maxFallingSpeed: 20, apexTime: .2, maxHorizontalSpeed: 3 };
+  for (const start of [[-4, 0, 0], [0, 3, -4], [-4, 0, 0]]) {
+    const expected = [...landingCandidates(surface, start, goal, model, .3)];
+    const actual = [...landingCandidates(surface, start, goal, model, .3, cache)];
+    assert.deepEqual(actual, expected);
+    for (const witness of actual) witness.position.fill(100);
+    assert.deepEqual([...landingCandidates(surface, start, goal, model, .3, cache)], expected);
+  }
 });
