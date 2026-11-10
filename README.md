@@ -1,5 +1,12 @@
 # Ganglia
 
+See the [contribution and development guide](docs/contributing.md) for the Atlos/noclip
+setup and the local 5199, 5173 detail and 5176 World workflow.
+
+**License notice:** current project-owned releases use the custom [Ganglia Source-Available
+License](LICENSE), which excludes zmdmap.com, fz.wiki and the related operators and projects
+defined there. Read the license before using or distributing the algorithm.
+
 `@opendfieldmap/ganglia` is an experimental ESM ground-routing package for OEM,
 with TypeScript declarations. It runs in Node and browsers. Camera rules belong to
 noclip; game asset decoding belongs to its extractor.
@@ -65,7 +72,7 @@ smoothing through corners. `unmapped` or `no-verified-route` means the inputs ca
 a route, not that the game destination is absolutely unreachable.
 
 Run `npm pack` (which runs the tests) for an installable archive. The package includes modules,
-declarations and the repository's AGPL-3.0 license, never game assets. Registry publication
+declarations and the repository's license, never game assets. Registry publication
 is separate. Atlos consumes this archive as a package dependency. Runtime player-state
 integration, complete player navigation coverage and in-game traversal validation remain
 outstanding; this is an alpha implementation.
