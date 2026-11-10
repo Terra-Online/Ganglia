@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGroundPlanner, pruneGroundDetours, retimeGroundRoute } from '../src/index.mjs';
+import { blockedByWalls, createGroundPlanner, pruneGroundDetours, retimeGroundRoute } from '../src/index.mjs';
 
 const locomotion = { speed: 2, sprintSpeed: 4, sprintAcceleration: 2 };
 const options = { speed: 2, maxVertical: 0.1, profile: { radius: 0.1, height: 1.8 }, walls: [], locomotion };
@@ -94,4 +94,49 @@ test('unreachable cross-floor comparisons cannot hide a useful replacement under
   assert.equal(result.replacements, 1);
   assert.ok(result.route.segments.filter(s => s.mode !== 'walk').length < 3);
   assert.deepEqual(result.route.points.at(-1), original.points.at(-1));
+});
+
+test('pure walking seams remove a flat-ground loop and an unnecessary sharp entry into a straight run', () => {
+  const original = routeOf([
+    segment('walk', [[0.5,0,0.5],[8,0,1]], 4),
+    segment('walk', [[8,0,1],[7,0,2],[19,0,2]], 7),
+  ]);
+  const result = pruneGroundDetours(original, createGroundPlanner([floor('road',0,20)], options), locomotion);
+  assert.ok(result.replacements > 0);
+  assert.equal(result.queries, 0, 'an all-ground run needs support tracing, not action comparisons');
+  assert.ok(result.route.cost < retimeGroundRoute(original, locomotion).cost);
+  const start = original.points[0], end = original.points.at(-1);
+  assert.deepEqual(result.route.points[0], start);
+  assert.deepEqual(result.route.points.at(-1), end);
+  assert.ok(Math.abs(result.route.length - Math.hypot(...end.map((value,axis) => value-start[axis]))) < 1e-7);
+});
+
+test('an action may reconnect inside a long walking polyline under partial local coverage', () => {
+  // The original suffix was verified by its own window. Only its nearby return
+  // is inside this planner; the landing and final endpoint are outside it.
+  const original = routeOf([
+    segment('walk', [[0.5,0,0.5],[1,0,0.5]], 0.5),
+    segment('launch', [[1,0,0.5],[10,5,0.5],[20,0,0.5]], 20),
+    segment('walk', [[20,0,0.5],[2,0,0.5],[20,0,1.5]], 18),
+  ]);
+  const result = pruneGroundDetours(original, createGroundPlanner([floor('local',0,8)], options), locomotion, {maxQueries:8});
+  assert.ok(result.replacements > 0);
+  assert.ok(result.queries > 0 && result.queries <= 8);
+  assert.ok(result.route.segments.every(part => part.mode === 'walk'));
+  assert.deepEqual(result.route.points[0], original.points[0]);
+  assert.deepEqual(result.route.points.at(-1), original.points.at(-1));
+  assert.ok(result.route.cost < retimeGroundRoute(original, locomotion).cost);
+});
+
+test('pure walking straightening retains a necessary wall detour', () => {
+  const original = routeOf([
+    segment('walk', [[0.5,0,0.5],[0.5,0,3.5],[7.5,0,3.5],[7.5,0,0.5]], 10),
+  ]);
+  const walls = [{min:[3,-1,0],max:[5,4,3],state:'unknown'}];
+  const planner = createGroundPlanner([floor('road',0,8)], {...options,walls});
+  const result = pruneGroundDetours(original, planner, locomotion);
+  assert.ok(result.route.length > 7);
+  for (let i = 1; i < result.route.points.length; i++) {
+    assert.equal(blockedByWalls(result.route.points[i-1],result.route.points[i],walls,options.profile), false);
+  }
 });
