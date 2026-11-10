@@ -212,7 +212,7 @@ time. Documentation and tests are outside that digest.
 | --- | ---: |
 | Preparation before single queries, excluded | 921.937 ms |
 | Sum of ten new-query calls | 1319.617 ms |
-| Median / nearest-rank P95 across different requests | 2.184 / 804.569 ms |
+| Nearest-rank P50 / P95 across different requests | 2.184 / 804.569 ms |
 | Preparation before batch, excluded | 761.436 ms |
 | One ten-request batch call | 1191.981 ms |
 | Batch throughput, including unavailable outcomes | 8.389 requests/s |
@@ -237,3 +237,18 @@ the new declarations passed strict TypeScript 5.8.3 checking. The package's solv
 entry resolved successfully, the npm benchmark command exposed its help, and the
 actual ten-request run emitted parseable JSON. No Atlos tests or historical heavy
 action corpus were rerun because the adapter leaves their algorithm unchanged.
+
+Final command-path verification used `npm run --silent benchmark -- --json` on
+Node `v24.22.0` after correcting even-sample median calculation (the initial
+record above used nearest-rank P50). Source digest:
+`321bacce5d4175cd8cfa2d3298b66facd0d23625168f4b7b831c5aa290cc2cb7`.
+The separate `.local/research/solver-benchmark-final.json` preserves this run.
+Ten single calls totaled 1283.843 ms (median
+3.429 ms, P95 759.826 ms); batch took
+1236.064 ms, 8.090 requests/s.
+Excluded preparations were 966.137 and 883.459 ms.
+The same eight complete / two unmapped-truncated outcomes and all ten outcome/
+truncation comparisons were retained. This different-runtime observation is not
+a performance comparison with the initial Node 26 run. The two benchmark tests
+passed again after the statistics correction; no solver implementation changed.
+Standards and specification reviews found no blocking issues in the addition.

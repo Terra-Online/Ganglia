@@ -35,9 +35,11 @@ export async function runBenchmark(prepare, cases) {
   if (batch.length !== cases.length) throw new Error('Batch returned a different number of results');
   const times = singles.map(row => row.wallMs).sort((a, b) => a - b);
   const percentile = p => times[Math.ceil(times.length * p) - 1] ?? null;
+  const middle = Math.floor(times.length / 2);
+  const medianMs = times.length ? (times[Math.floor((times.length - 1) / 2)] + times[middle]) / 2 : null;
   return {
     single: { totalWallMs: singles.reduce((sum, row) => sum + row.wallMs, 0),
-      medianMs: percentile(0.5), p95Ms: percentile(0.95), results: singles },
+      medianMs, p95Ms: percentile(0.95), results: singles },
     batch: { wallMs, queriesPerSecond: cases.length / (wallMs / 1000),
       results: batch.map((result, i) => ({ id: cases[i].id, ...summarize(result),
         sameOutcomeAsSingle: isDeepStrictEqual(outcome(result), outcome(results[i])),
