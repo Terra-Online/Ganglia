@@ -1,10 +1,10 @@
-import { createSupportProjector } from './support-projector.mjs';
-import { surfaceGraph, surfacePortals } from './surfaces.mjs';
+import { createSupportProjector } from '../geo/support-projector.mjs';
+import { surfaceGraph, surfacePortals } from '../geo/surfaces.mjs';
 import { createRoutePlanner, prepareRoutePlanner } from './routes.mjs';
-import { validateMotion } from './motion.mjs';
-import { createGoalProjector } from './goals.mjs';
+import { validateMotion } from '../motion/motion.mjs';
+import { createGoalProjector } from '../motion/goals.mjs';
 import { createGroundStraightener } from './straighten.mjs';
-import { retimeGroundRoute } from './locomotion.mjs';
+import { retimeGroundRoute } from '../resource/locomotion.mjs';
 
 const preparations = new WeakMap();
 

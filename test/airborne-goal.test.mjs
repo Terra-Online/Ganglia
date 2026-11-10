@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planAirborneGoal, findGoalFlights } from '../src/airborne-goal.mjs';
-import { retimeGroundRoute } from '../src/locomotion.mjs';
+import { planAirborneGoal, findGoalFlights } from '../src/route/airborne-goal.mjs';
+import { retimeGroundRoute } from '../src/resource/locomotion.mjs';
 import { planJumpRoute } from '../src/index.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
-import { findGoalHit } from '../src/goals.mjs';
+import { findGoalHit } from '../src/motion/goals.mjs';
 
 const floor = (id, left, right) => ({ id, vertices: [[left,0,-2],[right,0,-2],[right,0,2],[left,0,2]] });
 const scene = [floor('left', 0, 4), floor('right', 7, 11)];

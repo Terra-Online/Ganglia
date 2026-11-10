@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGroundSurfaces, buildGroundTiles } from '../src/build.mjs';
 import { planGroundRoute, surfaceGraph } from '../src/index.mjs';
-import { createGroundStraightener } from '../src/straighten.mjs';
-import { exposedBoundaries } from '../src/traversal.mjs';
+import { createGroundStraightener } from '../src/route/straighten.mjs';
+import { exposedBoundaries } from '../src/search/traversal.mjs';
 
 const options = { profile: { radius: .35, height: 1.66 }, maxSlope: 46,
   stepUp: .4, stepDown: .6, cellSize: .15, cellHeight: .05 };

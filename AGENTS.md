@@ -31,3 +31,11 @@ and do not run broad repeated profiling without a concrete unresolved concern.
 Algorithm changes belong in Ganglia. Atlos owns its noclip integration patches and
 packaged dependency; generated `talos/.cache/noclip` source is not an editing target.
 Do not include unrelated workspace changes or push without explicit authorization.
+
+## Source ownership
+
+Use the six subsystems under `src/` described in `docs/handoff/handoff.md`.
+Keep the root package entry points stable. Before sharing search state or adding
+pruning, consult that record's state ownership and composition contracts. Record
+the cost units, evidence scope, invalidation dependencies and budget semantics of
+the change. A candidate ranking score must never silently become a pruning bound.

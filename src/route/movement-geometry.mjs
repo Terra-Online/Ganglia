@@ -1,10 +1,10 @@
-import { surfaceGraph, surfacePortals } from './surfaces.mjs';
-import { createWallChecker } from './walls.mjs';
-import { groundComponents } from './connectivity.mjs';
+import { surfaceGraph, surfacePortals } from '../geo/surfaces.mjs';
+import { createWallChecker } from '../geo/walls.mjs';
+import { groundComponents } from '../reach/connectivity.mjs';
 import { groundPreparation } from './ground.mjs';
-import { createGoalProjector } from './goals.mjs';
-import { createSupportProjector } from './support-projector.mjs';
-import { exposedBoundaries } from './traversal.mjs';
+import { createGoalProjector } from '../motion/goals.mjs';
+import { createSupportProjector } from '../geo/support-projector.mjs';
+import { exposedBoundaries } from '../search/traversal.mjs';
 
 const snapshots = new WeakMap();
 

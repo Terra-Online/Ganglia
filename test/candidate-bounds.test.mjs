@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCandidateBounds } from '../src/candidate-bounds.mjs';
-import { landingCandidates } from '../src/landings.mjs';
-import { jumpDuration } from '../src/jumps.mjs';
+import { createCandidateBounds } from '../src/search/candidate-bounds.mjs';
+import { landingCandidates } from '../src/motion/landings.mjs';
+import { jumpDuration } from '../src/motion/jumps.mjs';
 
 const model = { gravity: 10, fallingGravity: 10, maxJumpHeight: 2,
   maxFallingSpeed: 20, apexTime: 0.2, maxHorizontalSpeed: 20 };

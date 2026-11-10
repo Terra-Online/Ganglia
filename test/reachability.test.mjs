@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createJumpEnvelope, createJumpPredecessor } from '../src/reachability.mjs';
-import { jumpDuration, jumpTravel } from '../src/jumps.mjs';
-import { createBoundsIndex } from '../src/bounds.mjs';
+import { createJumpEnvelope, createJumpPredecessor } from '../src/reach/reachability.mjs';
+import { jumpDuration, jumpTravel } from '../src/motion/jumps.mjs';
+import { createBoundsIndex } from '../src/geo/bounds.mjs';
 
 const model = { gravity: 10, fallingGravity: 10, maxJumpHeight: 2,
   maxFallingSpeed: 10, apexTime: 0.2, maxHorizontalSpeed: 3 };

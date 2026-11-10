@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createMotionBounds } from '../src/motion-bounds.mjs';
-import { jumpConnection, runOffConnection } from '../src/jumps.mjs';
+import { createMotionBounds } from '../src/reach/motion-bounds.mjs';
+import { jumpConnection, runOffConnection } from '../src/motion/jumps.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
 
 const point = position => ({ min: position, max: position });

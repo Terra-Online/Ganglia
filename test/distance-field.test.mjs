@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { advanceDistanceField } from '../src/distance-field.mjs';
+import { advanceDistanceField } from '../src/reach/distance-field.mjs';
 
 const adjacency = edges => {
   const forward = new Map(), reverse = new Map();

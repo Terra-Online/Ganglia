@@ -1,4 +1,4 @@
-import { jumpDuration } from './jumps.mjs';
+import { jumpDuration } from '../motion/jumps.mjs';
 
 const horizontalGap = (a, b) => Math.hypot(
   Math.max(a.min[0] - b.max[0], b.min[0] - a.max[0], 0),

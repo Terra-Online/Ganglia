@@ -1,4 +1,4 @@
-import { createWallChecker } from './walls.mjs';
+import { createWallChecker } from '../geo/walls.mjs';
 
 const maximumStep = 0.025;
 const finitePoint = (point) => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);

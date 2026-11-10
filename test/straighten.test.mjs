@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGroundStraightener } from '../src/straighten.mjs';
+import { createGroundStraightener } from '../src/route/straighten.mjs';
 
 const options = { walls: [], profile: { radius: 0.3, height: 1.7 } };
 const rectangle = (id, x, z, width = 1, depth = 1, height = () => 0) => ({

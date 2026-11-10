@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boundaryTree, boundaryOrder } from '../src/boundary-order.mjs';
-import { interleave } from '../src/traversal.mjs';
+import { boundaryTree, boundaryOrder } from '../src/search/boundary-order.mjs';
+import { interleave } from '../src/search/traversal.mjs';
 
 // The reference is the original full-list ordering. New construction may avoid
 // unconsumed suffixes, but every consumed item and tie must retain its place.

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { planGroundRoute, route, createGroundPlanner } from '../src/index.mjs';
-import { groundPreparation } from '../src/ground.mjs';
+import { groundPreparation } from '../src/route/ground.mjs';
 const surfaces = [{ id: 'a', vertices: [[0,0,0],[2,0,0],[2,0,2],[0,0,2]] },
   { id: 'b', vertices: [[2,0,0],[4,0,0],[4,0,2],[2,0,2]] },
   { id: 'island', vertices: [[5,0,0],[6,0,0],[6,0,2],[5,0,2]] }];

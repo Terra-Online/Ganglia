@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { supportSnapshot, supportTriangles } from '../src/support-snapshot.mjs';
+import { supportSnapshot, supportTriangles } from '../src/geo/support-snapshot.mjs';
 
 test('reuses owned geometric primitives after a content check without retaining caller vertices', () => {
   const surface = { id:'floor',vertices:[[0,0,0],[2,0,0],[2,0,2],[0,0,2]] };

@@ -1,6 +1,6 @@
 # Route solver handoff
 
-This handoff describes Ganglia `0.1.0-alpha.76` at local commit `917dfcd` and its Atlos integration at `9311d063`, as inspected on 2026-11-10. The companion [history and testing record](history.md) owns the chronological experiments, complete measurement tables, regression corpus and validation procedures. This documentation pass reads existing evidence and source. It adds no solver run or test result.
+This handoff describes Ganglia `0.1.0-alpha.76` at local commit `917dfcd` and its Atlos integration at `9311d063`, as inspected on 2026-11-10. The companion [history and testing record](history.md) owns the chronological experiments, complete measurement tables, regression corpus and validation procedures. The source layout was subsequently reorganized on 2026-11-11, starting from `c8cc213`. The subsystem and composition sections below describe that source refactor. The alpha.76 performance measurements remain bound to their historical implementations.
 
 The current objective is to reduce comparable solver computation to **at most 20% of the original cost**, while preserving supported behavior, reachability and route quality. The latest heavy-query checkpoint remains above that target. The immediate implementation priority is to reduce the region state space, spatial candidate generation and repeated action queries. The older roadmap's resource-first P0 order has been superseded for this optimization task. Resource-state unification remains subsequent work.
 
@@ -10,19 +10,103 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 
 | Area | Owning source |
 | --- | --- |
-| Global corridor proposals | [`src/candidate-planner.mjs`](../../src/candidate-planner.mjs), [`src/candidate-transfers.mjs`](../../src/candidate-transfers.mjs) |
-| Physical support generation | [`src/build.mjs`](../../src/build.mjs), [`src/support-field.mjs`](../../src/support-field.mjs) |
-| Ground query and geometry preparation | [`src/ground.mjs`](../../src/ground.mjs), [`src/surfaces.mjs`](../../src/surfaces.mjs), [`src/straighten.mjs`](../../src/straighten.mjs), [`src/movement-geometry.mjs`](../../src/movement-geometry.mjs) |
-| Movement search | [`src/jump-planner.mjs`](../../src/jump-planner.mjs), [`src/traversal.mjs`](../../src/traversal.mjs), [`src/shortcuts.mjs`](../../src/shortcuts.mjs), [`src/route-shortcuts.mjs`](../../src/route-shortcuts.mjs) |
-| Dynamics and pruning | [`src/jumps.mjs`](../../src/jumps.mjs), [`src/reachability.mjs`](../../src/reachability.mjs), [`src/motion-bounds.mjs`](../../src/motion-bounds.mjs), [`src/flight-steering.mjs`](../../src/flight-steering.mjs), [`src/candidate-bounds.mjs`](../../src/candidate-bounds.mjs) |
-| Airborne objectives and boosts | [`src/airborne-goal.mjs`](../../src/airborne-goal.mjs), [`src/boosted-route.mjs`](../../src/boosted-route.mjs), [`src/goals.mjs`](../../src/goals.mjs) |
-| Collision and resources | [`src/collision.mjs`](../../src/collision.mjs), [`src/locomotion.mjs`](../../src/locomotion.mjs), [`src/resource-search.mjs`](../../src/resource-search.mjs) |
+| Global corridor proposals | [`src/search/candidate-planner.mjs`](../../src/search/candidate-planner.mjs), [`src/search/candidate-transfers.mjs`](../../src/search/candidate-transfers.mjs) |
+| Physical support generation | [`src/geo/build.mjs`](../../src/geo/build.mjs), [`src/geo/support-field.mjs`](../../src/geo/support-field.mjs) |
+| Ground query and geometry preparation | [`src/route/ground.mjs`](../../src/route/ground.mjs), [`src/geo/surfaces.mjs`](../../src/geo/surfaces.mjs), [`src/route/straighten.mjs`](../../src/route/straighten.mjs), [`src/route/movement-geometry.mjs`](../../src/route/movement-geometry.mjs) |
+| Movement search | [`src/route/jump-planner.mjs`](../../src/route/jump-planner.mjs), [`src/search/traversal.mjs`](../../src/search/traversal.mjs), [`src/search/shortcuts.mjs`](../../src/search/shortcuts.mjs), [`src/route/route-shortcuts.mjs`](../../src/route/route-shortcuts.mjs) |
+| Dynamics and pruning | [`src/motion/jumps.mjs`](../../src/motion/jumps.mjs), [`src/reach/reachability.mjs`](../../src/reach/reachability.mjs), [`src/reach/motion-bounds.mjs`](../../src/reach/motion-bounds.mjs), [`src/motion/flight-steering.mjs`](../../src/motion/flight-steering.mjs), [`src/search/candidate-bounds.mjs`](../../src/search/candidate-bounds.mjs) |
+| Airborne objectives and boosts | [`src/route/airborne-goal.mjs`](../../src/route/airborne-goal.mjs), [`src/route/boosted-route.mjs`](../../src/route/boosted-route.mjs), [`src/motion/goals.mjs`](../../src/motion/goals.mjs) |
+| Collision and resources | [`src/geo/collision.mjs`](../../src/geo/collision.mjs), [`src/resource/locomotion.mjs`](../../src/resource/locomotion.mjs), [`src/resource/resource-search.mjs`](../../src/resource/resource-search.mjs) |
 | Atlos ordinary request | [`dev-route-server.ts`](../../../Atlos/talos/apps/world/dev-route-server.ts), [`travel-arrivals.ts`](../../../Atlos/talos/apps/world/travel-arrivals.ts) |
 | Atlos corridor worker | [`candidate-job.ts`](../../../Atlos/talos/apps/world/candidate-job.ts), [`candidate-worker.ts`](../../../Atlos/talos/apps/world/candidate-worker.ts) |
 | Atlos physical scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |
 | Atlos terminal assets | [`terminal-routes.ts`](../../../Atlos/talos/apps/world/terminal-routes.ts) |
 
 The authoritative noclip adaptation lives in Atlos [`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json), including `extractor.patch`, `format.patch`, `renderer.patch`, `documentation.patch` and `gpu-recovery.patch`. `Atlos/talos/.cache/noclip/` is generated source. Changes inspected there must be maintained through the integration patches. The retained upstream binding is `30f73f4609b24f033e3e2a48607d3270b01695a3`, with package protocol 98. Navigation/physical export revision 2 is a separate data binding.
+
+## Six source subsystems
+
+The 2026-11-11 source reorganization uses these ownership boundaries. The package
+entry points remain `src/index.mjs`, `src/build.mjs` and `src/collision.mjs`, with
+their existing declarations and export names. Internal consumers import the owning
+module directly. Public build and collision entry points forward to `geo`.
+
+| Directory | Responsibility and modules |
+| --- | --- |
+| `geo` | Scene representation and support construction. `surfaces`, `bounds`, `walls`, `collision`, `build`, `clip-surface`, `support-field`, `support-projector`, `support-snapshot` |
+| `reach` | Directed connectivity and conservative reach information. `connectivity`, `distance-field`, `reachability`, `motion-bounds` |
+| `motion` | Motion models, landing witnesses and interaction geometry. `jumps`, `flight-steering`, `landings`, `motion`, `goals` |
+| `search` | Implicit successors, proposal search and discovery. `candidate-planner`, `candidate-transfers`, `candidate-bounds`, `lazy-route`, `shortcuts`, `traversal`, `boundary-order`, `heap` |
+| `resource` | Continuation-state search and fixed-route scheduling. `resource-search`, `locomotion` |
+| `route` | Route orchestration, prepared planning context and improvement. `routes`, `ground`, `jump-planner`, `airborne-goal`, `boosted-route`, `route-shortcuts`, `ground-detours`, `straighten`, `movement-geometry` |
+
+These directories describe current responsibilities. Cross-subsystem dependencies
+remain explicit. `route/movement-geometry` assembles geometry with ground-planner
+preparation and discovery boundaries. It retains the existing runtime dependency
+cycle with `search/traversal`. `traversal` also owns `standingFoot` and discovery
+validation shared by motion callers. `motion/goals` combines support projection
+with terminal flight clipping. The generic `search/heap` is used by distance and
+resource searches. Future extraction of these mixed responsibilities must preserve
+snapshot ownership and avoid a second implementation of support or goal semantics.
+
+### Search-state ownership and composition contracts
+
+| Owner | Meaning of its state | Composition boundary |
+| --- | --- | --- |
+| `reach/reachability` | Necessary geometric/dynamic envelope predicates | An envelope intersection permits further validation. Rejection requires a conservative bound for the specific control family, support correction and objective |
+| `reach/distance-field` | Shortest labels over the supplied retained base graph and action overlay | Root costs and edge costs must use one unit. Ground costs are scaled with `lengthScale`, action costs already use that field unit. Missing labels describe this graph's coverage |
+| `search/candidate-planner` | SCC proposals, transfer materialization and proposal scores | Unknown transfers guide physical coverage. Penalties rank proposals and provide no physical time bound |
+| `search/lazy-route` | Optimistic graph plus validated edge replacements | Unknown costs must be lower bounds in seconds. Accepted replacement cost must be at least the optimistic cost. Validation failure and an interrupted validation have different persistence |
+| `search/shortcuts` | Query-bound cursors, witnesses, action revisions and discovery caches | Geometry-only results can survive query changes under their binding. Reachability-dependent cursors must follow query and action revisions |
+| `route/jump-planner` | Per-solve verified action pool, per-arrival discovery and complete incumbent | Every arrival sees reusable actions locally. New-link quotas count its discoveries. Incumbents are compared after complete resource scheduling |
+| `resource/resource-search` | Cost labels for exact continuation-state keys | Labels include energy, recovery delay, sprint activation, velocity, direction and dash state. Resource feasibility is specific to the entry state and scheduling policy |
+
+The following rules govern changes across these owners.
+
+1. **Bind immutable inputs at the query boundary.** Geometry, directed portals,
+   collision world, body, walls, movement model and device state belong to the same
+   snapshot. Existing identity-based caches require replacement objects when these
+   inputs change. In-place mutation violates their current contract. Persistent or
+   cross-worker sharing will require an explicit source/model revision binding.
+   A common runtime snapshot/version object across all six subsystems remains open.
+2. **Keep three cost roles explicit.** Proposal ranking, admissible lower bounds
+   and executable resource-timed costs have different contracts. Candidate penalties
+   must never be fed directly into lazy-route unknown costs or incumbent pruning.
+   `distance-field` labels are exact for their supplied graph, which can omit future
+   actions. Using such labels as a lower bound on an expanded graph requires an
+   additional conservative argument. The current discovery uses them for retained
+   connectivity and ordering under its finite coverage rules.
+3. **Separate physical evidence from discovery coverage.** A swept, supported
+   action establishes a particular motion under its bound inputs. A failed witness
+   establishes only that witness's failure. An exhausted quota or an ungenerated
+   successor leaves unresolved coverage. Avoid caching a whole region pair as
+   impossible from either event. Resource rejection belongs to the continuation
+   state, and terminal-only collection actions cannot become ordinary transfers.
+4. **Invalidate by actual dependencies.** Appended action edges can incrementally
+   relax distance fields. Changed roots, base graph, weights, direction or scale
+   restart them. Discovery action revisions include motion content under stable IDs.
+   Changed query endpoints, interaction, speed, `costBound` or `boundGoal` clear the
+   relevant cursors/fields. Increasing work resumes a cursor, while a larger retained
+   link quota can require rebuilding discarded representatives. A wider prefix bound
+   retries a prior tighter-bound failure. Transfer keys remain snapshot-scoped.
+5. **Preserve uncertainty through validation.** `lazy-route` keeps an edge unknown
+   after cancellation or a thrown validator and closes it only when validation
+   returns `null`. Callers must reserve `null` for rejection under the fixed validator
+   context. Changing physics or resource-entry context requires a fresh planner.
+   Discovery truncation must remain visible when composing route results.
+6. **Keep pruning proofs local to their domain.** Complete-flight bounds do not
+   apply to an earlier terminal hit. Immediate ballistic launch bounds do not cover
+   supported uphill run-off. New speed devices can invalidate a time lower bound.
+   More stamina alone does not justify resource dominance with automatic sprint
+   restart. Existing bounded scheduling and retained DP dominance still have the
+   model limits recorded below.
+
+This reorganization preserves the existing algorithms and cache implementations.
+It establishes module ownership and review contracts. A shared action-evidence
+registry, a common query revision object, consistent resource transitions and full
+incremental graph repair remain follow-up implementation work. Existing targeted
+regressions cover lazy validation, distance-field updates, cursor continuation,
+bound widening and per-arrival action reuse. They establish their fixture scope.
 
 ## Current scene and movement assumptions
 

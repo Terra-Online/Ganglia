@@ -1,7 +1,7 @@
-import { directedComponents, canReach } from '../src/connectivity.mjs';
+import { directedComponents, canReach } from '../src/reach/connectivity.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { route, routeFrom, createRoutePlanner, sampleRoute } from '../src/routes.mjs';
+import { route, routeFrom, createRoutePlanner, sampleRoute } from '../src/route/routes.mjs';
 const nodes = [
   { id: 'a', position: [0, 0, 0] }, { id: 'b', position: [0, 0, 5] },
   { id: 'c', position: [5, 0, 5] }, { id: 'upper', position: [0, 8, 0] },

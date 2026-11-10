@@ -1,6 +1,6 @@
-import { createBoundsIndex } from './bounds.mjs';
-import { projectPoint } from './surfaces.mjs';
-import { supportSnapshot } from './support-snapshot.mjs';
+import { createBoundsIndex } from '../geo/bounds.mjs';
+import { projectPoint } from '../geo/surfaces.mjs';
+import { supportSnapshot } from '../geo/support-snapshot.mjs';
 
 const finitePoint = point => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
 const distanceSquared = (a, b) => {

@@ -1,9 +1,9 @@
-import { createBoundsIndex } from './bounds.mjs';
-import { createGoalProjector } from './goals.mjs';
+import { createBoundsIndex } from '../geo/bounds.mjs';
+import { createGoalProjector } from '../motion/goals.mjs';
 import { groundPreparation } from './ground.mjs';
-import { createWallChecker } from './walls.mjs';
-import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.mjs';
-import { standingFoot, validateDiscovery } from './traversal.mjs';
+import { createWallChecker } from '../geo/walls.mjs';
+import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from '../motion/jumps.mjs';
+import { standingFoot, validateDiscovery } from '../search/traversal.mjs';
 
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
 

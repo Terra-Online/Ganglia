@@ -1,13 +1,13 @@
-import { movementGeometry } from './movement-geometry.mjs';
-import { createJumpEnvelope, createJumpPredecessor } from './reachability.mjs';
-import { createMotionBounds } from './motion-bounds.mjs';
-import { advanceDistanceField } from './distance-field.mjs';
+import { movementGeometry } from '../route/movement-geometry.mjs';
+import { createJumpEnvelope, createJumpPredecessor } from '../reach/reachability.mjs';
+import { createMotionBounds } from '../reach/motion-bounds.mjs';
+import { advanceDistanceField } from '../reach/distance-field.mjs';
 import { boundaryTree, boundaryOrder } from './boundary-order.mjs';
-import { landingCandidates, boundaryLanding, createLandingGoalCache } from './landings.mjs';
-import { createBoundsIndex } from './bounds.mjs';
+import { landingCandidates, boundaryLanding, createLandingGoalCache } from '../motion/landings.mjs';
+import { createBoundsIndex } from '../geo/bounds.mjs';
 import { createCandidateBounds } from './candidate-bounds.mjs';
-import { createGroundStraightener } from './straighten.mjs';
-import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.mjs';
+import { createGroundStraightener } from '../route/straighten.mjs';
+import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from '../motion/jumps.mjs';
 import { interleave, standingFoot, validateDiscovery } from './traversal.mjs';
 
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);

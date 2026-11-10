@@ -1,4 +1,4 @@
-import { createMinHeap } from './heap.mjs';
+import { createMinHeap } from '../search/heap.mjs';
 
 const sameEdge = (a, b) => a.from === b.from && a.to === b.to && Object.is(a.cost, b.cost);
 const sameRoots = (a, b) => a.length === b.length && a.every((root, index) =>

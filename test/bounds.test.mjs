@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBoundsIndex, createBoundsTree } from '../src/bounds.mjs';
-import { createMinHeap } from '../src/heap.mjs';
+import { createBoundsIndex, createBoundsTree } from '../src/geo/bounds.mjs';
+import { createMinHeap } from '../src/search/heap.mjs';
 
 test('nearest bounds traversal orders in 3D and retains rectangle exclusions', () => {
   const entries = Array.from({ length: 40 }, (_, index) => ({

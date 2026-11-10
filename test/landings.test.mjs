@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { landingCandidates, createLandingGoalCache } from '../src/landings.mjs';
-import { jumpConnection } from '../src/jumps.mjs';
+import { landingCandidates, createLandingGoalCache } from '../src/motion/landings.mjs';
+import { jumpConnection } from '../src/motion/jumps.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
 
 test('finds feasible landing interiors when nearest, goal and centre witnesses fail', () => {

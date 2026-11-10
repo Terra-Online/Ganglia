@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clipSurface } from '../src/clip-surface.mjs';
+import { clipSurface } from '../src/geo/clip-surface.mjs';
 import { projectPoint, surfaceGraph } from '../src/index.mjs';
 
 test('grid snapping preserves convex support and seam endpoints in clipped slivers', () => {

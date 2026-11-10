@@ -1,4 +1,4 @@
-import { createUpdatingRoutePlanner } from './routes.mjs';
+import { createUpdatingRoutePlanner } from '../route/routes.mjs';
 
 /** Validate only edges selected by optimistic shortest-path searches. Costs are
  * seconds and unknown costs must be lower bounds. The caller must keep nodes and input edges immutable. Only unknown-edge

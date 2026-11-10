@@ -1,11 +1,11 @@
-import { movementGeometry } from './movement-geometry.mjs';
-export { groundComponents } from './connectivity.mjs';
-import { surfacePortals, directedPortals } from './surfaces.mjs';
-import { createBoundsIndex } from './bounds.mjs';
+import { movementGeometry } from '../route/movement-geometry.mjs';
+export { groundComponents } from '../reach/connectivity.mjs';
+import { surfacePortals, directedPortals } from '../geo/surfaces.mjs';
+import { createBoundsIndex } from '../geo/bounds.mjs';
 import { createMinHeap } from './heap.mjs';
-import { landingCandidates } from './landings.mjs';
-import { createWallChecker } from './walls.mjs';
-import { jumpConnection, jumpDuration } from './jumps.mjs';
+import { landingCandidates } from '../motion/landings.mjs';
+import { createWallChecker } from '../geo/walls.mjs';
+import { jumpConnection, jumpDuration } from '../motion/jumps.mjs';
 
 const finitePoint = (point) => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));

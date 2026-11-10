@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groundComponents, condenseComponents, directedComponents } from '../src/connectivity.mjs';
-import { createGroundPlanner, groundPreparation } from '../src/ground.mjs';
-import { movementGeometry } from '../src/movement-geometry.mjs';
-import { prepareRoutePlanner, routeFrom } from '../src/routes.mjs';
-import { createWallChecker } from '../src/walls.mjs';
+import { groundComponents, condenseComponents, directedComponents } from '../src/reach/connectivity.mjs';
+import { createGroundPlanner, groundPreparation } from '../src/route/ground.mjs';
+import { movementGeometry } from '../src/route/movement-geometry.mjs';
+import { prepareRoutePlanner, routeFrom } from '../src/route/routes.mjs';
+import { createWallChecker } from '../src/geo/walls.mjs';
 
 const empty = { nodes: [], edges: [] };
 

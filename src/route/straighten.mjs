@@ -1,7 +1,7 @@
-import { createWallChecker } from './walls.mjs';
-import { surfacePortals, directedPortals } from './surfaces.mjs';
-import { createBoundsTree } from './bounds.mjs';
-import { supportSnapshot, supportTriangles } from './support-snapshot.mjs';
+import { createWallChecker } from '../geo/walls.mjs';
+import { surfacePortals, directedPortals } from '../geo/surfaces.mjs';
+import { createBoundsTree } from '../geo/bounds.mjs';
+import { supportSnapshot, supportTriangles } from '../geo/support-snapshot.mjs';
 
 const pointKey = point => point.map(value => Math.round(value * 10000)).join(',');
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));

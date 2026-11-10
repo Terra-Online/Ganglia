@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSupportProjector } from '../src/support-projector.mjs';
-import { projectPoint } from '../src/surfaces.mjs';
+import { createSupportProjector } from '../src/geo/support-projector.mjs';
+import { projectPoint } from '../src/geo/surfaces.mjs';
 
 const floor = (id, y) => ({ id, vertices: [[-2, y, -2], [2, y, -2], [2, y, 2], [-2, y, 2]] });
 

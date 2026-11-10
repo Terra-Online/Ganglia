@@ -1,11 +1,11 @@
-import { createGoalProjector, findGoalHit, trimGoalFlight } from './goals.mjs';
-import { createMotionVariants, jumpConnection, jumpDuration, runOffConnection } from './jumps.mjs';
-import { standingFoot, validateDiscovery } from './traversal.mjs';
-import { createWallChecker } from './walls.mjs';
-import { retimeGroundRoute } from './locomotion.mjs';
+import { createGoalProjector, findGoalHit, trimGoalFlight } from '../motion/goals.mjs';
+import { createMotionVariants, jumpConnection, jumpDuration, runOffConnection } from '../motion/jumps.mjs';
+import { standingFoot, validateDiscovery } from '../search/traversal.mjs';
+import { createWallChecker } from '../geo/walls.mjs';
+import { retimeGroundRoute } from '../resource/locomotion.mjs';
 import { movementGeometry } from './movement-geometry.mjs';
-import { mayReachGoal } from './flight-steering.mjs';
-import { boundaryLanding } from './landings.mjs';
+import { mayReachGoal } from '../motion/flight-steering.mjs';
+import { boundaryLanding } from '../motion/landings.mjs';
 
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
 

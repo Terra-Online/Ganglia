@@ -1,9 +1,9 @@
-import { surfaceGraph, surfacePortals } from './surfaces.mjs';
-import { closestOnSurface } from './goals.mjs';
-import { groundComponents } from './connectivity.mjs';
+import { surfaceGraph, surfacePortals } from '../geo/surfaces.mjs';
+import { closestOnSurface } from '../motion/goals.mjs';
+import { groundComponents } from '../reach/connectivity.mjs';
 import { createMinHeap } from './heap.mjs';
-import { createGroundStraightener } from './straighten.mjs';
-import { createBoundsIndex } from './bounds.mjs';
+import { createGroundStraightener } from '../route/straighten.mjs';
+import { createBoundsIndex } from '../geo/bounds.mjs';
 import { createTransferQuery } from './candidate-transfers.mjs';
 
 const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));

@@ -1,4 +1,4 @@
-import { validateMotion } from './motion.mjs';
+import { validateMotion } from '../motion/motion.mjs';
 
 const epsilon = 1e-9;
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));

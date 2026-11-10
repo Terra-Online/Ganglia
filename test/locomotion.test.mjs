@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { retimeGroundRoute } from '../src/locomotion.mjs';
-import { sampleJourney } from '../src/motion.mjs';
+import { retimeGroundRoute } from '../src/resource/locomotion.mjs';
+import { sampleJourney } from '../src/motion/motion.mjs';
 
 const options = { speed: 5, sprintSpeed: 7, sprintAcceleration: 2 };
 const stamina = { capacity: 10, initial: 10, sprintDrain: 2, recoveryRate: 1, recoveryDelay: 2, reserve: 2 };

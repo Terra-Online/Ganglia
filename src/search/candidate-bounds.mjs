@@ -1,4 +1,4 @@
-import { jumpDuration } from './jumps.mjs';
+import { jumpDuration } from '../motion/jumps.mjs';
 
 const epsilon = Number.EPSILON;
 const maximumCells = 16;

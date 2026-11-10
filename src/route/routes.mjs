@@ -1,8 +1,8 @@
-import { groundComponents, condenseComponents, directedComponents, canReach } from './connectivity.mjs';
-import { createMinHeap } from './heap.mjs';
-import { createWallChecker } from './walls.mjs';
-import { validateMotion, routeSegment } from './motion.mjs';
-import { searchResources } from './resource-search.mjs';
+import { groundComponents, condenseComponents, directedComponents, canReach } from '../reach/connectivity.mjs';
+import { createMinHeap } from '../search/heap.mjs';
+import { createWallChecker } from '../geo/walls.mjs';
+import { validateMotion, routeSegment } from '../motion/motion.mjs';
+import { searchResources } from '../resource/resource-search.mjs';
 // Edges are directed, clearance-checked corridors supplied by the navigation importer.
 // This module never connects points by proximity or projects between floors.
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createCandidatePlanner} from '../src/candidate-planner.mjs';
-import { blockedByWalls } from '../src/walls.mjs';
+import {createCandidatePlanner} from '../src/search/candidate-planner.mjs';
+import { blockedByWalls } from '../src/geo/walls.mjs';
 const square=(id,x,z)=>({id,vertices:[[x,0,z],[x+2,0,z],[x+2,0,z+2],[x,0,z+2]]});
 test('candidate rejection preserves alternative spatial entrances and never reports execution',()=>{
  const data={surfaces:[square('a',0,0),square('b',4,0),square('c',2,4)],options:{speed:5,maxVertical:1}};

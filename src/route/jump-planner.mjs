@@ -2,10 +2,10 @@ import { planBoostedRoute } from './boosted-route.mjs';
 import { planAirborneGoal } from './airborne-goal.mjs';
 import { movementGeometry } from './movement-geometry.mjs';
 import { createGroundPlanner, groundPreparation } from './ground.mjs';
-import { findJumpFrontier, findJumpShortcuts } from './shortcuts.mjs';
-import { findJumpConnections } from './traversal.mjs';
+import { findJumpFrontier, findJumpShortcuts } from '../search/shortcuts.mjs';
+import { findJumpConnections } from '../search/traversal.mjs';
 import { findRouteShortcuts } from './route-shortcuts.mjs';
-import { createGoalProjector } from './goals.mjs';
+import { createGoalProjector } from '../motion/goals.mjs';
 
 /** Solve directed ground/jump/drop action combinations for arbitrary arrivals.
  * Geometry, collision, state, walls and body must belong to one immutable snapshot.

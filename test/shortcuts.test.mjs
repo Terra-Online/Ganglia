@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGroundPlanner } from '../src/ground.mjs';
+import { createGroundPlanner } from '../src/route/ground.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
-import { findJumpConnections } from '../src/traversal.mjs';
-import { findJumpShortcuts, findJumpFrontier } from '../src/shortcuts.mjs';
+import { findJumpConnections } from '../src/search/traversal.mjs';
+import { findJumpShortcuts, findJumpFrontier } from '../src/search/shortcuts.mjs';
 
 const floor = (id, x0, x1, y, z0, z1) => ({ id, vertices: [[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1]] });
 const geometry = surfaces => {

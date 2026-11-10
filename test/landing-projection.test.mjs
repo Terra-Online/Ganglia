@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { closestOnSurface } from '../src/goals.mjs';
+import { closestOnSurface } from '../src/motion/goals.mjs';
 
 // Original vector formulation is an independent numeric oracle for the scalar path.
 const distanceSquared = (a, b) => a.reduce((sum, value, axis) => sum + (value - b[axis]) ** 2, 0);

@@ -1,6 +1,6 @@
-import { createMinHeap } from './heap.mjs';
+import { createMinHeap } from '../search/heap.mjs';
 import { createLocomotion } from './locomotion.mjs';
-import { routeSegment } from './motion.mjs';
+import { routeSegment } from '../motion/motion.mjs';
 
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
 

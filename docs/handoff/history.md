@@ -1,6 +1,6 @@
 # Route solver history and validation evidence
 
-Updated 2026-11-10. Read this with [the current handoff](handoff.md) before changing the solver. This file records what was implemented, measured, rejected or only proposed; the companion file owns the current architecture, model and next actions. Update both when a change alters their conclusions. Historical test passes and timings below apply to their named versions and inputs, not to a future checkout.
+Updated 2026-11-11. Read this with [the current handoff](handoff.md) before changing the solver. This file records what was implemented, measured, rejected or only proposed; the companion file owns the current architecture, model and next actions. Update both when a change alters their conclusions. Historical test passes and timings below apply to their named versions and inputs, not to a future checkout.
 
 The current objective is to reduce candidate-space and action-search cost to **at most 20% of the original cost**, while preserving feasibility and route quality. It is **not achieved**. For the retained heavy-action alpha.70 baseline, the latest bounded-top-K trial leaves 64.8% of command time and 63.7% of search time. The final installed direction replay is slower than its baseline. No map-wide speedup, continuous-space optimum or complete independent forward-replay acceptance is established.
 
@@ -192,3 +192,49 @@ node --max-old-space-size=4096 talos/scripts/profile-route-stages.mjs \
 ```
 
 `retained-args.json` is the original extractor CLI argument array of strings. The harness redirects result outputs and records input identities. It **always executes cold then warm in the same process**; `player-route` shares its `RouteCache` between those two trials. `--baseline` disables function insertion hooks. CPU sampling is off unless `--cpu` is added; use that option for attribution and label its overhead. Module import/parse/transform setup is reported separately. The script also supports `player-ground` and `candidate-worker`, with different argument/cache semantics visible in its source. Do not launch the template as an automatic prerequisite for every documentation or small implementation change.
+
+
+## 2026-11-11 subsystem organization and composition review
+
+Starting from Ganglia `c8cc213` and Atlos `9a82bfb0`, moved 37 implementation
+modules into `geo`, `reach`, `motion`, `search`, `resource` and `route`. Updated
+internal imports, test imports and current handoff links. The three public package
+entry paths and declarations remain stable. Build and collision use root forwarding
+exports. Historical source paths in earlier records retain their original version
+context. Package version remains alpha.76 in this source checkout. This change has
+no new packaged artifact or installed Atlos solver binding.
+
+Updated the maintained Atlos profiling loader to recognize all six directory names
+while retaining historical module labels and flat alpha.76 package support. Its
+change starts from Atlos `9a82bfb0`. The loader is part of this refactor's integration
+scope. Atlos's existing solver tarball remains bound to the prior implementation.
+
+The handoff now records ownership of envelopes, distance fields, candidate scores,
+lazy validation, query cursors, per-solve actions and resource continuation labels.
+It also records immutable snapshot requirements, cost units and admissibility,
+witness-scoped rejection, retryable uncertainty, content-based action revisions,
+budget semantics and unsafe dominance domains. AGENTS.md requires consulting these
+contracts before sharing state or introducing pruning.
+
+A centralized runtime revision object, shared action-evidence registry and unified
+resource-transition kernel remain open. Existing mixed responsibilities and the
+movement-geometry/traversal dependency cycle are documented for subsequent targeted
+extraction. This directory refactor changes import locations and public forwarding
+only. It introduces no new search pruning, state sharing or performance claim.
+
+Completed checks on the reorganized source
+
+- Node v25.9.0 `npm test` passed all 271 tests, including the existing lazy-route,
+  distance-field, cursor, bound-widening and multi-arrival regressions.
+- A source comparison against `c8cc213` confirmed all 37 moved implementation
+  modules and all existing test bodies match after relative import-path normalization.
+- Package self-import checks resolved `.`, `./build` and `./collision`, with the
+  expected build and collision exports and `planJumpRoute` available.
+- On Node v26.13.0, the actual Atlos `transformSource` function produced identical
+  transformed source and profiler labels for old and new paths across six selected
+  modules, one from each subsystem. Each module generated instrumentation labels.
+- `git diff --check` passed in both repositories.
+
+The source-layout validation uses existing small regression fixtures. No additional
+heavy map replay or performance measurement was run for this import-only change.
+The previous remaining-cost target and unresolved model/quality gaps still apply.

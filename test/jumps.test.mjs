@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jumpConnection, jumpDuration, runOffConnection } from '../src/jumps.mjs';
+import { jumpConnection, jumpDuration, runOffConnection } from '../src/motion/jumps.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
 
 const profile = { radius: 0.35, height: 1.66 };

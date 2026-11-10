@@ -1,6 +1,6 @@
-import { retimeGroundRoute } from './locomotion.mjs';
-import { jumpConnection } from './jumps.mjs';
-import { findGoalHit, trimGoalFlight } from './goals.mjs';
+import { retimeGroundRoute } from '../resource/locomotion.mjs';
+import { jumpConnection } from '../motion/jumps.mjs';
+import { findGoalHit, trimGoalFlight } from '../motion/goals.mjs';
 
 const findPickup = (route, boost) => {
   if (!route.segments.length) {

@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findJumpConnections, exposedBoundaries, standingFoot } from '../src/traversal.mjs';
-import { jumpConnection } from '../src/jumps.mjs';
-import { planGroundRoute, createGroundPlanner } from '../src/ground.mjs';
+import { findJumpConnections, exposedBoundaries, standingFoot } from '../src/search/traversal.mjs';
+import { jumpConnection } from '../src/motion/jumps.mjs';
+import { planGroundRoute, createGroundPlanner } from '../src/route/ground.mjs';
 import { createCollisionWorld } from '../src/collision.mjs';
-import { createGoalProjector } from '../src/goals.mjs';
+import { createGoalProjector } from '../src/motion/goals.mjs';
 
 const floor = (id, x0, x1, y, z0 = -2, z1 = 2) => ({
   id,

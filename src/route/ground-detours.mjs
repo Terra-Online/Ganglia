@@ -1,6 +1,6 @@
-import { retimeGroundRoute } from './locomotion.mjs';
+import { retimeGroundRoute } from '../resource/locomotion.mjs';
 import { groundPreparation } from './ground.mjs';
-import { groundComponents, condenseComponents, canReach } from './connectivity.mjs';
+import { groundComponents, condenseComponents, canReach } from '../reach/connectivity.mjs';
 
 const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
 const pointsOf = (segments, start) => segments.length

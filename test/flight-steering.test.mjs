@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mayReachGoal } from '../src/flight-steering.mjs';
-import { jumpConnection, jumpDuration, jumpVerticalRange } from '../src/jumps.mjs';
-import { findGoalHit } from '../src/goals.mjs';
+import { mayReachGoal } from '../src/motion/flight-steering.mjs';
+import { jumpConnection, jumpDuration, jumpVerticalRange } from '../src/motion/jumps.mjs';
+import { findGoalHit } from '../src/motion/goals.mjs';
 
 const model = { gravity: 10, fallingGravity: 12, maxJumpHeight: 2,
   maxFallingSpeed: 5, apexTime: 0.2, maxHorizontalSpeed: 10 };

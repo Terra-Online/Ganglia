@@ -1,4 +1,4 @@
-import { jumpDuration, jumpTravel } from './jumps.mjs';
+import { jumpDuration, jumpTravel } from '../motion/jumps.mjs';
 
 const flightTables = new WeakMap();
 const modelFields = ['gravity', 'fallingGravity', 'maxJumpHeight', 'maxFallingSpeed',

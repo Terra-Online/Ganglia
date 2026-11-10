@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGoalProjector, projectGoal } from '../src/goals.mjs';
+import { createGoalProjector, projectGoal } from '../src/motion/goals.mjs';
 
 const ground = (id, x0, x1, z0 = 0, z1 = 2, y = 0) => ({
   id, vertices: [[x0,y,z0], [x1,y,z0], [x1,y,z1], [x0,y,z1]],

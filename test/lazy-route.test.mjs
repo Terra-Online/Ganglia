@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLazyRoutePlanner } from '../src/lazy-route.mjs';
+import { createLazyRoutePlanner } from '../src/search/lazy-route.mjs';
 const nodes = [{ id: 'a', position: [0, 0, 0] }, { id: 'b', position: [1, 0, 0] }];
 const edge = (cost, connection, state = 'unknown') => ({ from: 'a', to: 'b', cost, connection, state,
   points: nodes.map(node => node.position) });
