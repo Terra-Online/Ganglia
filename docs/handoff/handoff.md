@@ -163,36 +163,3 @@ The next agent should concentrate on these outstanding boundaries.
 5. Complete moving-controller bindings, multi-box handling, source-bound map coverage, ordinary entry acceptance and the full south-to-north physical connection. Earlier base-collision prefixes and independent tails retain their original coverage scope.
 
 Older [architecture](../architecture.md), [roadmap](../roadmap.md), [ground topology](../ground-topology.md), [solver performance](../solver-performance.md) and [prebuilt navigation](../prebuilt-navigation.md) documents retain useful assumptions and historical acceptance definitions. Their alpha.21/alpha.58 milestones and earlier ordering need to be read alongside this current handoff and [history](history.md). Persistent regional transfers, shared validated action assets, state-preserving contraction, complete release manifests, robust recommended-route evaluation and the original time-reduction goal remain open.
-
-## Prepared solver and benchmark seams (2026-11-11)
-
-The additive `@opendfieldmap/ganglia/solver` entry defines new-query `solve` and
-whole-workload `solveBatch` on one prepared physical snapshot. Its surface-action
-adapter prepares collision and ground once, then calls the existing `planJumpRoute`
-with fresh request-local search state. Geometry-dependent proofs may be reused;
-completed routes, action pools and cursors are not shared between requests. The
-adapter currently executes batches serially. The interface leaves scheduling and
-parallel execution to replacement implementations and preserves input/result order.
-It does not change the existing solver algorithms or the Atlos request pipeline.
-
-`bench/cli.mjs`, available as `npm run benchmark -- --json`, measures fifty fixed
-map02_lv004 requests individually and as one same-scene batch. The runner accepts
-a solver factory, submits the batch once and excludes input I/O, preparation and
-output comparison from query timing. Discovery indices remain lazy and their first
-use is charged to a query. Separate prepared instances isolate the two passes;
-process JIT/GC and OS pages are not controlled. See [the guide](../../bench/README.md).
-
-The current `map02-ground-jumps-v2` workload pairs twenty-five upper-area starts
-sampled along a retained walking trace with two collision-checked lower ground
-goals, producing fifty distinct requests with 40–65 m horizontal separation.
-Selection probes map both endpoints but find no ground-only route for any pair.
-All fifty full requests completed: twenty-five with one jump and twenty-five with
-two jumps; route lengths were 91–135 m. All retained `truncated`, so completion
-establishes feasibility within finite discovery, not exhaustive coverage. Batch
-route/connection outcomes and truncation matched singles. The workload still uses
-512 candidates, 64 links and zero optional shortcuts. Starts share one upper region
-and two target regions; fifty requests do not imply fifty independent terrain
-layouts. Devices, boosts, goal refinement and Atlos scheduling remain excluded.
-Earlier ten-request, short walking and airborne-objective records remain historical
-evidence. This workload does not replace heavy-action controls or establish an
-algorithm speedup. The historical target and outstanding modeling gaps are unchanged.

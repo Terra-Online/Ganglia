@@ -4,10 +4,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { resolve } from 'node:path';
 import { jumpDuration } from '../../src/jumps.mjs';
 
-// Twenty-five supported upper-area starts sampled along a retained walking trace,
-// each paired with two collision-checked ground goals.
-// Selection probes found no ground-only route; accepted full routes must cross
-// disconnected support through discovered motion edges. No airborne objectives.
+// Use separated ground regions to exercise motion discovery rather than only
+// tracing a continuous walking corridor.
 const starts = [
   [-1366.8111572265625, 298.30939069046434, -1651.3255615234375],
   [-1365.728841593561, 298.2359158252343, -1650.1884019657384],
@@ -45,8 +43,6 @@ export const cases = starts.flatMap((position, start) => goals.map((goal, target
   query: { starts: [{ id: 'player', position, state: 'available', cost: 0 }], goal },
 })));
 
-/** Import this retained physical fixture without depending on Atlos or its CLI.
- * Data stays local; hashes bind the exact input bytes and workload definition. */
 export async function loadMap02(dataRoot) {
   const hashes = {};
   const load = async path => {

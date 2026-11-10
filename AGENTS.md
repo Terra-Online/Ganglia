@@ -1,33 +1,41 @@
 # AGENTS.md
 
-## Solver optimization handoff
+## Documentation standards
 
-Before investigating or changing route solving, spatial generation, action discovery,
-caching, or solver performance, read both canonical English records:
+Create standalone documentation only when explicitly requested by a human.
+Otherwise, place necessary explanations in code comments.
 
-- [Current implementation and open work](docs/handoff/handoff.md).
-- [Strategy history and testing standards](docs/handoff/history.md).
+Apply these rules to both code comments and other documentation:
 
-Check their version bindings against the current source and the user's latest scope.
-Historical trials, research proposals, and passed checks are not evidence that a
-feature is implemented or that a new change has passed. Consult the recorded failed
-and reverted approaches before repeating an experiment. A retry should identify
-what changed in its assumptions, implementation, or measured bottleneck.
+- **Stateless and self-contained:** text must be understandable without the agent
+  session, PR discussion or other conversational context. Do not refer to local
+  development documents or describe what the code used to do. References to
+  external sources and GitHub issues or PRs are allowed.
+- **Do not duplicate implementation:** explain decisions, constraints and reasons
+  for surprising choices that the code cannot express. If a small implementation
+  change elsewhere would make the text stale, remove the duplicated detail.
+  Capture useful rationale directly; do not create formal ADRs by default.
+- **How-to and handoff exception:** a human-requested explanation saved for another
+  human or agent may repeat necessary implementation details. State its scope and
+  freshness conditions, and update or remove it when it becomes outdated.
 
-Update both records when solver optimization work changes their contents. Keep
-`handoff.md` accurate for the resulting implementation, including cache contracts,
-model assumptions, remaining bottlenecks, and unresolved correctness or quality gaps.
-Append implemented, rejected, reverted, and inconclusive strategies to `history.md`
-with their code/input bindings, actual checks, measurements, and decision rationale.
-Keep the testing standards current when a requirement changes. If one record needs
-no substantive edit, explicitly verify that it still agrees with the completed work.
+## Development
 
-Keep these two records in English and use them instead of creating another numbered
-handoff or a duplicate status document. Preserve historical results with their dates
-and scope; do not silently replace an unsuccessful experiment with its successor.
-Use the focused validation policy in `history.md`, retain required project checks,
-and do not run broad repeated profiling without a concrete unresolved concern.
+Historical measurements and passed checks do not verify changed code or inputs.
+Run focused validation and broaden it only for a concrete unresolved concern.
 
 Algorithm changes belong in Ganglia. Atlos owns its noclip integration patches and
 packaged dependency; generated `talos/.cache/noclip` source is not an editing target.
 Do not include unrelated workspace changes or push without explicit authorization.
+
+## Local development resources
+
+Keep dependency clones, downloaded data, generated datasets, caches and private
+configuration under `.local/` in the Ganglia repository root. Resolve this location
+from the repository root even when running commands inside a dependency checkout.
+Keep `.local/` excluded from Git.
+
+Inspect local files and repository instructions to determine available resources
+and their current setup. Record dataset provenance alongside the data, including
+its game build, exporter version and state/profile settings. Preserve verified
+inputs when generating a new dataset version.

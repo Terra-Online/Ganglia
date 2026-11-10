@@ -13,7 +13,6 @@ export interface SceneInput {
 export interface RouteQuery {
   starts: GroundArrival[];
   goal: Vec3;
-  /** Only request-dependent settings can override scene defaults. */
   options?: Partial<Pick<JumpRouteOptions,
     'interaction' | 'waypoints' | 'connections' | 'maxCandidates' | 'maxShortcutCandidates' | 'maxLinks'>>;
 }
@@ -36,5 +35,4 @@ export interface PreparedRouteSolver {
   close(): Promise<void>;
 }
 
-/** Existing surface-action implementation. Its batch execution is serial. */
 export function prepareSurfaceActionSolver(input: SceneInput): Promise<PreparedRouteSolver>;

@@ -51,7 +51,7 @@ if (values.help) {
     }
   } catch (error) {
     console.error(`Benchmark failed: ${error.message}`);
-    console.error('See bench/README.md for required local data.');
+    console.error('Use --data-root to select the directory containing the scene exports.');
     process.exitCode = 1;
   }
 }

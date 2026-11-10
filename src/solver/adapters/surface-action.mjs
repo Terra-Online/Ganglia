@@ -19,7 +19,6 @@ export async function prepareSurfaceActionSolver(input) {
     for (const key of ['interaction', 'waypoints', 'connections', 'maxCandidates', 'maxShortcutCandidates', 'maxLinks']) {
       if (Object.hasOwn(query.options ?? {}, key)) overrides[key] = query.options[key];
     }
-    // planJumpRoute owns a fresh action pool and discovery cursors for each call.
     return planJumpRoute(prepared.surfaces, prepared.world, query.starts, query.goal,
       { ...prepared.options, ...overrides, groundPlanner: prepared.planner });
   };
