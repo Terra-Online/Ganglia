@@ -13,7 +13,7 @@ const { values } = parseArgs({ options: { json: { type: 'boolean' }, help: { typ
   'data-root': { type: 'string', default: resolve(root, '.local/data') } } });
 if (values.help) {
   console.log('Usage: npm run benchmark -- [--json] [--data-root <directory>]');
-  console.log('Runs 10 fixed map02 queries individually, then as one same-scene batch.');
+  console.log(`Runs ${cases.length} fixed map02 queries individually, then as one same-scene batch.`);
 } else {
   try {
     const { input, metadata } = await loadMap02(values['data-root']);

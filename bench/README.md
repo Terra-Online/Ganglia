@@ -59,24 +59,25 @@ No game data is distributed or downloaded by this script. Missing inputs produce
 a nonzero exit and a diagnostic on stderr. For clean JSON stdout through npm,
 use `--silent`; direct `node bench/cli.mjs --json` also emits JSON only.
 
-`bench/scenes/map02.mjs` defines ten fixed ground-to-ground pairs in the same
-map02_lv004 window: five upper-area starts paired with two lower ground goals.
+`bench/scenes/map02.mjs` defines fifty fixed ground-to-ground pairs in the same
+map02_lv004 window: twenty-five upper-area starts paired with two lower ground goals.
 The goals were checked for collision support and standing clearance during
 selection. Ground-only selection probes could not connect the pairs; inspect
 `jumps`, `drops` and `length` in each measured result for actual motion evidence.
-The five starts share an upper walking region, so these ten pairs exercise two
-target regions rather than ten independent terrain layouts. Requests use 512
+The starts are sampled along a retained walking trace and share an upper walking
+region, so these fifty pairs exercise two target regions rather than fifty
+independent terrain layouts. Requests use 512
 candidates, 64 links and no optional shortcut budget.
 This is a small, bounded SDK workload; it does not reproduce the full Atlos
 pipeline, devices, boosts, goal refinement, live-game execution or the historical
 heavy-action acceptance corpus. Unavailable/truncated outcomes are reported.
 
-The runner measures each query once on a prepared instance, then submits all ten
+The runner measures each query once on a prepared instance, then submits all fifty
 to a separate prepared instance. Input I/O, hashing, preparation, result comparison
 and formatting are outside the measured calls. Both passes run in one process;
 there is no explicit warmup, OS cache flush or JIT/GC control. This is an initial
 observation, not a statistically controlled speedup comparison. The single-query
-P95 is the nearest-rank statistic of ten different requests, not repeated samples
+P95 is the nearest-rank statistic of fifty different requests, not repeated samples
 of one request. Batch reports whole-call time and requests/s, without inventing
 per-request latency for parallel implementations.
 

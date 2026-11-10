@@ -175,23 +175,24 @@ adapter currently executes batches serially. The interface leaves scheduling and
 parallel execution to replacement implementations and preserves input/result order.
 It does not change the existing solver algorithms or the Atlos request pipeline.
 
-`bench/cli.mjs`, available as `npm run benchmark -- --json`, measures ten fixed
+`bench/cli.mjs`, available as `npm run benchmark -- --json`, measures fifty fixed
 map02_lv004 requests individually and as one same-scene batch. The runner accepts
 a solver factory, submits the batch once and excludes input I/O, preparation and
 output comparison from query timing. Discovery indices remain lazy and their first
 use is charged to a query. Separate prepared instances isolate the two passes;
 process JIT/GC and OS pages are not controlled. See [the guide](../../bench/README.md).
 
-The current `map02-ground-jumps-v1` workload pairs five upper-area starts with
-two collision-checked lower ground goals, with 42–65 m horizontal separation.
+The current `map02-ground-jumps-v2` workload pairs twenty-five upper-area starts
+sampled along a retained walking trace with two collision-checked lower ground
+goals, producing fifty distinct requests with 40–65 m horizontal separation.
 Selection probes map both endpoints but find no ground-only route for any pair.
-All ten full requests completed: five with one jump and five with two jumps;
-route lengths were 85–115 m. All retained `truncated`, so completion establishes a
-feasible result within finite discovery, not exhaustive coverage. Batch route/
-connection outcomes and truncation matched single-query results. The workload
-uses 512 candidates, 64 links and zero optional shortcut budget. Five starts share
-one upper region and two target regions; this is not ten independent terrain
+All fifty full requests completed: twenty-five with one jump and twenty-five with
+two jumps; route lengths were 91–135 m. All retained `truncated`, so completion
+establishes feasibility within finite discovery, not exhaustive coverage. Batch
+route/connection outcomes and truncation matched singles. The workload still uses
+512 candidates, 64 links and zero optional shortcuts. Starts share one upper region
+and two target regions; fifty requests do not imply fifty independent terrain
 layouts. Devices, boosts, goal refinement and Atlos scheduling remain excluded.
-Earlier short walking and airborne-objective records remain historical evidence.
-This workload does not replace heavy-action controls or establish an algorithm
-speedup. The historical target and outstanding modeling gaps remain unchanged.
+Earlier ten-request, short walking and airborne-objective records remain historical
+evidence. This workload does not replace heavy-action controls or establish an
+algorithm speedup. The historical target and outstanding modeling gaps are unchanged.

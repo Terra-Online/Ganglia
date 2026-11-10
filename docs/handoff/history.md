@@ -309,3 +309,35 @@ OS-cache and two-target-region limitations. The companion handoff and benchmark
 guide have been updated to the resulting workload.
 
 All 275 SDK/benchmark tests passed after the workload and result-summary changes.
+
+### Fifty-request jump workload (2026-11-11)
+
+Expanded to `map02-ground-jumps-v2`: twenty-five distinct upper-area starts
+sampled at approximately equal path-distance intervals from retained walking
+vertices, each paired with the same two lower ground goals. Every start is at
+least 40 m horizontally from both goals. Selection checks map all endpoints
+and find no ground-only route for all fifty pairs; checks are retained in
+`.local/research/ground-jump-selection-50.json`. Existing ten-request evidence
+is preserved separately. Budgets and solver implementation are unchanged.
+
+All fifty full requests completed, twenty-five with one jump and twenty-five with
+two jumps. Routes measured 91–135 m; all retained `truncated`. All fifty batch
+route/connection outcomes and truncation flags matched singles. This larger sample
+still covers two target regions, not fifty independent terrain layouts.
+
+Actual npm JSON output: `.local/research/solver-benchmark-ground-jumps-50.json`,
+Node v24.22.0, base `4972e95ec2f5f0a4a3f35ea993fa392982b4b628`, source/workload digest
+`b98e70654c89d2abab8fb72e3bf19eafd3b99274b0a7f1c8b38552793d458b4f`.
+
+| Measurement | Observation |
+| --- | ---: |
+| Fifty single-query calls, summed | 8909.245 ms |
+| Single median / P95 across distinct requests | 185.502 / 254.492 ms |
+| Batch wall time | 8583.870 ms |
+| Batch throughput | 5.825 requests/s |
+| Excluded single / batch preparation | 971.518 / 889.485 ms |
+
+Four focused solver/benchmark tests passed, and npm help correctly reports fifty
+requests. Only workload data, dynamic help count and documentation changed.
+Timing semantics and the lack of controlled repeated measurement are unchanged;
+this is not an algorithm-speedup comparison with the ten-request workload.
