@@ -10,13 +10,13 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 
 | Area | Owning source |
 | --- | --- |
-| Global corridor proposals | [`src/candidate-planner.mjs`](../../src/candidate-planner.mjs), [`src/candidate-transfers.mjs`](../../src/candidate-transfers.mjs) |
-| Physical support generation | [`src/build.mjs`](../../src/build.mjs), [`src/support-field.mjs`](../../src/support-field.mjs) |
-| Ground query and geometry preparation | [`src/ground.mjs`](../../src/ground.mjs), [`src/surfaces.mjs`](../../src/surfaces.mjs), [`src/straighten.mjs`](../../src/straighten.mjs), [`src/movement-geometry.mjs`](../../src/movement-geometry.mjs) |
-| Movement search | [`src/jump-planner.mjs`](../../src/jump-planner.mjs), [`src/traversal.mjs`](../../src/traversal.mjs), [`src/shortcuts.mjs`](../../src/shortcuts.mjs), [`src/route-shortcuts.mjs`](../../src/route-shortcuts.mjs) |
-| Dynamics and pruning | [`src/jumps.mjs`](../../src/jumps.mjs), [`src/reachability.mjs`](../../src/reachability.mjs), [`src/motion-bounds.mjs`](../../src/motion-bounds.mjs), [`src/flight-steering.mjs`](../../src/flight-steering.mjs), [`src/candidate-bounds.mjs`](../../src/candidate-bounds.mjs) |
-| Airborne objectives and boosts | [`src/airborne-goal.mjs`](../../src/airborne-goal.mjs), [`src/boosted-route.mjs`](../../src/boosted-route.mjs), [`src/goals.mjs`](../../src/goals.mjs) |
-| Collision and resources | [`src/collision.mjs`](../../src/collision.mjs), [`src/locomotion.mjs`](../../src/locomotion.mjs), [`src/resource-search.mjs`](../../src/resource-search.mjs) |
+| Global corridor proposals | [`src/candidate-planner.ts`](../../src/candidate-planner.ts), [`src/candidate-transfers.ts`](../../src/candidate-transfers.ts) |
+| Physical support generation | [`src/build.ts`](../../src/build.ts), [`src/support-field.ts`](../../src/support-field.ts) |
+| Ground query and geometry preparation | [`src/ground.ts`](../../src/ground.ts), [`src/surfaces.ts`](../../src/surfaces.ts), [`src/straighten.ts`](../../src/straighten.ts), [`src/movement-geometry.ts`](../../src/movement-geometry.ts) |
+| Movement search | [`src/jump-planner.ts`](../../src/jump-planner.ts), [`src/traversal.ts`](../../src/traversal.ts), [`src/shortcuts.ts`](../../src/shortcuts.ts), [`src/route-shortcuts.ts`](../../src/route-shortcuts.ts) |
+| Dynamics and pruning | [`src/jumps.ts`](../../src/jumps.ts), [`src/reachability.ts`](../../src/reachability.ts), [`src/motion-bounds.ts`](../../src/motion-bounds.ts), [`src/flight-steering.ts`](../../src/flight-steering.ts), [`src/candidate-bounds.ts`](../../src/candidate-bounds.ts) |
+| Airborne objectives and boosts | [`src/airborne-goal.ts`](../../src/airborne-goal.ts), [`src/boosted-route.ts`](../../src/boosted-route.ts), [`src/goals.ts`](../../src/goals.ts) |
+| Collision and resources | [`src/collision.ts`](../../src/collision.ts), [`src/locomotion.ts`](../../src/locomotion.ts), [`src/resource-search.ts`](../../src/resource-search.ts) |
 | Atlos ordinary request | [`dev-route-server.ts`](../../../Atlos/talos/apps/world/dev-route-server.ts), [`travel-arrivals.ts`](../../../Atlos/talos/apps/world/travel-arrivals.ts) |
 | Atlos corridor worker | [`candidate-job.ts`](../../../Atlos/talos/apps/world/candidate-job.ts), [`candidate-worker.ts`](../../../Atlos/talos/apps/world/candidate-worker.ts) |
 | Atlos physical scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |

@@ -110,7 +110,7 @@ model. It leaves the exact real-scene failure and real-game execution open.
 Recast documents both the voxel-based climb limit and the effect of resolution
 on small curbs and stairs. [Official rcConfig reference](https://recastnav.com/structrcConfig.html).
 
-The existing `test/build.test.mjs` and `test/tiles.test.mjs` suites were run once
+The existing `test/build.test.ts` and `test/tiles.test.ts` suites were run once
 after the planning edits and passed all 12 tests. They cover single steps and
 tile constraints. The multi-riser diagnostics above were additional in-memory
 experiments and expose a gap in that baseline coverage.
@@ -119,12 +119,12 @@ experiments and expose a gap in that baseline coverage.
 
 | Current location | Observed contract | Consequence for the plan |
 | --- | --- | --- |
-| `src/build.mjs`, `buildGroundSurfaces` | Uses the smaller directional step limit with one vertical voxel of margin, exports detail triangles, then destroys the native mesh | Inspect compact-span, native-polygon and exported topology separately. Preserve authoritative adjacency and support provenance during export |
-| `src/build.mjs`, `joinTiles` | Emits directed seam midpoint pairs | Carry the usable crossing interval and its height relation through clipping and stitching |
-| `src/surfaces.mjs`, `surfaceGraph` | Infers shared collinear 3D edges and accepts explicit directed transfers at matching XZ boundaries | Ground-controller passage needs an explicit relation when support heights change |
-| `src/straighten.mjs`, `createGroundStraightener` | Reconstructs shared-edge adjacency independently and consumes walls and profile | Search, support tracing and path reconstruction need one passage contract, including directed height-changing transfers |
-| `src/ground.mjs`, `createGroundPlanner` | Searches triangle-center corridors, adds pairwise endpoint visibility, then straightens and retimes | Retain continuous interface geometry and state-dependent local transfers when compressing search |
-| `src/jump-planner.mjs`, `planJumpRoute` | A failed ground baseline triggers region proposals and bidirectional action frontiers | Diagnose and refine unresolved ground topology before using airborne discovery to seek feasibility |
+| `src/build.ts`, `buildGroundSurfaces` | Uses the smaller directional step limit with one vertical voxel of margin, exports detail triangles, then destroys the native mesh | Inspect compact-span, native-polygon and exported topology separately. Preserve authoritative adjacency and support provenance during export |
+| `src/build.ts`, `joinTiles` | Emits directed seam midpoint pairs | Carry the usable crossing interval and its height relation through clipping and stitching |
+| `src/surfaces.ts`, `surfaceGraph` | Infers shared collinear 3D edges and accepts explicit directed transfers at matching XZ boundaries | Ground-controller passage needs an explicit relation when support heights change |
+| `src/straighten.ts`, `createGroundStraightener` | Reconstructs shared-edge adjacency independently and consumes walls and profile | Search, support tracing and path reconstruction need one passage contract, including directed height-changing transfers |
+| `src/ground.ts`, `createGroundPlanner` | Searches triangle-center corridors, adds pairwise endpoint visibility, then straightens and retimes | Retain continuous interface geometry and state-dependent local transfers when compressing search |
+| `src/jump-planner.ts`, `planJumpRoute` | A failed ground baseline triggers region proposals and bidirectional action frontiers | Diagnose and refine unresolved ground topology before using airborne discovery to seek feasibility |
 | Atlos `physical-route-builder.ts` and `dev-route-server.ts` | Cache whole bounds-based builds and expand margins after unavailable solves | Choose refinement or spatial expansion from the failure evidence and share tile-level assets |
 
 The native Detour structure already separates convex navigation polygons from

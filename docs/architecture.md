@@ -790,10 +790,10 @@ these facts when changing implementation and component timings when validating b
 
 ### Trajectory generation and execution-error replay remain coupled
 
-[`jumpConnection`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/jumps.mjs)
+[`jumpConnection`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/jumps.ts)
 constructs a horizontal trajectory from specified endpoints and the vertical-motion duration, using
 the specified `end` for the final sample.
-[`sampleJourney`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/motion.mjs)
+[`sampleJourney`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/motion.ts)
 interpolates existing points and times for playback. Forward physical propagation from control
 inputs requires a separate interface. Calling `jumpConnection(start', end)` after perturbing the
 start readjusts the action for that start, so this procedure cannot measure the tolerance of a fixed
@@ -808,10 +808,10 @@ candidates, provided that candidates expose action parameters that can be saved 
 ### Retention currently favors witnesses that a connection exists
 
 Region-pair validation in
-[`traversal.mjs`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/traversal.mjs)
+[`traversal.mjs`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/traversal.ts)
 returns when it finds a feasible arc, and validated region pairs receive no further systematic
 comparison of other actions.
-[`shortcuts.mjs`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/shortcuts.mjs)
+[`shortcuts.mjs`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/shortcuts.ts)
 also uses the spatial cells of the start and end as an acceptance key. Once one action succeeds, it
 skips other candidates for that cell pair. Existing diversity budgets help discover connections, but
 are insufficient to estimate the successful domain around one execution.
@@ -826,7 +826,7 @@ the same small successful region must not improve its robustness rating.
 
 `shortcuts.mjs` bounds candidates by the baseline's actual travel time and prunes a candidate when
 its time lower bound cannot improve that value.
-[`planJumpRoute`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/jump-planner.mjs)
+[`planJumpRoute`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/jump-planner.ts)
 also updates the incumbent only for a complete result with shorter actual duration. Adding a
 difficulty score only to the final result would therefore miss slightly slower, more forgiving
 routes already excluded during generation.
@@ -840,16 +840,16 @@ includes robustness constraints.
 
 ### Resource scheduling and route selection remain separate
 
-[`routes.mjs`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/routes.mjs)
+[`routes.mjs`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/routes.ts)
 retains the lowest static cost per node, and
-[`ground.mjs`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/ground.mjs)
+[`ground.mjs`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/ground.ts)
 invokes resource scheduling after selecting a route. In an earlier synthetic check, an ordinary jump
 produced a feasible route lasting 6 seconds. Adding a faster connection whose sprint-entry condition
 was unsatisfiable made the ground planner return `no-verified-route`. This demonstrates the need to
 retain feasible alternatives within resource-state search, instead of filtering selected results
 only at the end.
 
-[`retimeGroundRoute`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/locomotion.mjs)
+[`retimeGroundRoute`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/locomotion.ts)
 already retains labels for stamina, recovery delay, gait, velocity and direction. Its
 resource-transition ideas are reusable. Its main decision, however, is whether each continuous
 ground run permits automatic sprinting. Arbitrary activation, stopping and waiting policies remain
@@ -859,14 +859,14 @@ cooldowns and velocity changes require separate rules.
 ### Special actions already have a basic representation
 
 [`GroundConnection` and
-`MovementMode`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/index.d.ts)
+`MovementMode`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/index-types.ts)
 already support explicit `rope` and `launch` connections with direction, trajectories and timing.
 Complete zipline or bounce-device import and control semantics still require additional work.
 Current high-level connections require ground-projected endpoints, use fixed world-space
 trajectories, and express time relative to segment entry. Missing semantics include interaction
 regions, entry and exit conditions, device states, exit velocity and dynamic support.
 
-[`createGoalProjector`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/goals.mjs)
+[`createGoalProjector`](https://github.com/Terra-Online/Ganglia/blob/3a32a5d2f0df355107dcf94f5ed13fd9ae7b69a7/src/goals.ts)
 still returns ground standing points for interaction goals. Passing through an airborne pickup
 volume, continuing to land after a hit, and leaving a bounce device in an airborne state require
 separate event and task states. The current prepared planner assumes an immutable scene snapshot.

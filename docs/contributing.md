@@ -124,7 +124,7 @@ cd "$TALOS"
 test -e config/config.json || cp config/config.template.json config/config.json
 test -e config/config.r2.json || cp config/config.r2.template.json config/config.r2.json
 pnpm noclip:prepare
-pnpm install --frozen-lockfile
+ppnpm install --frozen-lockfile
 pnpm data prepare
 ```
 
@@ -281,12 +281,12 @@ replacing the catalog, route exports, movement settings or Ganglia dependency.
 
 ```sh
 cd "$GANGLIA"
-npm install
-npm test
-npm pack
+pnpm install
+pnpm test
+pnpm pack
 ```
 
-`npm pack` runs the tests and produces a versioned tarball. Atlos consumes that
+`pnpm pack` runs the tests and produces a versioned tarball. Atlos consumes that
 artifact, not your live Ganglia source directory. For integration changes, copy
 the new archive into `talos/vendor/ganglia`, update the World dependency and the
 extractor dependency in the owned `integrations/noclip/extractor.patch`, regenerate
@@ -298,7 +298,7 @@ Run the checks appropriate to the changed boundary:
 ```sh
 cd "$TALOS"
 pnpm type-check --app world
-pnpm test --app world
+ppnpm test --app world
 pnpm build --app world
 python3 scripts/noclip-download-test.py  # when changing the downloader
 ```

@@ -72,7 +72,7 @@ are available for importers. `sampleRoute(points, meters)` samples arc length wi
 smoothing through corners. `unmapped` or `no-verified-route` means the inputs cannot prove
 a route, not that the game destination is absolutely unreachable.
 
-Run `npm pack` (which runs the tests) for an installable archive. The package includes modules,
+Run `pnpm pack` (which runs the tests) for an installable archive. The package includes modules,
 declarations and the repository's license, never game assets. Registry publication
 is separate. Atlos consumes this archive as a package dependency. Runtime player-state
 integration, complete player navigation coverage and in-game traversal validation remain
