@@ -73,6 +73,6 @@
 
 ## 交付范围与证据
 
-代码属于 Ganglia。Atlos 的地形生成器签名修复已在此前的本地提交中，当前没有更新其安装的 SDK 包，因此远端源码更新与应用依赖升级分别处理。
+代码属于 Ganglia。随后已按你的要求打包为 `0.1.0-alpha.77`，同步升级 Atlos World 与提取器，并更新锁文件。包内源码及两个实际安装位置均已逐文件核对，与 Ganglia 一致。升级验证通过 282 项 SDK 测试、13 项入口与缓存测试、59 项 World 测试，以及类型检查、生产构建和冻结锁文件安装。此前的地形生成器签名修复也随 Atlos 本地提交一起推送。
 
 本地原始证据位于 endfield-noclip 的 `.research/stage123/retained-replay-20261111/`，包括 `verified-replay`、`refined-replay`、按要求停止的 `dual-replay`、`dual-local-screen`、`profiles` 与 `final-action-profile`。这些大体积输入和原始结果保留在本地，仓库中的英文 handoff/history 记录实现契约和验证范围。

@@ -959,5 +959,25 @@ interrupted request is not a solver-failure claim. No complete final-source corp
 pass is claimed. Final instrumented heavy-query cold/warm times are 95.514/98.558 s.
 CPU sample aggregation was empty, so function timers supply hotspot evidence.
 The Chinese requested benefit report is `docs/reports/2026-11-11-solver-optimization.md`.
-The final source is intended for a local commit and authorized remote push. Atlos's
-installed package has not been upgraded. The 20%-remaining-time target stays open.
+The solver source was committed and pushed as `51ef6b3`. The subsequent alpha.77
+Atlos package upgrade is recorded below. The 20%-remaining-time target stays open.
+
+
+## Alpha.77 packaged Atlos integration, 2026-11-11
+
+The user authorized upgrading Atlos and pushing all local changes. Ganglia
+`0.1.0-alpha.77` packages the solver implementation at `51ef6b3`, including the
+subsystem reorganization, terrain preparation improvements and retained-point
+repair. Only package metadata changed during this release step. Atlos World and
+the maintained noclip extractor patch both reference the alpha.77 vendored archive.
+The workspace lockfile and generated extractor were refreshed through the owning
+preparation script, and the replaced alpha.76 archive was removed.
+
+Archive SHA-256 is `9dd60b4b237dedbdcc7ba4e8c3baddd53a82ca83005a015b270f1a6cfadddeee`.
+All packaged source files match the checkout. Both World and extractor resolve
+the same alpha.77 package and source bytes. Package prepack passes 282 SDK tests.
+The prepared integration passes 13 route worker/server, route cache and source
+preparation tests, plus 59 World tests. World type checking, production build and
+frozen-lockfile installation pass. The build reports its existing large-chunk
+warning. No additional corpus replay was run for this packaging-only upgrade.
+The earlier final-source corpus limitation and performance conclusions still apply.
