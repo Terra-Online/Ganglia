@@ -2,16 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.ts';
-import type {
-  GroundArrival,
-  GroundConnection,
-  JumpRouteOptions,
-  Route,
-  Surface,
-  Vec3,
-  Wall,
-} from '../src/index-types.ts';
+import type { Surface, Vec3 } from '../src/geo/geometry.ts';
+import type { Wall } from '../src/geo/walls.ts';
 import { planJumpRoute, createGroundPlanner, findJumpConnections } from '../src/index.ts';
+import type { GroundArrival, GroundConnection } from '../src/route/ground.ts';
+import type { JumpRouteOptions } from '../src/route/jump-planner.ts';
+import type { Route } from '../src/route/routes.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
   id,

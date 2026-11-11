@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Capsule } from '../src/collision-types.ts';
 import { createCollisionWorld } from '../src/collision.ts';
-import type { Vec3, Wall } from '../src/index-types.ts';
+import type { Capsule } from '../src/geo/collision.ts';
+import type { Vec3 } from '../src/geo/geometry.ts';
+import type { Wall } from '../src/geo/walls.ts';
 import type { JumpOptions, RunOffOptions } from '../src/motion/jumps.ts';
 import { jumpConnection, jumpDuration, runOffConnection } from '../src/motion/jumps.ts';
 

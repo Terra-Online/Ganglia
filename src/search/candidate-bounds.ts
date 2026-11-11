@@ -1,5 +1,6 @@
 import type { Bounds } from '../geo/bounds.ts';
-import type { JumpModel, Vec3, Surface } from '../index-types.ts';
+import type { Vec3, Surface } from '../geo/geometry.ts';
+import type { JumpModel } from '../motion/jumps.ts';
 import { jumpDuration } from '../motion/jumps.ts';
 
 interface FaceBounds {

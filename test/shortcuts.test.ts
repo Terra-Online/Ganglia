@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.ts';
-import type { GroundArrival, GroundConnection, Surface, Vec3 } from '../src/index-types.ts';
+import type { Surface, Vec3 } from '../src/geo/geometry.ts';
+import type { GroundArrival, GroundConnection } from '../src/route/ground.ts';
 import { createGroundPlanner } from '../src/route/ground.ts';
+import type { route } from '../src/route/routes.ts';
 import type { ShortcutCache, ShortcutOptions } from '../src/search/shortcuts.ts';
 import { findJumpShortcuts, findJumpFrontier } from '../src/search/shortcuts.ts';
 import { findJumpConnections } from '../src/search/traversal.ts';

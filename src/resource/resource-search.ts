@@ -1,8 +1,9 @@
-import type { Vec3, Arrival, LocomotionOptions, Segment, Route } from '../index-types.ts';
+import type { Vec3 } from '../geo/geometry.ts';
+import type { Segment } from '../motion/motion.ts';
 import { routeSegment } from '../motion/motion.ts';
-import type { RouteBase } from '../route/routes.ts';
+import type { Arrival, Route, RouteBase } from '../route/routes.ts';
 import { createMinHeap } from '../search/heap.ts';
-import type { LocomotionState } from './locomotion.ts';
+import type { LocomotionOptions, LocomotionState } from './locomotion.ts';
 import { createLocomotion } from './locomotion.ts';
 
 interface Label {

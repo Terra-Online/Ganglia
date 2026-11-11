@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.ts';
-import type { Surface } from '../src/index-types.ts';
+import type { Surface } from '../src/geo/geometry.ts';
 import { planJumpRoute } from '../src/route/jump-planner.ts';
-import type { RouteQuery } from '../src/solver/index-types.ts';
+import type { RouteQuery } from '../src/solver/contract.ts';
 import { prepareSurfaceActionSolver } from '../src/solver/index.ts';
 
 const surfaces: Surface[] = [0, 7, 14].map((x, i) => ({

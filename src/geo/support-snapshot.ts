@@ -1,4 +1,4 @@
-import type { Surface, Vec3 } from '../index-types.ts';
+import type { Surface, Vec3 } from './geometry.ts';
 export interface SupportTriangle {
   vertices: [Vec3, Vec3, Vec3];
   determinant: number;

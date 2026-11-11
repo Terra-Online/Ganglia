@@ -1,8 +1,48 @@
-import type { CollisionWorld } from '../collision-types.ts';
+import type { CollisionWorld } from '../geo/collision.ts';
+import type { Vec3 } from '../geo/geometry.ts';
+import type { Wall } from '../geo/walls.ts';
 import { createWallChecker } from '../geo/walls.ts';
-import type { Vec3, JumpModel, jumpConnection as JumpConnection } from '../index-types.ts';
 
-export type JumpOptions = Parameters<typeof JumpConnection>[2];
+export interface JumpModel {
+  gravity: number;
+  fallingGravity: number;
+  maxJumpHeight: number;
+  maxFallingSpeed: number;
+  apexTime: number;
+  maxHorizontalSpeed: number;
+  airAcceleration?: number;
+  airDeceleration?: number;
+  /** Optional jump impulse ceiling and decay of speed above the sustained air limit. */
+  startHorizontalSpeed?: number;
+  airOverspeedDeceleration?: number;
+}
+
+export interface Arc {
+  mode: 'jump' | 'drop';
+  points: Vec3[];
+  times: number[];
+  motionValidation: 'model-based';
+  peakHorizontalSpeed?: number;
+}
+export type JumpOptions = JumpModel & {
+  profile: { radius: number; height: number };
+  mode: 'jump' | 'drop';
+  sweep: CollisionWorld['sweepCapsule'];
+  walls: Wall[];
+  clearance?: number;
+  /** Fraction of displacement completed early, followed by a stop and late completion.
+   * Requires explicit airAcceleration and airDeceleration. Omit for constant speed.
+   */
+  horizontalSplit?: number;
+  /** Optional XZ air waypoint, reached early before the late landing leg. */
+  horizontalWaypoint?: [number, number];
+  /** Final jump continuation after a speed boost expires. */
+  expireAfter?: number;
+  expiredHorizontalSpeed?: number;
+  /** Optional prepared checker for the same immutable walls and body profile. */
+  wallCheck?: ReturnType<typeof createWallChecker>;
+};
+
 export type VerticalOptions = Omit<JumpModel, 'maxHorizontalSpeed'> & { mode: 'jump' | 'drop' };
 export interface MotionControl {
   mode: 'jump' | 'drop';
@@ -31,7 +71,7 @@ export interface Approach {
 }
 export type ApproachCache = Map<string, Approach | null>;
 export type ExitCache = Map<string, [number, number] | null>;
-export type Arc = NonNullable<ReturnType<typeof JumpConnection>>;
+
 export type RunOffOptions = Omit<JumpOptions, 'mode'> &
   Partial<MotionControl> & { world: CollisionWorld; maxSlope: number };
 interface SweepOptions {

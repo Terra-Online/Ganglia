@@ -1,31 +1,76 @@
+import type { Portal, Vec3, Surface } from '../geo/geometry.ts';
 import { createSupportProjector } from '../geo/support-projector.ts';
 import type { SharedPortal } from '../geo/surfaces.ts';
 import { surfaceGraph, surfacePortals } from '../geo/surfaces.ts';
-import type {
-  Vec3,
-  Surface,
-  GroundOptions,
-  GroundArrival,
-  Graph,
-  Arrival,
-  Route,
-  Segment,
-  ResourceSearch,
-  createGroundPlanner as GroundPlannerFactory,
-} from '../index-types.ts';
+import type { Wall } from '../geo/walls.ts';
+import type { InteractionGoal, GoalProjector } from '../motion/goals.ts';
 import { createGoalProjector } from '../motion/goals.ts';
+import type { MovementMode, Segment } from '../motion/motion.ts';
 import { validateMotion } from '../motion/motion.ts';
+import type { LocomotionOptions } from '../resource/locomotion.ts';
 import { retimeGroundRoute } from '../resource/locomotion.ts';
+import type { Graph, Arrival, Route, ResourceSearch } from './routes.ts';
 import { createRoutePlanner, prepareRoutePlanner } from './routes.ts';
 import type { GroundStraightener } from './straighten.ts';
 import { createGroundStraightener } from './straighten.ts';
 
-type Planner = ReturnType<typeof GroundPlannerFactory>;
+export interface GroundArrival {
+  id: string;
+  position: Vec3;
+  cost: number;
+  state: Arrival['state'];
+}
+
+export interface GroundConnection {
+  /** A collection action ends in flight and cannot be used as a transfer. */
+  terminal?: true;
+  /** Conditional trajectories are unavailable without the matching active boost. */
+  requiredBoost?: string;
+  id: string;
+  mode: Exclude<MovementMode, 'walk'>;
+  points: Vec3[];
+  times: number[];
+  state: 'open' | 'closed' | 'unknown';
+  /** Explicit collision-support allowance, bounded by maxVertical and body radius. Defaults to 1e-6 m. */
+  endpointTolerance?: number;
+  /** Non-ground entry condition, checked against active gait by the locomotion scheduler.
+   * Ground planners exclude this connection when no locomotion policy is supplied.
+   */
+  requiredGait?: 'sprint';
+  /** Optional explicit support faces, validated at the authored endpoint tolerance. */
+  fromSurface?: string;
+  toSurface?: string;
+}
+
+export interface GroundOptions {
+  activeBoost?: string;
+  speed: number;
+  maxVertical: number;
+  walls: Wall[];
+  profile: { radius: number; height: number };
+  connections?: GroundConnection[];
+  portals?: Portal[];
+  locomotion?: LocomotionOptions;
+}
+
+export interface GroundQueryOptions {
+  interaction?: InteractionGoal;
+  endpointTolerance?: number;
+  connections?: GroundConnection[];
+}
+
+export interface GroundPlanner {
+  /** Reuse this snapshot's floor/interaction projector. Projection alone does not
+   * establish body clearance, wall state or reachability. */
+  project: GoalProjector;
+  plan(starts: GroundArrival[], goal: Vec3, query?: GroundQueryOptions): Route;
+}
+
 interface Preparation {
   surfaces: Surface[];
   portals: SharedPortal[];
   straighten: GroundStraightener;
-  projectGoal: ReturnType<typeof createGoalProjector>;
+  projectGoal: GoalProjector;
   projectSupport: ReturnType<typeof createSupportProjector>;
   byId: Map<string, Surface>;
   centers: Map<string, Vec3>;
@@ -47,9 +92,9 @@ interface Endpoint {
   key: string;
 }
 
-const preparations = new WeakMap<Planner, Preparation>();
+const preparations = new WeakMap<GroundPlanner, Preparation>();
 /** Internal immutable preparation shared with action discovery for the same planner. */
-export const groundPreparation = (planner?: Planner): Preparation | undefined =>
+export const groundPreparation = (planner?: GroundPlanner): Preparation | undefined =>
   preparations.get(planner!);
 /** Ground endpoints retain their projected positions. Each connector lies within its
  * convex source polygon; only the importer may select admissible surfaces/state.
@@ -69,7 +114,7 @@ export function planGroundRoute(
  * Search selects a corridor; continuous ground tracing removes unnecessary graph turns.
  * This does not establish a globally shortest path across every possible corridor.
  */
-export function createGroundPlanner(surfaces: Surface[], options: GroundOptions): Planner {
+export function createGroundPlanner(surfaces: Surface[], options: GroundOptions): GroundPlanner {
   const { speed, maxVertical, walls, profile, connections = [] } = options;
   // Compare action times at the fastest permitted ground gait. The existing
   // resource scheduler verifies the complete selected motion sequence afterwards.
@@ -90,11 +135,7 @@ export function createGroundPlanner(surfaces: Surface[], options: GroundOptions)
   let endpointKeys = new Map<string, string>();
   const planner = {
     project: projectGoal,
-    plan(
-      starts: GroundArrival[],
-      goal: Vec3,
-      query: NonNullable<Parameters<Planner['plan']>[2]> = {},
-    ): Route {
+    plan(starts: GroundArrival[], goal: Vec3, query: GroundQueryOptions = {}): Route {
       // Transfers depend on support coordinates within this immutable planner.
       // Keep fixed device transfers when action discovery changes its target.
       const graph: Graph = { nodes: [], edges: [] };

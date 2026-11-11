@@ -1,10 +1,25 @@
-import type {
-  Vec3,
-  Edge,
-  Segment,
-  BoostUse,
-  sampleJourney as SampleJourney,
-} from '../index-types.ts';
+import type { Vec3 } from '../geo/geometry.ts';
+import type { Route, Edge } from '../route/routes.ts';
+
+export type MovementMode = 'walk' | 'rope' | 'jump' | 'drop' | 'launch';
+
+export interface BoostUse {
+  id: string;
+  multiplier: number;
+  duration: number;
+}
+
+export interface Segment {
+  boostExpiry?: number;
+  boost?: BoostUse;
+  mode: MovementMode;
+  points: Vec3[];
+  times: number[];
+  connection?: string;
+  gait?: 'run' | 'sprint' | 'dash';
+  requiredGait?: 'sprint';
+}
+
 const modes = new Set<string>(['walk', 'rope', 'jump', 'drop', 'launch']);
 const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((v, i) => v - b[i]));
 // Shared by graph and grounded-connection import. Sample times are measured from
@@ -79,9 +94,9 @@ export function routeSegment(edge: Edge): Segment {
  * This interpolates supplied trajectory samples, not a newly fitted parabola or spline.
  */
 export function sampleJourney(
-  route: Parameters<typeof SampleJourney>[0],
+  route: Extract<Route, { status: 'complete' }>,
   seconds: number,
-): ReturnType<typeof SampleJourney> {
+): { position: Vec3; mode: MovementMode | 'complete'; connection?: string } {
   if (route.status !== 'complete' || !Number.isFinite(seconds))
     throw new Error('Invalid journey sample');
   let remaining = Math.max(0, seconds);

@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { MovementMode, Route, Segment, Surface, Vec3, Wall } from '../src/index-types.ts';
+import type { Surface, Vec3 } from '../src/geo/geometry.ts';
+import type { Wall } from '../src/geo/walls.ts';
 import {
   blockedByWalls,
   createGroundPlanner,
   pruneGroundDetours,
   retimeGroundRoute,
 } from '../src/index.ts';
+import type { MovementMode, Segment } from '../src/motion/motion.ts';
+import type { Route } from '../src/route/routes.ts';
 import { expectStatus } from './assertions.ts';
 
 const locomotion = { speed: 2, sprintSpeed: 4, sprintAcceleration: 2 };

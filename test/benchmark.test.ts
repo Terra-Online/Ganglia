@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { runBenchmark } from '../bench/run.ts';
-import type { RouteQuery, RouteResult } from '../src/solver/index-types.ts';
+import type { RouteQuery, RouteResult } from '../src/solver/contract.ts';
 
 test('the benchmark submits a whole batch and accepts asynchronous out-of-order execution', async () => {
   const cases: readonly { id: string; query: RouteQuery }[] = [1, 2, 3].map((id) => ({

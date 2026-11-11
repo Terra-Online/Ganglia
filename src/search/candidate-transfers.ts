@@ -1,4 +1,4 @@
-import type { Surface, Vec3 } from '../index-types.ts';
+import type { Surface, Vec3 } from '../geo/geometry.ts';
 import type { GroundTopology } from '../reach/connectivity.ts';
 interface Occurrence {
   surface: string;

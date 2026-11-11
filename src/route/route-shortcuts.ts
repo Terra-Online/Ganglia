@@ -1,13 +1,7 @@
-import type { CollisionWorld } from '../collision-types.ts';
 import { createBoundsIndex } from '../geo/bounds.ts';
+import type { CollisionWorld } from '../geo/collision.ts';
+import type { Vec3, Surface } from '../geo/geometry.ts';
 import { createWallChecker } from '../geo/walls.ts';
-import type {
-  Vec3,
-  Route,
-  Surface,
-  GroundConnection,
-  ShortcutDiagnostics,
-} from '../index-types.ts';
 import { createGoalProjector } from '../motion/goals.ts';
 import type { MotionControl, JumpOptions } from '../motion/jumps.ts';
 import {
@@ -16,9 +10,11 @@ import {
   runOffConnection,
   createMotionVariants,
 } from '../motion/jumps.ts';
-import type { ShortcutOptions, ShortcutCache } from '../search/shortcuts.ts';
+import type { ShortcutDiagnostics, ShortcutOptions, ShortcutCache } from '../search/shortcuts.ts';
 import { standingFoot, validateDiscovery } from '../search/traversal.ts';
+import type { GroundConnection } from './ground.ts';
 import { groundPreparation } from './ground.ts';
+import type { Route } from './routes.ts';
 
 interface Sample {
   id: number;

@@ -1,16 +1,19 @@
-import type { CollisionWorld } from '../collision-types.ts';
-import type {
-  Vec3,
-  Surface,
-  GroundArrival,
-  Route,
-  SpeedBoost,
-  JumpDiagnostics,
-} from '../index-types.ts';
+import type { CollisionWorld } from '../geo/collision.ts';
+import type { Vec3, Surface } from '../geo/geometry.ts';
+import type { InteractionGoal } from '../motion/goals.ts';
 import { findGoalHit, trimGoalFlight } from '../motion/goals.ts';
 import { jumpConnection } from '../motion/jumps.ts';
+import type { BoostUse } from '../motion/motion.ts';
 import { retimeGroundRoute } from '../resource/locomotion.ts';
-import type { PlannerOptions, JumpResult } from './jump-planner.ts';
+import type { GroundArrival } from './ground.ts';
+import type { JumpDiagnostics, PlannerOptions, JumpResult } from './jump-planner.ts';
+import type { Route } from './routes.ts';
+
+export interface SpeedBoost extends BoostUse {
+  position: Vec3;
+  interaction: InteractionGoal;
+}
+
 const findPickup = (route: Extract<Route, { status: 'complete' }>, boost: SpeedBoost) => {
   if (!route.segments.length) {
     const hit = findGoalHit([route.points[0], route.points[0]], boost.position, boost.interaction);

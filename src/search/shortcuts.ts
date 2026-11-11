@@ -1,16 +1,7 @@
-import type { CollisionWorld } from '../collision-types.ts';
 import type { Bounds, BoundsIndex } from '../geo/bounds.ts';
 import { createBoundsIndex } from '../geo/bounds.ts';
-import type {
-  Vec3,
-  Surface,
-  Edge,
-  GroundConnection,
-  DiscoveryOptions,
-  ShortcutDiagnostics,
-  Route,
-  GroundOptions,
-} from '../index-types.ts';
+import type { CollisionWorld } from '../geo/collision.ts';
+import type { Vec3, Surface } from '../geo/geometry.ts';
 import type { GoalProjection } from '../motion/goals.ts';
 import type { Arc, ApproachCache, ExitCache, MotionControl, JumpOptions } from '../motion/jumps.ts';
 import {
@@ -24,13 +15,64 @@ import type { DistanceField, WeightedEdge } from '../reach/distance-field.ts';
 import { advanceDistanceField } from '../reach/distance-field.ts';
 import { createMotionBounds } from '../reach/motion-bounds.ts';
 import { createJumpEnvelope, createJumpPredecessor } from '../reach/reachability.ts';
+import type { GroundConnection, GroundOptions } from '../route/ground.ts';
 import { movementGeometry } from '../route/movement-geometry.ts';
+import type { Edge, Route } from '../route/routes.ts';
 import type { GroundStraightener } from '../route/straighten.ts';
 import { createGroundStraightener } from '../route/straighten.ts';
 import { boundaryTree, boundaryOrder } from './boundary-order.ts';
 import { createCandidateBounds } from './candidate-bounds.ts';
-import type { Boundary } from './traversal.ts';
+import type { DiscoveryOptions, Boundary } from './traversal.ts';
 import { interleave, standingFoot, validateDiscovery } from './traversal.ts';
+
+interface FieldWork {
+  /** True when roots, the base graph or existing actions required a full restart. */
+  reset: boolean;
+  expanded: number;
+  /** Outgoing edges visited from expanded labels. */
+  edgeChecks: number;
+  relaxed: number;
+  /** Current reachable labels; a complete distance-field pass visits this many nodes. */
+  reachableNodes: number;
+}
+
+/** Search collision-checked alternatives to an existing route, including same-component jumps and drops. */
+export interface ShortcutDiagnostics {
+  reason: string;
+  baselineCost: number;
+  boundaryEdges: number;
+  seedChecks: number;
+  seedProjections?: number;
+  candidatePairs: number;
+  neighbourChecks: number;
+  dominatedFaces?: number;
+  endpointChecks: number;
+  attempted: number;
+  accepted: number;
+  truncated: boolean;
+  goalFaces: number;
+  rejected: {
+    support: number;
+    projection: number;
+    clearance: number;
+    range: number;
+    motion: number;
+    groundDominated: number;
+  };
+  limits: {
+    seedChecks: number;
+    neighbourChecks: number;
+    endpointChecks: number;
+    arcAttempts: number;
+    maxLinks: number;
+  };
+  distanceFields?: { approach: FieldWork; departure: FieldWork };
+  cursor?: { resumed: boolean; pending: number; seedExhausted: boolean; landingQueries: number };
+}
+
+export interface FrontierDiagnostics extends Omit<ShortcutDiagnostics, 'baselineCost'> {
+  baselineCost: null;
+}
 
 type IndexedBoundary = Boundary & Bounds & { ordinal: number };
 type LandingFace = Surface & Bounds;

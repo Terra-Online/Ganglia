@@ -1,5 +1,20 @@
-import type { Vec3, Wall } from '../index-types.ts';
 import type { Bounds } from './bounds.ts';
+import type { Vec3 } from './geometry.ts';
+
+export interface Wall {
+  min: Vec3;
+  max: Vec3;
+  state: 'active' | 'inactive' | 'unknown';
+  padding?: number;
+  /** Solid sphere, mutually exclusive with points and polygon. Bounds remain a
+   * broad-phase enclosure. Padding expands the sphere uniformly. */
+  sphere?: { center: Vec3; radius: number };
+  /** Open, thin wall polyline. Mutually exclusive with polygon. */
+  points?: [number, number][];
+  /** Filled XZ ring extruded between min.y and max.y; closed implicitly. */
+  polygon?: [number, number][];
+}
+
 type Point2 = readonly number[];
 type Profile = { radius: number; height: number };
 interface Sphere {

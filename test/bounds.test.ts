@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import type { Bounds, BoundsNode } from '../src/geo/bounds.ts';
 import { createBoundsIndex, createBoundsTree } from '../src/geo/bounds.ts';
-import type { Vec3 } from '../src/index-types.ts';
+import type { Vec3 } from '../src/geo/geometry.ts';
 import { createMinHeap } from '../src/search/heap.ts';
 
 type Entry = { min: number[]; max: number[]; id: number };

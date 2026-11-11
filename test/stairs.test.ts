@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { BuildOptions } from '../src/build-types.ts';
 import { buildGroundSurfaces, buildGroundTiles } from '../src/build.ts';
-import type { Portal, Surface, Vec3 } from '../src/index-types.ts';
+import type { BuildOptions } from '../src/geo/build.ts';
+import type { Portal, Surface, Vec3 } from '../src/geo/geometry.ts';
 import { planGroundRoute, surfaceGraph } from '../src/index.ts';
 import { createGroundStraightener } from '../src/route/straighten.ts';
 import { exposedBoundaries } from '../src/search/traversal.ts';

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.ts';
-import type { JumpModel, Vec3 } from '../src/index-types.ts';
-import type { JumpOptions } from '../src/motion/jumps.ts';
+import type { Vec3 } from '../src/geo/geometry.ts';
+import type { JumpModel, JumpOptions } from '../src/motion/jumps.ts';
 import { jumpConnection, runOffConnection } from '../src/motion/jumps.ts';
 import { createMotionBounds } from '../src/reach/motion-bounds.ts';
 

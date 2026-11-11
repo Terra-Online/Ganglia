@@ -31,7 +31,7 @@ import {
   freePolyMeshDetail,
 } from '@recast-navigation/core';
 
-import type { Vec3, Surface } from '../index-types.ts';
+import type { Vec3, Surface } from './geometry.ts';
 /** Offline support topology. Each compact-span connection checks local climb and
  * shared headroom. Radius erosion then removes space next to missing connections.
  * Recast's optional ledge filter also limits the total height range of several

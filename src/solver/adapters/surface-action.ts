@@ -1,13 +1,15 @@
-import type { CollisionWorld } from '../../collision-types.ts';
-import { createCollisionWorld } from '../../collision.ts';
-import { createGroundPlanner, planJumpRoute } from '../../index.ts';
-import type { PreparedRouteSolver, RouteQuery, RouteResult, SceneInput } from '../index-types.ts';
+import type { CollisionWorld } from '../../geo/collision.ts';
+import { createCollisionWorld } from '../../geo/collision.ts';
+import type { GroundPlanner } from '../../route/ground.ts';
+import { createGroundPlanner } from '../../route/ground.ts';
+import { planJumpRoute } from '../../route/jump-planner.ts';
+import type { PreparedRouteSolver, RouteQuery, RouteResult, SceneInput } from '../contract.ts';
 
 export async function prepareSurfaceActionSolver(input: SceneInput): Promise<PreparedRouteSolver> {
   let prepared: {
     surfaces: SceneInput['surfaces'];
     world: CollisionWorld;
-    planner: ReturnType<typeof createGroundPlanner>;
+    planner: GroundPlanner;
     options: SceneInput['options'];
   } | null = {
     surfaces: input.surfaces,

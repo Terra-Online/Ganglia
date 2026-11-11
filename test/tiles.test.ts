@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { BuildOptions, TileCache } from '../src/build-types.ts';
 import { buildGroundTiles } from '../src/build.ts';
-import type { Surface, Vec3 } from '../src/index-types.ts';
+import type { BuildOptions, TileCache } from '../src/geo/build.ts';
+import type { Surface, Vec3 } from '../src/geo/geometry.ts';
 import { planGroundRoute, projectPoint, surfaceGraph } from '../src/index.ts';
 
 type TileProgress = Parameters<NonNullable<Parameters<typeof buildGroundTiles>[1]['onTile']>>[0];

@@ -1,13 +1,11 @@
-import type {
-  Vec3,
-  Segment,
-  Route,
-  LocomotionOptions,
-  createGroundPlanner,
-} from '../index-types.ts';
+import type { Vec3 } from '../geo/geometry.ts';
+import type { Segment } from '../motion/motion.ts';
 import { groundComponents, condenseComponents, canReach } from '../reach/connectivity.ts';
+import type { LocomotionOptions } from '../resource/locomotion.ts';
 import { retimeGroundRoute } from '../resource/locomotion.ts';
+import type { GroundPlanner } from './ground.ts';
 import { groundPreparation } from './ground.ts';
+import type { Route } from './routes.ts';
 import type { GroundStraightener } from './straighten.ts';
 
 type CompleteRoute = Extract<Route, { status: 'complete' }>;
@@ -126,7 +124,7 @@ const splitWalking = (route: CompleteRoute, interval = 4): CompleteRoute => {
  * This bounded improvement pass does not establish global optimality. */
 export function pruneGroundDetours(
   route: Route,
-  planner: ReturnType<typeof createGroundPlanner>,
+  planner: GroundPlanner,
   locomotion: LocomotionOptions,
   { maxQueries = 48 }: { maxQueries?: number } = {},
 ): { route: Route; replacements: number; queries: number } {

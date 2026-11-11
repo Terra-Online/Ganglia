@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Vec3 } from '../src/index-types.ts';
+import type { Vec3 } from '../src/geo/geometry.ts';
 import { closestOnSurface } from '../src/motion/goals.ts';
 
 // Original vector formulation is an independent numeric oracle for the scalar path.

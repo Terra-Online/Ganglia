@@ -1,16 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type {
-  GroundArrival,
-  GroundConnection,
-  GroundOptions,
-  Portal,
-  Surface,
-  Vec3,
-  Wall,
-} from '../src/index-types.ts';
+import type { Portal, Surface, Vec3 } from '../src/geo/geometry.ts';
+import type { Wall } from '../src/geo/walls.ts';
 import { planGroundRoute, route, createGroundPlanner } from '../src/index.ts';
+import type { GroundArrival, GroundConnection, GroundOptions } from '../src/route/ground.ts';
 import { groundPreparation } from '../src/route/ground.ts';
 const surfaces: Surface[] = [
   {

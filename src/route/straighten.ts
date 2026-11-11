@@ -1,10 +1,11 @@
 import { createBoundsTree } from '../geo/bounds.ts';
+import type { Vec3, Surface } from '../geo/geometry.ts';
 import type { SupportTriangle } from '../geo/support-snapshot.ts';
 import { supportSnapshot, supportTriangles } from '../geo/support-snapshot.ts';
 import type { SharedPortal } from '../geo/surfaces.ts';
 import { surfacePortals, directedPortals } from '../geo/surfaces.ts';
 import { createWallChecker } from '../geo/walls.ts';
-import type { Vec3, Surface, GroundOptions } from '../index-types.ts';
+import type { GroundOptions } from './ground.ts';
 
 interface Triangle extends Pick<SupportTriangle, 'vertices' | 'min' | 'max' | 'determinant'> {
   id: number;

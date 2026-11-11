@@ -1,5 +1,31 @@
-import type { Vec3, Segment, LocomotionOptions, Route } from '../index-types.ts';
+import type { Vec3 } from '../geo/geometry.ts';
+import type { MovementMode, Segment } from '../motion/motion.ts';
 import { validateMotion } from '../motion/motion.ts';
+import type { Route } from '../route/routes.ts';
+
+/** Explicit movement policy. No unverified game-specific energy defaults are inferred. */
+export interface LocomotionOptions {
+  /** Explicit limits for resource-state fallback search. */
+  search?: { maxLabels?: number; maxExpanded?: number };
+  speed: number;
+  sprintSpeed: number;
+  sprintAcceleration: number;
+  /** Optional ground dash pulse, sharing the stamina pool and cooldown across actions. */
+  dash?: { speed: number; duration: number; cooldown: number; cost: number };
+  /** Movement modes that preserve an already active sprint across their authored trajectory. */
+  sprintThrough?: Exclude<MovementMode, 'walk'>[];
+  stamina?: {
+    capacity: number;
+    initial: number;
+    activationCost?: number;
+    sprintDrain?: number;
+    recoveryDuringSprint?: boolean;
+    recoveryDuringNonWalk?: boolean;
+    recoveryRate: number;
+    recoveryDelay: number;
+    reserve: number;
+  };
+}
 
 export interface LocomotionState {
   energy: number;

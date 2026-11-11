@@ -1,7 +1,7 @@
-import type { Surface, Vec3, projectPoint as ProjectPoint } from '../index-types.ts';
+import type { Surface, Vec3 } from './geometry.ts';
 import { projectPoint } from './surfaces.ts';
 
-type Projection = ReturnType<typeof ProjectPoint>;
+type Projection = ReturnType<typeof projectPoint>;
 
 // Device endpoints recur throughout action discovery. This cache belongs to one
 // immutable support mesh; all projection inputs, including an explicit support

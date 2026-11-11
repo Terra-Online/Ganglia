@@ -1,13 +1,7 @@
+import type { Vec3 } from '../geo/geometry.ts';
+import type { Wall } from '../geo/walls.ts';
 import { createWallChecker } from '../geo/walls.ts';
-import type {
-  Vec3,
-  Edge,
-  Graph,
-  Arrival,
-  Route,
-  LocomotionOptions,
-  route as RouteFunction,
-} from '../index-types.ts';
+import type { MovementMode, BoostUse, Segment } from '../motion/motion.ts';
 import { validateMotion, routeSegment } from '../motion/motion.ts';
 import type { CondensedTopology, GroundTopology } from '../reach/connectivity.ts';
 import {
@@ -16,10 +10,75 @@ import {
   directedComponents,
   canReach,
 } from '../reach/connectivity.ts';
+import type { LocomotionOptions } from '../resource/locomotion.ts';
 import { searchResources } from '../resource/resource-search.ts';
 import { createMinHeap } from '../search/heap.ts';
 
-type Constraints = Parameters<typeof RouteFunction>[3];
+export interface Node {
+  id: string;
+  position: Vec3;
+}
+
+export interface Edge {
+  from: string;
+  to: string;
+  cost: number;
+  state: 'open' | 'closed' | 'unknown';
+  points: Vec3[];
+  mode?: MovementMode;
+  times?: number[];
+  connection?: string;
+  requiredGait?: 'sprint';
+}
+
+export interface Graph {
+  nodes: Node[];
+  edges: Edge[];
+}
+
+export interface Arrival {
+  id: string;
+  node: string;
+  cost: number;
+  state: 'available' | 'locked' | 'unknown';
+}
+
+export type Route =
+  | {
+      status: 'complete';
+      boosts?: (BoostUse & { position: Vec3; elapsed: number })[];
+      start: string;
+      cost: number;
+      arrivalCost: number;
+      length: number;
+      search?: ResourceSearch;
+      goalHit?: { segment: number; time: number; position: Vec3 };
+      locomotion?: {
+        initial: number;
+        final: number;
+        minimum: number;
+        dashes?: number;
+        dash?: { speed: number; duration: number; cooldown: number; cost: number };
+        search?: { truncated: boolean; maxLabels: number };
+      };
+      points: Vec3[];
+      segments: Segment[];
+    }
+  | { status: 'unmapped' | 'no-verified-route'; search?: ResourceSearch };
+
+export interface ResourceSearch {
+  truncated: boolean;
+  expanded: number;
+  maxLabels: number;
+  maxExpanded: number;
+}
+
+export interface RouteConstraints {
+  walls: Wall[];
+  profile: { radius: number; height: number };
+  locomotion?: LocomotionOptions;
+}
+
 interface Index<V> {
   has(key: string): boolean;
   get(key: string): V | undefined;
@@ -52,7 +111,12 @@ const finitePoint = (p: unknown) => Array.isArray(p) && p.length === 3 && p.ever
  * Endpoint IDs must come from a floor-aware projection by the caller.
  * Cost is supplied in seconds; optimality is on this graph, not continuous space.
  */
-export function route(graph: Graph, start: string, goal: string, constraints?: Constraints): Route {
+export function route(
+  graph: Graph,
+  start: string,
+  goal: string,
+  constraints?: RouteConstraints,
+): Route {
   return routeFrom(
     graph,
     [{ id: start, node: start, cost: 0, state: 'available' }],
@@ -67,7 +131,7 @@ export function routeFrom(
   graph: Graph,
   starts: Arrival[],
   goal: string | string[],
-  constraints?: Constraints,
+  constraints?: RouteConstraints,
 ): Route {
   return search(
     prepareGraph(graph, constraints),
@@ -107,14 +171,14 @@ export function createUpdatingRoutePlanner(graph: Graph) {
 }
 // The ground planner owns its immutable base graph. Only query endpoints and
 // newly validated actions need corridor checks on each successive planning pass.
-export function createRoutePlanner(graph: Graph, constraints?: Constraints) {
+export function createRoutePlanner(graph: Graph, constraints?: RouteConstraints) {
   const base = prepareGraph(graph, constraints);
   const ids = graph.nodes.map((node) => node.id);
   return preparedSearch(base, () => directedComponents(ids, base.edges));
 }
 // Ground and movement already need the full numeric topology. Own it once in
 // their shared preparation, without retaining it for standalone graph searches.
-export function prepareRoutePlanner(graph: Graph, constraints?: Constraints) {
+export function prepareRoutePlanner(graph: Graph, constraints?: RouteConstraints) {
   const accepted: Edge[] = [];
   const base = prepareGraph(graph, constraints, undefined, accepted);
   const graphSnapshot = {
@@ -179,7 +243,7 @@ const overlay = <V>(base: Index<V>): Index<V> => {
 };
 function prepareGraph(
   graph: Graph,
-  constraints?: Constraints | null,
+  constraints?: RouteConstraints | null,
   base?: PreparedGraph,
   accepted?: Edge[],
 ): PreparedGraph {

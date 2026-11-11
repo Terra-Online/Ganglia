@@ -1,6 +1,2 @@
-import { createCollisionWorld as createCollisionWorldImplementation } from './geo/collision.ts';
-
-export type * from './collision-types.ts';
-
-export const createCollisionWorld: typeof import('./collision-types.ts').createCollisionWorld =
-  createCollisionWorldImplementation;
+export { createCollisionWorld } from './geo/collision.ts';
+export type { CollisionOptions, Capsule, CollisionWorld } from './geo/collision.ts';

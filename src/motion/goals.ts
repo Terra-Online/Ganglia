@@ -1,12 +1,22 @@
 import { createBoundsIndex } from '../geo/bounds.ts';
+import type { Vec3, Surface } from '../geo/geometry.ts';
 import { supportSnapshot } from '../geo/support-snapshot.ts';
 import { projectPoint } from '../geo/surfaces.ts';
-import type {
-  Vec3,
-  Surface,
-  InteractionGoal,
-  createGoalProjector as GoalProjector,
-} from '../index-types.ts';
+
+/** Explicit source-derived interaction volume. No per-game defaults are supplied.
+ * Airborne collection goals finish at the first in-flight hit. */
+export interface InteractionGoal {
+  airborne?: boolean;
+  radius: number;
+  maxVertical?: number;
+  facing?: Vec3;
+  halfAngle?: number;
+}
+
+export type GoalProjectionOptions =
+  | { maxVertical: number; interaction?: InteractionGoal }
+  | { maxVertical?: number; interaction: InteractionGoal };
+export type GoalProjector = (target: Vec3, options: GoalProjectionOptions) => GoalProjection[];
 
 type Plane = (point: Vec3) => number;
 export interface GoalProjection {
@@ -160,7 +170,7 @@ export const closestOnSurface = (
  * by target distance. This finite set does not solve continuous region-entry cost.
  * Callers must check reachability, wall state and interaction line of sight.
  */
-export function createGoalProjector(surfaces: Surface[]): ReturnType<typeof GoalProjector> {
+export function createGoalProjector(surfaces: Surface[]): GoalProjector {
   if (!Array.isArray(surfaces)) throw new Error('Invalid goal surfaces');
   const ids = new Set<string>();
   const snapshot = surfaces.map((surface, index) => {
@@ -170,10 +180,7 @@ export function createGoalProjector(surfaces: Surface[]): ReturnType<typeof Goal
     return { id: owned.id, vertices: owned.vertices, index, min: owned.min, max: owned.max };
   });
   const query = createBoundsIndex(snapshot);
-  return (
-    target: Vec3,
-    options: Parameters<ReturnType<typeof GoalProjector>>[1],
-  ): GoalProjection[] => {
+  return (target: Vec3, options: GoalProjectionOptions): GoalProjection[] => {
     if (!finitePoint(target) || !options) throw new Error('Invalid goal query');
     const { maxVertical, interaction } = options;
     if (interaction === undefined) {
@@ -216,7 +223,7 @@ export function createGoalProjector(surfaces: Surface[]): ReturnType<typeof Goal
 export function projectGoal(
   surfaces: Surface[],
   target: Vec3,
-  options: Parameters<ReturnType<typeof GoalProjector>>[1],
+  options: GoalProjectionOptions,
 ): GoalProjection[] {
   return createGoalProjector(surfaces)(target, options);
 }

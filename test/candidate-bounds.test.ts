@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { JumpModel, Vec3 } from '../src/index-types.ts';
+import type { Vec3 } from '../src/geo/geometry.ts';
+import type { JumpModel } from '../src/motion/jumps.ts';
 import { jumpDuration } from '../src/motion/jumps.ts';
 import { landingCandidates } from '../src/motion/landings.ts';
 import type { Face } from '../src/search/candidate-bounds.ts';

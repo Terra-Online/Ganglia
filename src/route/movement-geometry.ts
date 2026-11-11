@@ -1,14 +1,15 @@
 import type { BoundsIndex } from '../geo/bounds.ts';
+import type { Surface, Vec3 } from '../geo/geometry.ts';
 import { createSupportProjector } from '../geo/support-projector.ts';
 import { surfaceGraph, surfacePortals } from '../geo/surfaces.ts';
 import { createWallChecker } from '../geo/walls.ts';
-import type { Surface, Vec3, DiscoveryOptions, Graph } from '../index-types.ts';
 import { createGoalProjector } from '../motion/goals.ts';
 import type { GroundTopology } from '../reach/connectivity.ts';
 import { groundComponents } from '../reach/connectivity.ts';
-import type { Region, Boundary } from '../search/traversal.ts';
+import type { DiscoveryOptions, Region, Boundary } from '../search/traversal.ts';
 import { exposedBoundaries } from '../search/traversal.ts';
 import { groundPreparation } from './ground.ts';
+import type { Graph } from './routes.ts';
 
 interface Geometry {
   graph: Graph;

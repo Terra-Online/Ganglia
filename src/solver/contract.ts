@@ -1,14 +1,8 @@
-import type { CollisionGeometry } from '../build-types.ts';
-import type { CollisionOptions } from '../collision-types.ts';
-import type {
-  Surface,
-  GroundArrival,
-  Vec3,
-  JumpRouteOptions,
-  Route,
-  GroundConnection,
-  JumpDiagnostics,
-} from '../index-types.ts';
+import type { CollisionOptions } from '../geo/collision.ts';
+import type { Vec3, Surface, CollisionGeometry } from '../geo/geometry.ts';
+import type { GroundArrival, GroundConnection } from '../route/ground.ts';
+import type { JumpRouteOptions, JumpDiagnostics } from '../route/jump-planner.ts';
+import type { Route } from '../route/routes.ts';
 
 /** One immutable physical snapshot. Keep inputs unchanged until close(). */
 export interface SceneInput {
@@ -51,5 +45,3 @@ export interface PreparedRouteSolver {
   /** Await submitted work before closing. Idempotent; later solves reject. */
   close(): Promise<void>;
 }
-
-export declare function prepareSurfaceActionSolver(input: SceneInput): Promise<PreparedRouteSolver>;

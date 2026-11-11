@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { PreparedRouteSolver, RouteQuery, RouteResult } from '../src/solver/index-types.ts';
+import type { PreparedRouteSolver, RouteQuery, RouteResult } from '../src/solver/contract.ts';
 
 const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');

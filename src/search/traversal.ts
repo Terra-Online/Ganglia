@@ -1,21 +1,84 @@
-import type { CollisionWorld } from '../collision-types.ts';
 import type { Bounds } from '../geo/bounds.ts';
 import { createBoundsIndex } from '../geo/bounds.ts';
+import type { CollisionWorld } from '../geo/collision.ts';
+import type { Vec3, Surface, Portal } from '../geo/geometry.ts';
 import type { SharedPortal } from '../geo/surfaces.ts';
 import { surfacePortals, directedPortals } from '../geo/surfaces.ts';
+import type { Wall } from '../geo/walls.ts';
 import { createWallChecker } from '../geo/walls.ts';
-import type {
-  Vec3,
-  Surface,
-  Portal,
-  DiscoveryOptions,
-  DiscoveryDiagnostics,
-  GroundConnection,
-} from '../index-types.ts';
+import type { InteractionGoal } from '../motion/goals.ts';
+import type { JumpModel } from '../motion/jumps.ts';
 import { jumpConnection, jumpDuration } from '../motion/jumps.ts';
 import { landingCandidates } from '../motion/landings.ts';
+import type { GroundPlanner, GroundConnection } from '../route/ground.ts';
 import { movementGeometry } from '../route/movement-geometry.ts';
 import { createMinHeap } from './heap.ts';
+
+export interface DiscoveryOptions {
+  profile: { radius: number; height: number };
+  portals?: Portal[];
+  walls: Wall[];
+  from: Vec3;
+  to: Vec3;
+  interaction?: InteractionGoal;
+  maxVertical: number;
+  maxSlope: number;
+  maxDrop: number;
+  maxHorizontalDistance: number;
+  sampleSpacing: number;
+  maxCandidates: number;
+  maxLinks: number;
+  model: JumpModel;
+  /** Existing validated directed actions participate in proposal reachability. */
+  connections?: GroundConnection[];
+  groundPlanner?: GroundPlanner;
+}
+
+export interface DiscoveryDiagnostics {
+  reason: string;
+  components: number;
+  boundaryEdges: number;
+  endpointChecks: number;
+  standingEndpoints: number;
+  neighbourChecks: number;
+  pairChecks: number;
+  candidatePairs: number;
+  attempted: number;
+  accepted: number;
+  truncated: boolean;
+  limits: {
+    maxCandidates: number;
+    maxLinks: number;
+    arcAttempts: number;
+    endpointChecks: number;
+    neighbourChecks: number;
+    pairChecks: number;
+    seedChecks: number;
+  };
+  regionSearches: number;
+  regionPairs: number;
+  validatedPairs: number;
+  pairBatches: number;
+  deferredPairs: number;
+  generationBatches: number;
+  seedChecks: number;
+  goalFaces: number;
+  goalComponents: number;
+  rejected: {
+    projection: number;
+    support: number;
+    clearance: number;
+    range: number;
+    motion: number;
+  };
+  sourceEndpoints?: number;
+  targetEndpoints?: number;
+  sourceComponent?: number;
+  targetComponent?: number;
+  sourceCandidates?: number;
+  directCandidates?: number;
+  targetReached?: boolean;
+}
 
 export interface Boundary {
   surface: string;

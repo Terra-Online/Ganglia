@@ -1,19 +1,23 @@
-import type {
-  Graph,
-  Edge,
-  Arrival,
-  createLazyRoutePlanner as LazyPlanner,
-} from '../index-types.ts';
+import type { Route, Graph, Edge, Arrival } from '../route/routes.ts';
 import { createUpdatingRoutePlanner } from '../route/routes.ts';
 
-type PlanOptions = Parameters<ReturnType<typeof LazyPlanner>['plan']>[2];
-type PlanResult = Awaited<ReturnType<ReturnType<typeof LazyPlanner>['plan']>>;
+export interface LazyPlanOptions {
+  validate: (edge: Edge, index: number) => Promise<Edge | null>;
+  maxValidations?: number;
+  signal?: AbortSignal;
+}
+export interface LazyPlanResult {
+  status: 'complete' | 'incomplete' | 'unmapped' | 'no-verified-route';
+  reason?: 'aborted' | 'validation-budget';
+  route?: Extract<Route, { status: 'complete' }>;
+  validation: { attempted: number; pending: number };
+}
 
 /** Validate only edges selected by optimistic shortest-path searches. Costs are
  * seconds and unknown costs must be lower bounds. The caller must keep nodes and input edges immutable. Only unknown-edge
  * records and validated replacements are owned here; resume by calling plan again.
  */
-export function createLazyRoutePlanner(graph: Graph): ReturnType<typeof LazyPlanner> {
+export function createLazyRoutePlanner(graph: Graph) {
   const unknown = new Map<Edge, { original: Edge; index: number }>();
   const optimistic = graph.edges.map((edge, index) => {
     if (edge.state !== 'unknown') return edge;
@@ -27,8 +31,8 @@ export function createLazyRoutePlanner(graph: Graph): ReturnType<typeof LazyPlan
     async plan(
       starts: Arrival[],
       goal: string | string[],
-      { validate, maxValidations = Infinity, signal }: Partial<PlanOptions> = {},
-    ): Promise<PlanResult> {
+      { validate, maxValidations = Infinity, signal }: LazyPlanOptions,
+    ): Promise<LazyPlanResult> {
       if (running) throw new Error('Lazy planner already running');
       if (
         typeof validate !== 'function' ||
@@ -38,9 +42,9 @@ export function createLazyRoutePlanner(graph: Graph): ReturnType<typeof LazyPlan
       running = true;
       let attempted = 0;
       const result = (
-        status: PlanResult['status'],
-        extra: Pick<PlanResult, 'reason' | 'route'> = {},
-      ): PlanResult => ({
+        status: LazyPlanResult['status'],
+        extra: Pick<LazyPlanResult, 'reason' | 'route'> = {},
+      ): LazyPlanResult => ({
         status,
         ...extra,
         validation: {

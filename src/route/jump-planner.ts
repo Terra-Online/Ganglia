@@ -1,22 +1,103 @@
-import type { CollisionWorld } from '../collision-types.ts';
-import type {
-  Vec3,
-  Surface,
-  GroundArrival,
-  GroundConnection,
-  JumpRouteOptions,
-  JumpDiagnostics,
-  Route,
-} from '../index-types.ts';
+import type { CollisionWorld } from '../geo/collision.ts';
+import type { Vec3, Surface } from '../geo/geometry.ts';
+import type { InteractionGoal } from '../motion/goals.ts';
 import { createGoalProjector } from '../motion/goals.ts';
-import type { ShortcutCache } from '../search/shortcuts.ts';
+import type { JumpModel } from '../motion/jumps.ts';
+import type {
+  ShortcutDiagnostics,
+  FrontierDiagnostics,
+  ShortcutCache,
+} from '../search/shortcuts.ts';
 import { findJumpFrontier, findJumpShortcuts } from '../search/shortcuts.ts';
+import type { DiscoveryDiagnostics } from '../search/traversal.ts';
 import { findJumpConnections } from '../search/traversal.ts';
 import { planAirborneGoal } from './airborne-goal.ts';
+import type { SpeedBoost } from './boosted-route.ts';
 import { planBoostedRoute } from './boosted-route.ts';
+import type { GroundOptions, GroundPlanner, GroundArrival, GroundConnection } from './ground.ts';
 import { createGroundPlanner, groundPreparation } from './ground.ts';
 import { movementGeometry } from './movement-geometry.ts';
 import { findRouteShortcuts } from './route-shortcuts.ts';
+import type { Route } from './routes.ts';
+
+export interface JumpRouteOptions extends GroundOptions {
+  boosts?: SpeedBoost[];
+  /** Optimistic coarse direction samples. At most 128 finite positions. These only
+   * guide action discovery; the final route need not visit them. */
+  waypoints?: Vec3[];
+  onProgress?: (progress: {
+    phase: 'direction-search' | 'device-entry-search';
+    completed: number;
+    total: number;
+    status?: Route['status'];
+    connections?: number;
+  }) => void;
+  /** Optional prepared planner for these same immutable surfaces and ground options.
+   * Query connections override its initial connection set. */
+  groundPlanner?: GroundPlanner;
+  interaction?: InteractionGoal;
+  model: JumpModel;
+  runAirSpeed: number;
+  maxSlope: number;
+  maxDrop: number;
+  maxHorizontalDistance: number;
+  sampleSpacing: number;
+  maxCandidates: number;
+  /** Optional broad improvement budget after reachability succeeds. Zero keeps the first
+   * feasible route; omitted uses the remaining discovery budget. An incumbent-local
+   * comparison may use up to 128 additional candidates from the overall remaining budget. */
+  maxShortcutCandidates?: number;
+  maxLinks: number;
+}
+
+export interface JumpDiagnostics {
+  boosts?: {
+    id: string;
+    status: string;
+    duration: number;
+    multiplier: number;
+    elapsed?: number;
+    truncated?: boolean;
+  }[];
+  airborne?: FlightDiagnostics;
+  strategy: 'surface-action-graph';
+  groundStatus: Route['status'];
+  baselineCost: number | null;
+  selectedCost: number | null;
+  truncated: boolean;
+  searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[];
+  /** Additional bounded entry queries after primary feasibility fails. */
+  deviceApproaches?: {
+    budgetPerGoal: number;
+    goals: number;
+    searches: {
+      device: string;
+      status: Route['status'];
+      discovery: JumpDiagnostics;
+    }[];
+  };
+  directions?: {
+    requestedGoals: number;
+    regions: number;
+    budgetPerGoal: number;
+    remaining: number;
+    searches: {
+      point: Vec3;
+      support?: Vec3;
+      status: Route['status'];
+      added: number;
+      diagnostics?: JumpDiagnostics;
+    }[];
+  };
+}
+
+interface FlightDiagnostics {
+  attempted: number;
+  nominalHits: number;
+  hits: number;
+  approaches: number;
+  truncated: boolean;
+}
 
 export type PlannerOptions = JumpRouteOptions & {
   endpointTolerance?: number;
@@ -697,6 +778,7 @@ function planBaseRoute(
   result.diagnostics.deviceApproaches = attempts;
   return result;
 }
+/** Sampling limits can leave valid routes undiscovered; completion does not establish global optimality. */
 export function planJumpRoute(
   surfaces: Surface[],
   world: CollisionWorld,

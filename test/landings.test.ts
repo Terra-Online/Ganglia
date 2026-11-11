@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.ts';
-import type { JumpModel, Surface, Vec3, Wall } from '../src/index-types.ts';
+import type { Surface, Vec3 } from '../src/geo/geometry.ts';
+import type { Wall } from '../src/geo/walls.ts';
+import type { JumpModel } from '../src/motion/jumps.ts';
 import { jumpConnection } from '../src/motion/jumps.ts';
 import { landingCandidates, createLandingGoalCache } from '../src/motion/landings.ts';
 

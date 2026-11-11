@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Arrival, Edge, Node } from '../src/index-types.ts';
+import type { Arrival, Edge, Node } from '../src/route/routes.ts';
 import { createLazyRoutePlanner } from '../src/search/lazy-route.ts';
 const nodes: Node[] = [
   { id: 'a', position: [0, 0, 0] },

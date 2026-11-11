@@ -1,18 +1,53 @@
 import { createBoundsIndex } from '../geo/bounds.ts';
+import type { Surface, Vec3 } from '../geo/geometry.ts';
 import { surfaceGraph, surfacePortals } from '../geo/surfaces.ts';
-import type {
-  Vec3,
-  CandidateEdge,
-  GroundArrival,
-  GroundOptions,
-  createCandidatePlanner as CandidatePlanner,
-} from '../index-types.ts';
 import type { GoalProjection } from '../motion/goals.ts';
 import { closestOnSurface } from '../motion/goals.ts';
 import { groundComponents } from '../reach/connectivity.ts';
+import type { GroundArrival, GroundOptions } from '../route/ground.ts';
 import { createGroundStraightener } from '../route/straighten.ts';
 import { createTransferQuery } from './candidate-transfers.ts';
 import { createMinHeap } from './heap.ts';
+
+export interface CandidateEdge {
+  mode?: string;
+  device?: string;
+  index: number;
+  /** Stable within immutable input geometry, independent of lazy expansion order. */
+  key?: string;
+  from: string;
+  to: string;
+  points: Vec3[];
+  unresolved: boolean;
+}
+
+export interface CandidatePlannerInput {
+  surfaces: Surface[];
+  options: Pick<GroundOptions, 'speed' | 'maxVertical' | 'portals'> &
+    Partial<Pick<GroundOptions, 'walls' | 'profile'>>;
+}
+export interface CandidatePlannerOptions {
+  radius?: number;
+  verticalRange?: number;
+  transferPenalty?: number;
+  ascentPenalty?: number;
+  endpointRadius?: number;
+  connections?: { from: string; to: string; points: Vec3[]; mode?: string; device?: string }[];
+}
+export interface CandidateQueryOptions {
+  excludedEdges?: (number | string)[];
+  excludedTransfers?: { from: string; to: string; min: Vec3; max: Vec3 }[];
+}
+export type CandidatePlanResult =
+  | {
+      status: 'candidate';
+      arrival: GroundArrival;
+      points: Vec3[];
+      path: CandidateEdge[];
+      unresolved: CandidateEdge[];
+      score: number;
+    }
+  | { status: 'unmapped' | 'no-candidate' };
 
 type Arc = Omit<CandidateEdge, 'index' | 'unresolved'> & {
   unresolved?: boolean;
@@ -23,16 +58,13 @@ type Arc = Omit<CandidateEdge, 'index' | 'unresolved'> & {
   cost?: number;
   state?: 'open' | 'closed' | 'unknown';
 };
-type Planner = ReturnType<typeof CandidatePlanner>;
 
 const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((v, i) => v - b[i]));
 /** Navigation proposals for local physical planning. Every returned segment still
  * requires physical validation. Scores prioritize fewer unresolved transfers and
  * are deliberately separate from travel time. Input geometry is immutable. */
 export function createCandidatePlanner(
-  data: Parameters<typeof CandidatePlanner>[0] & {
-    options: Partial<Pick<GroundOptions, 'walls' | 'profile'>>;
-  },
+  data: CandidatePlannerInput,
   {
     radius = 16,
     verticalRange = 50,
@@ -40,8 +72,8 @@ export function createCandidatePlanner(
     ascentPenalty = 1000000,
     endpointRadius = 96,
     connections = [],
-  }: NonNullable<Parameters<typeof CandidatePlanner>[1]> = {},
-): Planner {
+  }: CandidatePlannerOptions = {},
+) {
   if (
     ![radius, verticalRange, transferPenalty, ascentPenalty, endpointRadius].every(
       (v) => Number.isFinite(v) && v > 0,
@@ -266,11 +298,8 @@ export function createCandidatePlanner(
     plan(
       arrivals: GroundArrival[],
       goal: Vec3,
-      {
-        excludedEdges = [],
-        excludedTransfers = [],
-      }: NonNullable<Parameters<Planner['plan']>[2]> = {},
-    ): ReturnType<Planner['plan']> {
+      { excludedEdges = [], excludedTransfers = [] }: CandidateQueryOptions = {},
+    ): CandidatePlanResult {
       const excluded = new Set(excludedEdges);
       const hasKeys = [...excluded, ...rejected].some((value) => typeof value === 'string');
       const end = endpoint(goal, 'goal');

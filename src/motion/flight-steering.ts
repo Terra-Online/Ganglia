@@ -1,4 +1,4 @@
-import type { Vec3 } from '../index-types.ts';
+import type { Vec3 } from '../geo/geometry.ts';
 import type { JumpOptions, MotionControl } from './jumps.ts';
 import { jumpDuration, jumpVerticalRange } from './jumps.ts';
 // Only the constant-horizontal jump family has this inverse time interval.
