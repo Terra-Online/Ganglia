@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import { buildGroundSurfaces, buildGroundTiles } from '../src/build.ts';
 import type { BuildOptions } from '../src/geo/build.ts';
 import type { Portal, Surface, Vec3 } from '../src/geo/geometry.ts';
-import { planGroundRoute, surfaceGraph } from '../src/index.ts';
+import { surfaceGraph } from '../src/index.ts';
+import { planGroundRoute } from '../src/route/ground.ts';
 import { createGroundStraightener } from '../src/route/straighten.ts';
 import { exposedBoundaries } from '../src/search/traversal.ts';
 

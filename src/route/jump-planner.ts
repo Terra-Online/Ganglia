@@ -784,7 +784,7 @@ export function planJumpRoute(
   world: CollisionWorld,
   starts: GroundArrival[],
   goal: Vec3,
-  options: PlannerOptions,
+  options: JumpRouteOptions,
 ): JumpResult {
   const result = planBaseRoute(surfaces, world, starts, goal, options);
   return options.boosts?.length

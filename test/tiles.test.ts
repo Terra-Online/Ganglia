@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import { buildGroundTiles } from '../src/build.ts';
 import type { BuildOptions, TileCache } from '../src/geo/build.ts';
 import type { Surface, Vec3 } from '../src/geo/geometry.ts';
-import { planGroundRoute, projectPoint, surfaceGraph } from '../src/index.ts';
+import { projectPoint, surfaceGraph } from '../src/index.ts';
+import { planGroundRoute } from '../src/route/ground.ts';
 
 type TileProgress = Parameters<NonNullable<Parameters<typeof buildGroundTiles>[1]['onTile']>>[0];
 

@@ -22,11 +22,6 @@ test('the benchmark submits a whole batch and accepts asynchronous out-of-order 
     connections: [],
     diagnostics: {
       truncated: false,
-      strategy: 'surface-action-graph',
-      groundStatus: 'complete',
-      baselineCost: null,
-      selectedCost: query.goal[0],
-      searches: [],
     },
   });
   let preparations = 0,

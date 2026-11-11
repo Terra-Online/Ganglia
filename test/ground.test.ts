@@ -3,9 +3,11 @@ import { test } from 'node:test';
 
 import type { Portal, Surface, Vec3 } from '../src/geo/geometry.ts';
 import type { Wall } from '../src/geo/walls.ts';
-import { planGroundRoute, route, createGroundPlanner } from '../src/index.ts';
+import { createGroundPlanner } from '../src/index.ts';
+import { planGroundRoute } from '../src/route/ground.ts';
 import type { GroundArrival, GroundConnection, GroundOptions } from '../src/route/ground.ts';
 import { groundPreparation } from '../src/route/ground.ts';
+import { route } from '../src/route/routes.ts';
 const surfaces: Surface[] = [
   {
     id: 'a',

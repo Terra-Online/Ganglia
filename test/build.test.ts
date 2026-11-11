@@ -5,7 +5,8 @@ import { buildGroundSurfaces } from '../src/build.ts';
 import type { BuildOptions } from '../src/geo/build.ts';
 import type { Surface, Vec3 } from '../src/geo/geometry.ts';
 import type { Wall } from '../src/geo/walls.ts';
-import { planGroundRoute, projectPoint } from '../src/index.ts';
+import { projectPoint } from '../src/index.ts';
+import { planGroundRoute } from '../src/route/ground.ts';
 const options: BuildOptions = {
   profile: { radius: 0.35, height: 1.66 },
   maxSlope: 46,

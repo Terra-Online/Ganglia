@@ -3,12 +3,8 @@ import test from 'node:test';
 
 import type { Surface, Vec3 } from '../src/geo/geometry.ts';
 import type { Wall } from '../src/geo/walls.ts';
-import {
-  blockedByWalls,
-  createGroundPlanner,
-  pruneGroundDetours,
-  retimeGroundRoute,
-} from '../src/index.ts';
+import { blockedByWalls } from '../src/geo/walls.ts';
+import { createGroundPlanner, pruneGroundDetours, retimeGroundRoute } from '../src/index.ts';
 import type { MovementMode, Segment } from '../src/motion/motion.ts';
 import type { Route } from '../src/route/routes.ts';
 import { expectStatus } from './assertions.ts';

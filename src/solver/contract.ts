@@ -1,7 +1,7 @@
 import type { CollisionOptions } from '../geo/collision.ts';
 import type { Vec3, Surface, CollisionGeometry } from '../geo/geometry.ts';
 import type { GroundArrival, GroundConnection } from '../route/ground.ts';
-import type { JumpRouteOptions, JumpDiagnostics } from '../route/jump-planner.ts';
+import type { JumpRouteOptions } from '../route/jump-planner.ts';
 import type { Route } from '../route/routes.ts';
 
 /** One immutable physical snapshot. Keep inputs unchanged until close(). */
@@ -9,7 +9,28 @@ export interface SceneInput {
   surfaces: Surface[];
   collision: CollisionGeometry;
   collisionOptions?: CollisionOptions;
-  options: Omit<JumpRouteOptions, 'groundPlanner' | 'interaction' | 'waypoints' | 'onProgress'>;
+  // New internal planner controls require an explicit decision before entering this seam.
+  options: Pick<
+    JumpRouteOptions,
+    | 'activeBoost'
+    | 'speed'
+    | 'maxVertical'
+    | 'walls'
+    | 'profile'
+    | 'connections'
+    | 'portals'
+    | 'locomotion'
+    | 'boosts'
+    | 'model'
+    | 'runAirSpeed'
+    | 'maxSlope'
+    | 'maxDrop'
+    | 'maxHorizontalDistance'
+    | 'sampleSpacing'
+    | 'maxCandidates'
+    | 'maxShortcutCandidates'
+    | 'maxLinks'
+  >;
 }
 
 export interface RouteQuery {
@@ -31,7 +52,7 @@ export interface RouteQuery {
 export interface RouteResult {
   route: Route;
   connections: GroundConnection[];
-  diagnostics: JumpDiagnostics;
+  diagnostics: { truncated: boolean };
 }
 
 export interface PreparedRouteSolver {
