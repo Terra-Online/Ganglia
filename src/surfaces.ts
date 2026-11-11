@@ -167,8 +167,16 @@ const sharedInterval = (a: Group, b: Group): Interval | null => {
     near,
     far,
     opposite: last < first,
-    start: a.a.map((value, axis) => value + near * direction[axis]) as Vec3,
-    end: a.a.map((value, axis) => value + far * direction[axis]) as Vec3,
+    start: [
+      a.a[0] + near * direction[0],
+      a.a[1] + near * direction[1],
+      a.a[2] + near * direction[2],
+    ] satisfies Vec3,
+    end: [
+      a.a[0] + far * direction[0],
+      a.a[1] + far * direction[1],
+      a.a[2] + far * direction[2],
+    ] satisfies Vec3,
   };
 };
 /** Internal shared portal construction for graph search and ground ray traversal.
@@ -300,9 +308,11 @@ export function surfaceGraph(
   for (const portal of portals) {
     const a = positions.get(portal.from)!,
       b = positions.get(portal.to)!;
-    const midpoint: Vec3 = portal.start.map(
-      (value, axis) => (value + portal.end[axis]) / 2,
-    ) as Vec3;
+    const midpoint: Vec3 = [
+      (portal.start[0] + portal.end[0]) / 2,
+      (portal.start[1] + portal.end[1]) / 2,
+      (portal.start[2] + portal.end[2]) / 2,
+    ];
     const cost = (distance(a, midpoint) + distance(b, midpoint)) / speed;
     edges.push({ from: portal.from, to: portal.to, cost, state: 'open', points: [a, midpoint, b] });
     edges.push({ from: portal.to, to: portal.from, cost, state: 'open', points: [b, midpoint, a] });

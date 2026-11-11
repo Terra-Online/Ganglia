@@ -94,9 +94,14 @@ export function sampleJourney(
             (remaining - segment.times[i - 1]) / (segment.times[i] - segment.times[i - 1]);
           return {
             mode: segment.mode,
-            position: segment.points[i - 1].map(
-              (v, axis) => v + (segment.points[i][axis] - v) * fraction,
-            ) as Vec3,
+            position: [
+              segment.points[i - 1][0] +
+                (segment.points[i][0] - segment.points[i - 1][0]) * fraction,
+              segment.points[i - 1][1] +
+                (segment.points[i][1] - segment.points[i - 1][1]) * fraction,
+              segment.points[i - 1][2] +
+                (segment.points[i][2] - segment.points[i - 1][2]) * fraction,
+            ] satisfies Vec3,
             ...(segment.connection === undefined ? {} : { connection: segment.connection }),
           };
         }

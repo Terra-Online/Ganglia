@@ -93,7 +93,11 @@ const splitWalking = (route: CompleteRoute, interval = 4): CompleteRoute => {
         const point: Vec3 =
           length - offset < 1e-9
             ? b
-            : (a.map((value, axis) => value + fraction * (b[axis] - value)) as Vec3);
+            : ([
+                a[0] + fraction * (b[0] - a[0]),
+                a[1] + fraction * (b[1] - a[1]),
+                a[2] + fraction * (b[2] - a[2]),
+              ] satisfies Vec3);
         const time = segment.times[i - 1] + fraction * (segment.times[i] - segment.times[i - 1]);
         points.push(point);
         times.push(times.at(-1)! + time - elapsed);

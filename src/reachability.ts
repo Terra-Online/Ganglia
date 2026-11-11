@@ -51,9 +51,16 @@ function flightEnvelope(
     modelFields.every((key) => Object.is(previous.model[key], model[key]))
   )
     return previous;
-  const snapshot = Object.fromEntries(
-    modelFields.map((key) => [key, model[key]]),
-  ) as unknown as JumpModel;
+  const snapshot: JumpModel = {
+    gravity: model.gravity,
+    fallingGravity: model.fallingGravity,
+    maxJumpHeight: model.maxJumpHeight,
+    maxFallingSpeed: model.maxFallingSpeed,
+    apexTime: model.apexTime,
+    maxHorizontalSpeed: model.maxHorizontalSpeed,
+    startHorizontalSpeed: model.startHorizontalSpeed,
+    airOverspeedDeceleration: model.airOverspeedDeceleration,
+  };
   // Validate the shared vertical model, including the zero-jump-height case.
   jumpDuration(0, 0, { ...snapshot, mode: 'drop' });
   const vertical = {
@@ -273,7 +280,9 @@ export function createJumpPredecessor(
     rise,
     fall,
   );
-  const test = (box: Bounds, details: boolean): Domain | null | boolean => {
+  function test(box: Bounds, details: false): boolean;
+  function test(box: Bounds, details: true): Domain | null;
+  function test(box: Bounds, details: boolean): Domain | null | boolean {
     const x0 = box.min[0] - sx,
       x1 = box.max[0] + sx;
     const y0 = box.min[1] - sy,
@@ -341,8 +350,8 @@ export function createJumpPredecessor(
         distance: [Math.max(0, span - slack), Math.min(maxHorizontalDistance, reach) + slack],
       },
     };
-  };
-  const predecessor = (box: Bounds): boolean => test(box, false) as boolean;
-  predecessor.domain = (box: Bounds): Domain | null => test(box, true) as Domain | null;
+  }
+  const predecessor = (box: Bounds): boolean => test(box, false);
+  predecessor.domain = (box: Bounds): Domain | null => test(box, true);
   return predecessor;
 }

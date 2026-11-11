@@ -123,9 +123,17 @@ export const exposedBoundaries = (
       }
       if (cursor < 1) gaps.push([cursor, 1]);
       for (const [near, far] of gaps) {
-        const a: Vec3 = from.map((value, axis) => value + near * (to[axis] - value)) as Vec3;
-        const b: Vec3 = from.map((value, axis) => value + far * (to[axis] - value)) as Vec3;
-        const midpoint: Vec3 = a.map((value, axis) => (value + b[axis]) / 2) as Vec3;
+        const a: Vec3 = [
+          from[0] + near * (to[0] - from[0]),
+          from[1] + near * (to[1] - from[1]),
+          from[2] + near * (to[2] - from[2]),
+        ];
+        const b: Vec3 = [
+          from[0] + far * (to[0] - from[0]),
+          from[1] + far * (to[1] - from[1]),
+          from[2] + far * (to[2] - from[2]),
+        ];
+        const midpoint: Vec3 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
         const length = horizontal(a, b);
         if (length <= 1e-4) continue;
         const inward = [-(b[2] - a[2]) / length, (b[0] - a[0]) / length];
@@ -654,9 +662,11 @@ export function findJumpConnections(
           }
           generated++;
           diagnostics.seedChecks++;
-          const point: Vec3 = boundary.a.map(
-            (value, axis) => value + fraction * (boundary.b[axis] - value),
-          ) as Vec3;
+          const point: Vec3 = [
+            boundary.a[0] + fraction * (boundary.b[0] - boundary.a[0]),
+            boundary.a[1] + fraction * (boundary.b[1] - boundary.a[1]),
+            boundary.a[2] + fraction * (boundary.b[2] - boundary.a[2]),
+          ];
           point[0] += boundary.interior[0] * inset;
           point[2] += boundary.interior[1] * inset;
           const key = JSON.stringify(point);
@@ -727,20 +737,21 @@ export function findJumpConnections(
       for (const query of active) {
         let exhausted = false;
         for (let count = 0; count < 8; count++) {
-          const landing = query.landings.next();
-          if (landing.done) {
-            exhausted = true;
-            break;
-          }
-          if (query.boundary)
-            yield {
-              start: query.start,
-              end: (landing.value as { point: Vec3 }).point,
-              boundary: true,
-            };
-          else
+          if (query.boundary) {
+            const landing = query.landings.next();
+            if (landing.done) {
+              exhausted = true;
+              break;
+            }
+            yield { start: query.start, end: landing.value.point, boundary: true };
+          } else {
+            const landing = query.landings.next();
+            if (landing.done) {
+              exhausted = true;
+              break;
+            }
             for (const point of landingCandidates(
-              (landing.value as { surface: Surface }).surface,
+              landing.value.surface,
               query.start,
               to,
               model,
@@ -748,6 +759,7 @@ export function findJumpConnections(
             )) {
               yield { start: query.start, end: point.position, boundary: false };
             }
+          }
         }
         if (!exhausted) pending.push(query);
       }

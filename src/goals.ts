@@ -95,7 +95,11 @@ const clipPolygon = (vertices: Vec3[], signedDistance: Plane): Vec3[] => {
     if (aInside) output.push(a);
     if (aInside !== bInside) {
       const fraction = aDistance / (aDistance - bDistance);
-      output.push(a.map((value, axis) => value + fraction * (b[axis] - value)) as Vec3);
+      output.push([
+        a[0] + fraction * (b[0] - a[0]),
+        a[1] + fraction * (b[1] - a[1]),
+        a[2] + fraction * (b[2] - a[2]),
+      ] satisfies Vec3);
     }
   }
   return output;
@@ -307,7 +311,11 @@ export function findGoalHit(
     let fraction = Math.max(near, (-linear - root) / quadratic);
     if (fraction > Math.min(far, (-linear + root) / quadratic) + 1e-9) continue;
     fraction = Math.min(far, fraction);
-    const position = a.map((value, axis) => value + fraction * delta[axis]) as Vec3;
+    const position = [
+      a[0] + fraction * delta[0],
+      a[1] + fraction * delta[1],
+      a[2] + fraction * delta[2],
+    ] satisfies Vec3;
     return { index, fraction, position };
   }
   return null;

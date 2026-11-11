@@ -5,6 +5,7 @@ type Triangle = readonly (readonly number[])[];
 type GroundHit = ReturnType<CollisionWorld['groundAt']>;
 type SweepHit = ReturnType<CollisionWorld['sweepCapsule']>;
 type Hit = GroundHit | SweepHit;
+type CachedHit = { kind: 'ground'; result: GroundHit } | { kind: 'sweep'; result: SweepHit };
 type Compare = (a: number, b: number) => number;
 type Tree = { box: number[] } & (
   | { start: number; end: number; left?: never; right?: never }
@@ -183,21 +184,28 @@ export function createCollisionWorld(
     throw new Error('Invalid collision query cache size');
   // One bounded FIFO serves both methods for this immutable geometry/scope.
   // Default-off avoids key allocation for cold worlds or mostly unique sweeps.
-  const queryCache = queryCacheSize ? new Map<string, Hit>() : null;
+  const queryCache = queryCacheSize ? new Map<string, CachedHit>() : null;
   let cacheHits = 0,
     cacheMisses = 0;
   const queryKey = (kind: string, values: number[]) =>
     kind + values.map((value) => (Object.is(value, -0) ? '-0' : String(value))).join(',');
-  const copyResult = <T extends Hit>(result: T): T =>
-    (result === null
-      ? null
-      : 'position' in result
-        ? { position: [...result.position], triangle: result.triangle, normal: [...result.normal] }
-        : { ...result }) as T;
-  const remember = <T extends Hit>(key: string, result: T): T => {
+  function copyResult(result: GroundHit): GroundHit;
+  function copyResult(result: SweepHit): SweepHit;
+  function copyResult(result: Hit): Hit {
+    if (result === null) return null;
+    if ('position' in result)
+      return {
+        position: [...result.position],
+        triangle: result.triangle,
+        normal: [...result.normal],
+      };
+    return { ...result };
+  }
+  const remember = (key: string, entry: CachedHit) => {
     if (queryCache!.size >= queryCacheSize) queryCache!.delete(queryCache!.keys().next().value!);
-    queryCache!.set(key, copyResult(result));
-    return result;
+    if (entry.kind === 'ground') entry.result = copyResult(entry.result);
+    else entry.result = copyResult(entry.result);
+    queryCache!.set(key, entry);
   };
   let scope: number[] | null = null;
   if (options?.bounds !== undefined) {
@@ -245,8 +253,11 @@ export function createCollisionWorld(
   }
   const order = Uint32Array.from({ length: count }, (_, index) => index);
   const bounds = new Float64Array(count * 6);
-  const vertex = (index: number): Vec3 =>
-    Array.from(positions.subarray(index * 3, index * 3 + 3)) as Vec3;
+  const vertex = (index: number): Vec3 => [
+    positions[index * 3],
+    positions[index * 3 + 1],
+    positions[index * 3 + 2],
+  ];
   const triangle = (id: number): Triangle =>
     [0, 1, 2].map((index) => vertex(indices[id * 3 + index]));
   for (let id = 0; id < count; id++) {
@@ -331,9 +342,7 @@ export function createCollisionWorld(
   };
   const root = count ? build(0, count) : null;
   return {
-    bounds: scope
-      ? { min: scope.slice(0, 2) as [number, number], max: scope.slice(2, 4) as [number, number] }
-      : null,
+    bounds: scope ? { min: [scope[0], scope[1]], max: [scope[2], scope[3]] } : null,
     get queryCacheStats() {
       return {
         capacity: queryCacheSize,
@@ -413,9 +422,9 @@ export function createCollisionWorld(
       if (queryCache) {
         key = queryKey('ground/', [...position, maxUp, maxDown, maxSlope, radius]);
         const found = queryCache.get(key);
-        if (found !== undefined) {
+        if (found?.kind === 'ground') {
           cacheHits++;
-          return copyResult(found as GroundHit);
+          return copyResult(found.result);
         }
         cacheMisses++;
       }
@@ -440,7 +449,7 @@ export function createCollisionWorld(
             length = Math.hypot(...normal);
           if (!Number.isFinite(length)) throw new Error('Non-finite ground support normal');
           if (length === 0 || normal[1] <= 0 || normal[1] / length < minimumUp) continue;
-          const unitNormal = normal.map((value) => value / length);
+          const unitNormal: Vec3 = [normal[0] / length, normal[1] / length, normal[2] / length];
           const x = position[0] - face[0][0],
             z = position[2] - face[0][2],
             determinant = -normal[1];
@@ -466,12 +475,13 @@ export function createCollisionWorld(
             best = {
               position: [position[0], height, position[2]],
               triangle: originalIds ? originalIds[id] : id,
-              normal: unitNormal as Vec3,
+              normal: unitNormal,
             };
           }
         }
       }
-      return key === null ? best : remember(key, best);
+      if (key !== null) remember(key, { kind: 'ground', result: best });
+      return best;
     },
     /** Continuous straight translation of an upright capsule, given feet positions.
      * Its axis sweeps a parallelogram; distance to that entire surface, not discrete
@@ -506,9 +516,9 @@ export function createCollisionWorld(
       if (queryCache) {
         key = queryKey('sweep/', [...start, ...end, radius, height, inflation]);
         const found = queryCache.get(key);
-        if (found !== undefined) {
+        if (found?.kind === 'sweep') {
           cacheHits++;
-          return copyResult(found as SweepHit);
+          return copyResult(found.result);
         }
         cacheMisses++;
       }
@@ -538,11 +548,13 @@ export function createCollisionWorld(
               triangle: originalIds ? originalIds[id] : id,
               distance: Math.sqrt(distance),
             };
-            return key === null ? result : remember(key, result);
+            if (key !== null) remember(key, { kind: 'sweep', result });
+            return result;
           }
         }
       }
-      return key === null ? null : remember(key, null);
+      if (key !== null) remember(key, { kind: 'sweep', result: null });
+      return null;
     },
   };
 }

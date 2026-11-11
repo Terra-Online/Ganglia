@@ -51,7 +51,7 @@ export function searchResources(
     heap = createMinHeap<Label>(),
     ids = new Set<string>();
   let best: Label | null = null;
-  const retain = (label: Label) => {
+  const retain = (label: Label, incumbent: Label | null): Label | null => {
     const key = stateKey(label.state);
     let atNode = labels.get(label.node);
     if (!atNode) {
@@ -59,16 +59,17 @@ export function searchResources(
       labels.set(label.node, atNode);
     }
     const previous = atNode.get(key);
-    if (previous && previous.cost <= label.cost) return;
+    if (previous && previous.cost <= label.cost) return incumbent;
     // Keep every complete candidate even if its node's label allowance is full.
-    if (goals.has(label.node) && (!best || label.cost < best.cost)) best = label;
+    if (goals.has(label.node) && (!incumbent || label.cost < incumbent.cost)) incumbent = label;
     if (!previous && atNode.size >= maxLabels) {
       search.truncated = true;
-      return;
+      return incumbent;
     }
     label.key = key;
     atNode.set(key, label);
     heap.push(label);
+    return incumbent;
   };
   for (const start of starts) {
     if (
@@ -83,20 +84,23 @@ export function searchResources(
     if (start.state !== 'available' || !nodes.has(start.node)) continue;
     const point = nodes.get(start.node)!;
     if (blocked?.(point, point)) continue;
-    retain({
-      node: start.node,
-      cost: start.cost,
-      arrival: start,
-      state: locomotion.initial(),
-      previous: null,
-      segments: [],
-    });
+    best = retain(
+      {
+        node: start.node,
+        cost: start.cost,
+        arrival: start,
+        state: locomotion.initial(),
+        previous: null,
+        segments: [],
+      },
+      best,
+    );
   }
   if (!heap.size && !best) return { status: 'unmapped', search };
   while (heap.size) {
     const current = heap.pop()!;
     if (labels.get(current.node)!.get(current.key!) !== current) continue;
-    if (best && current.cost >= (best as Label).cost) break;
+    if (best && current.cost >= best.cost) break;
     if (search.expanded >= maxExpanded) {
       search.truncated = true;
       break;
@@ -104,18 +108,21 @@ export function searchResources(
     search.expanded++;
     for (const edge of edges.get(current.node) ?? []) {
       for (const next of locomotion.advance(routeSegment(edge), current.state)) {
-        retain({
-          node: edge.to,
-          cost: current.cost + next.duration,
-          state: next.state,
-          arrival: current.arrival,
-          previous: current,
-          segments: next.segments,
-        });
+        best = retain(
+          {
+            node: edge.to,
+            cost: current.cost + next.duration,
+            state: next.state,
+            arrival: current.arrival,
+            previous: current,
+            segments: next.segments,
+          },
+          best,
+        );
       }
     }
   }
-  const selected = best as Label | null;
+  const selected = best;
   if (!selected) return { status: 'no-verified-route', search };
   const path = [];
   for (let label = selected; label.previous; label = label.previous) path.push(label.segments);

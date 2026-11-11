@@ -26,8 +26,11 @@ const epsilon = 1e-9;
 const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((value, axis) => value - b[axis]));
 const finitePoint = (point: unknown) =>
   Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
-const interpolate = (a: Vec3, b: Vec3, fraction: number): Vec3 =>
-  a.map((value, axis) => value + (b[axis] - value) * fraction) as Vec3;
+const interpolate = (a: Vec3, b: Vec3, fraction: number): Vec3 => [
+  a[0] + (b[0] - a[0]) * fraction,
+  a[1] + (b[1] - a[1]) * fraction,
+  a[2] + (b[2] - a[2]) * fraction,
+];
 function validateOptions(options: LocomotionOptions) {
   const { speed, sprintSpeed, sprintAcceleration, stamina, dash } = options;
   if (

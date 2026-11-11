@@ -80,15 +80,13 @@ interface Validation {
 type Seed =
   | { excluded: true; seed?: never; exit?: never }
   | { excluded?: false; seed: Vec3; exit: [number, number] };
-type LandingQuery = {
-  boundary: boolean;
-  query: BoundsIndex<IndexedBoundary | LandingFace, number>;
-};
-interface ActiveQuery {
-  start: Takeoff;
-  boundary: boolean;
-  iterator: Generator<IndexedBoundary | LandingFace>;
-}
+type LandingQuery =
+  | { boundary: true; query: BoundsIndex<IndexedBoundary, number> }
+  | { boundary: false; query: BoundsIndex<LandingFace, number> };
+type ActiveQuery = { start: Takeoff } & (
+  | { boundary: true; iterator: Generator<IndexedBoundary> }
+  | { boundary: false; iterator: Generator<LandingFace> }
+);
 interface Cursor {
   revision: string;
   maxLinks: number;
@@ -200,10 +198,7 @@ export function findJumpShortcuts(
   options: ShortcutOptions & { baseline: Extract<Route, { status: 'complete' }> },
   cache?: ShortcutCache,
 ): { connections: GroundConnection[]; diagnostics: ShortcutDiagnostics } {
-  return findConnections(surfaces, world, options, false, cache) as {
-    connections: GroundConnection[];
-    diagnostics: ShortcutDiagnostics;
-  };
+  return findConnections(surfaces, world, options, false, cache);
 }
 /** Expand verified actions from currently reachable ground into new surfaces. */
 export function findJumpFrontier(
@@ -215,6 +210,21 @@ export function findJumpFrontier(
 ): { connections: GroundConnection[]; diagnostics: Diagnostics } {
   return findConnections(surfaces, world, options, true, cache, reverse);
 }
+function findConnections(
+  surfaces: Surface[],
+  world: CollisionWorld,
+  options: ShortcutOptions & { baseline: Extract<Route, { status: 'complete' }> },
+  frontier: false,
+  cache?: ShortcutCache,
+): { connections: GroundConnection[]; diagnostics: Diagnostics & { baselineCost: number } };
+function findConnections(
+  surfaces: Surface[],
+  world: CollisionWorld,
+  options: ShortcutOptions,
+  frontier: true,
+  cache?: ShortcutCache,
+  reverse?: boolean,
+): { connections: GroundConnection[]; diagnostics: Diagnostics };
 function findConnections(
   surfaces: Surface[],
   world: CollisionWorld,
@@ -688,9 +698,11 @@ function findConnections(
               yield { excluded: true };
               continue;
             }
-            const seed = boundary.a.map(
-              (value, axis) => value + fraction * (boundary.b[axis] - value),
-            ) as Vec3;
+            const seed = [
+              boundary.a[0] + fraction * (boundary.b[0] - boundary.a[0]),
+              boundary.a[1] + fraction * (boundary.b[1] - boundary.a[1]),
+              boundary.a[2] + fraction * (boundary.b[2] - boundary.a[2]),
+            ] satisfies Vec3;
             seed[0] += boundary.inward[0] * inset;
             seed[2] += boundary.inward[1] * inset;
             yield {
@@ -800,7 +812,7 @@ function findConnections(
     cursor?.landingQueries ??
     [
       ...(frontier
-        ? [true, false].map((connected) => ({
+        ? [true, false].map((connected): LandingQuery => ({
             boundary: true,
             query: prepared.boundaryIndex.filterGroups(
               (group: number) =>
@@ -809,7 +821,7 @@ function findConnections(
             ),
           }))
         : []),
-      ...[true, false].map((connected) => ({
+      ...[true, false].map((connected): LandingQuery => ({
         boundary: false,
         query: prepared.landingIndex.filterGroups(
           (group: number) =>
@@ -897,16 +909,14 @@ function findConnections(
             );
           }
         : envelope;
-      for (const height of heights)
-        active.push({
-          start,
-          boundary,
-          iterator: query.nearest(
-            bounds,
-            [start.position[0], height, start.position[2]],
-            intersects,
-          ),
-        });
+      for (const height of heights) {
+        const target: Vec3 = [start.position[0], height, start.position[2]];
+        active.push(
+          boundary
+            ? { start, boundary: true, iterator: query.nearest(bounds, target, intersects) }
+            : { start, boundary: false, iterator: query.nearest(bounds, target, intersects) },
+        );
+      }
     }
   }
   let queryIndex = 0,
@@ -919,36 +929,33 @@ function findConnections(
     const index = queryIndex++ % active.length,
       query = active[index];
     if (!query) continue;
-    const next = query.iterator.next();
-    if (next.done) {
-      active[index] = null;
-      activeQueries--;
-      continue;
+    const start = query.start;
+    let ends: Iterable<Witness>;
+    if (query.boundary) {
+      const next = query.iterator.next();
+      if (next.done) {
+        active[index] = null;
+        activeQueries--;
+        continue;
+      }
+      diagnostics.neighbourChecks++;
+      ends = project(boundaryLanding(next.value, start.position, profile.radius / 2), {
+        maxVertical,
+      });
+    } else {
+      const next = query.iterator.next();
+      if (next.done) {
+        active[index] = null;
+        activeQueries--;
+        continue;
+      }
+      diagnostics.neighbourChecks++;
+      if (dominated && fullSources.has(start.cell) && dominated(start, next.value)) {
+        diagnostics.dominatedFaces++;
+        continue;
+      }
+      ends = landingCandidates(next.value, start.position, to, model, profile.radius, goalWitness);
     }
-    diagnostics.neighbourChecks++;
-    const start = query.start,
-      surface = next.value;
-    if (
-      dominated &&
-      !query.boundary &&
-      fullSources.has(start.cell) &&
-      dominated(start, surface as LandingFace)
-    ) {
-      diagnostics.dominatedFaces++;
-      continue;
-    }
-    const ends = query.boundary
-      ? project(boundaryLanding(surface as IndexedBoundary, start.position, profile.radius / 2), {
-          maxVertical,
-        })
-      : landingCandidates(
-          surface as LandingFace,
-          start.position,
-          to,
-          model,
-          profile.radius,
-          goalWitness,
-        );
     for (const end of ends) {
       if (!end || end.surface === start.surface) continue;
       const identity = cursor ? pairKey(start, end) : null;

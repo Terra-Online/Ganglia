@@ -108,7 +108,11 @@ function* reachWitnesses(
         // Inset into the convex face as well as inside the reach envelope.
         const span = Math.hypot(center[0] - point[0], center[2] - point[2]);
         const inset = span === 0 ? 0 : Math.min(1, clearance / span);
-        const position = point.map((value, axis) => value + inset * (center[axis] - value)) as Vec3;
+        const position = [
+          point[0] + inset * (center[0] - point[0]),
+          point[1] + inset * (center[1] - point[1]),
+          point[2] + inset * (center[2] - point[2]),
+        ] satisfies Vec3;
         yield { surface: surface.id, position };
       }
     }
@@ -149,9 +153,11 @@ export function boundaryLanding(boundary: Boundary, reference: Vec3, inset: numb
             ((reference[0] - boundary.a[0]) * dx + (reference[2] - boundary.a[2]) * dz) / squared,
           ),
         );
-  const point = boundary.a.map(
-    (value, axis) => value + fraction * (boundary.b[axis] - value),
-  ) as Vec3;
+  const point = [
+    boundary.a[0] + fraction * (boundary.b[0] - boundary.a[0]),
+    boundary.a[1] + fraction * (boundary.b[1] - boundary.a[1]),
+    boundary.a[2] + fraction * (boundary.b[2] - boundary.a[2]),
+  ] satisfies Vec3;
   point[0] += boundary.inward[0] * inset;
   point[2] += boundary.inward[1] * inset;
   return point;

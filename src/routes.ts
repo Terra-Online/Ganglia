@@ -366,9 +366,11 @@ export function sampleRoute(points: Vec3[], meters: number): Vec3 {
   for (let i = 1; i < points.length; i++) {
     const length = distance(points[i - 1], points[i]);
     if (length > 0 && remaining < length)
-      return points[i - 1].map(
-        (v, axis) => v + ((points[i][axis] - v) * remaining) / length,
-      ) as Vec3;
+      return [
+        points[i - 1][0] + ((points[i][0] - points[i - 1][0]) * remaining) / length,
+        points[i - 1][1] + ((points[i][1] - points[i - 1][1]) * remaining) / length,
+        points[i - 1][2] + ((points[i][2] - points[i - 1][2]) * remaining) / length,
+      ] satisfies Vec3;
     remaining -= length;
   }
   return [...points.at(-1)!];

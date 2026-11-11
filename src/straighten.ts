@@ -238,8 +238,11 @@ export function createGroundStraightener(
     if (Math.hypot(end[0] - start[0], end[2] - start[2]) < 1e-10) {
       return distance(start, end) < tolerance ? [[...start], [...end]] : null;
     }
-    const interpolate = (fraction: number): Vec3 =>
-      start.map((value, axis) => value + fraction * (end[axis] - value)) as Vec3;
+    const interpolate = (fraction: number): Vec3 => [
+      start[0] + fraction * (end[0] - start[0]),
+      start[1] + fraction * (end[1] - start[1]),
+      start[2] + fraction * (end[2] - start[2]),
+    ];
     const clips = new Map<number, Clip | null>();
     const clipped = (triangle: Triangle) => {
       if (!clips.has(triangle.id)) clips.set(triangle.id, clipTriangle(triangle, start, end));
@@ -376,9 +379,11 @@ export function createGroundStraightener(
           chosen = corner;
         for (let step = 0; step < 10; step++) {
           const fraction = (low + high) / 2;
-          const point: Vec3 = corner.map(
-            (value, axis) => value + fraction * (middle[axis] - value),
-          ) as Vec3;
+          const point: Vec3 = [
+            corner[0] + fraction * (middle[0] - corner[0]),
+            corner[1] + fraction * (middle[1] - corner[1]),
+            corner[2] + fraction * (middle[2] - corner[2]),
+          ];
           const left = trace(a, point, supporting(a)),
             right = trace(point, b, supporting(point));
           // A height excursion needs its reconstructed samples and cannot be

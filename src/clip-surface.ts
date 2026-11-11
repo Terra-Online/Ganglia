@@ -47,7 +47,11 @@ export function clipSurface(
       if (fromInside) output.push(from);
       if (fromInside !== toInside) {
         const ratio = (boundary - from[axis]) / (to[axis] - from[axis]);
-        const point = from.map((value, index) => value + ratio * (to[index] - value)) as Vec3;
+        const point = [
+          from[0] + ratio * (to[0] - from[0]),
+          from[1] + ratio * (to[1] - from[1]),
+          from[2] + ratio * (to[2] - from[2]),
+        ] satisfies Vec3;
         point[axis] = boundary;
         output.push(point);
       }

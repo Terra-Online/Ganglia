@@ -165,8 +165,8 @@ export async function loadMap02(dataRoot: string) {
       8 +
     0.01;
   const bounds: NonNullable<SceneInput['collisionOptions']>['bounds'] = {
-    min: ground.build.bounds.min.map((v) => v - padding) as [number, number],
-    max: ground.build.bounds.max.map((v) => v + padding) as [number, number],
+    min: [ground.build.bounds.min[0] - padding, ground.build.bounds.min[1] - padding],
+    max: [ground.build.bounds.max[0] + padding, ground.build.bounds.max[1] + padding],
   };
   const options = {
     ...ground.options,

@@ -42,7 +42,7 @@ export const supportSnapshot = (surface: Surface): SupportSnapshot | null => {
     min: Vec3 = [Infinity, Infinity, Infinity],
     max: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const point of surface.vertices) {
-    const owned = [...point] as Vec3;
+    const owned: Vec3 = [...point];
     vertices.push(owned);
     for (let axis = 0; axis < 3; axis++) {
       min[axis] = Math.min(min[axis], owned[axis]);

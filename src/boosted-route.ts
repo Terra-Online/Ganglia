@@ -243,17 +243,12 @@ export function planBoostedRoute(
         route.segments[0].points[0],
         ...route.segments.flatMap((segment) => segment.points.slice(1)),
       ];
-      route.length = route.points
+      const points = route.points;
+      route.length = points
         .slice(1)
         .reduce(
           (sum, point, index) =>
-            sum +
-            Math.hypot(
-              ...point.map(
-                (value, axis) =>
-                  value - (route as Extract<Route, { status: 'complete' }>).points[index][axis],
-              ),
-            ),
+            sum + Math.hypot(...point.map((value, axis) => value - points[index][axis])),
           0,
         );
       if (options.locomotion) route = retimeGroundRoute(route, options.locomotion);

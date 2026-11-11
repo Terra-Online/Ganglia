@@ -104,7 +104,11 @@ export function findRouteShortcuts(
         if (span === 0) continue;
         while (untilNext < span) {
           const fraction = untilNext / span;
-          const point = a.map((value, axis) => value + fraction * (b[axis] - value)) as Vec3;
+          const point = [
+            a[0] + fraction * (b[0] - a[0]),
+            a[1] + fraction * (b[1] - a[1]),
+            a[2] + fraction * (b[2] - a[2]),
+          ] satisfies Vec3;
           samples.push({
             id: samples.length,
             point,

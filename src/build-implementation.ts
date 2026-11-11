@@ -113,7 +113,11 @@ function clipHeight(vertices: Vec3[], low: number, high: number): Vec3[] {
       if (fromInside) output.push(from);
       if (fromInside !== toInside) {
         const ratio = (boundary - from[1]) / (to[1] - from[1]);
-        const point = from.map((value, axis) => value + ratio * (to[axis] - value)) as Vec3;
+        const point = [
+          from[0] + ratio * (to[0] - from[0]),
+          from[1] + ratio * (to[1] - from[1]),
+          from[2] + ratio * (to[2] - from[2]),
+        ] satisfies Vec3;
         point[1] = boundary;
         output.push(point);
       }
@@ -223,9 +227,9 @@ function buildHeightLayers(
       top = -Infinity;
     for (let i = 0; i < vertices.length; i += 9) {
       const triangle = [
-        vertices.slice(i, i + 3) as Vec3,
-        vertices.slice(i + 3, i + 6) as Vec3,
-        vertices.slice(i + 6, i + 9) as Vec3,
+        [vertices[i], vertices[i + 1], vertices[i + 2]] satisfies Vec3,
+        [vertices[i + 3], vertices[i + 4], vertices[i + 5]] satisfies Vec3,
+        [vertices[i + 6], vertices[i + 7], vertices[i + 8]] satisfies Vec3,
       ];
       if (
         triangle.every((point) => Math.fround(point[1]) < Math.fround(paddedLow)) ||
@@ -377,7 +381,11 @@ function joinTiles(from: Tile, to: Tile, axis: 0 | 2, options: BuildOptions): Po
   let first = 0;
   const pointAt = (edge: BoundaryEdge, position: number): Vec3 => {
     const ratio = (position - edge.a[other]) / (edge.b[other] - edge.a[other]);
-    const point = edge.a.map((value, index) => value + ratio * (edge.b[index] - value)) as Vec3;
+    const point = [
+      edge.a[0] + ratio * (edge.b[0] - edge.a[0]),
+      edge.a[1] + ratio * (edge.b[1] - edge.a[1]),
+      edge.a[2] + ratio * (edge.b[2] - edge.a[2]),
+    ] satisfies Vec3;
     point[axis] = boundary;
     point[other] = position;
     return point;
@@ -520,10 +528,11 @@ export async function buildGroundTiles(
       )
     )
       continue;
-    const vertices = Array.from(
-      indices.slice(i, i + 3) as ArrayLike<number>,
-      (index): Vec3 => Array.from(positions.slice(index * 3, index * 3 + 3)) as Vec3,
-    );
+    const vertices = Array.from([indices[i], indices[i + 1], indices[i + 2]], (index): Vec3 => [
+      positions[index * 3],
+      positions[index * 3 + 1],
+      positions[index * 3 + 2],
+    ]);
     triangles.push({ vertices, min: [left, near], max: [right, far] });
   }
   const tiles = [],
@@ -550,7 +559,7 @@ export async function buildGroundTiles(
         continue;
       vertices.push(...triangle.vertices.flat());
     }
-    const tile = { x, z, bounds: core, surfaces: [] as Surface[] };
+    const tile: Tile = { x, z, bounds: core, surfaces: [] };
     if (vertices.length) {
       let built;
       try {

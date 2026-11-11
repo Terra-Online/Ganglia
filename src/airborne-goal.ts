@@ -451,8 +451,9 @@ export function planAirborneGoal(
   for (const candidate of candidates) {
     // A known complete result bounds further entry searches. Include supplied
     // device speeds so a fast transport cannot be pruned by a walking estimate.
+    const incumbent = best;
     if (
-      best.status === 'complete' &&
+      incumbent.status === 'complete' &&
       starts.every(
         (start) =>
           start.state !== 'available' ||
@@ -463,7 +464,7 @@ export function planAirborneGoal(
             ) /
               maxSpeed +
             candidate.arc.times.at(-1)! >=
-            (best as Extract<Route, { status: 'complete' }>).cost,
+            incumbent.cost,
       )
     )
       continue;

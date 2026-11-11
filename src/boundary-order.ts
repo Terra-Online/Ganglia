@@ -32,11 +32,12 @@ export const boundaryTree = <T extends Entry>(
     }
     return { slot, children: [...groups.values()].map((group) => build(group, scale / 2)) };
   };
-  const tree = build(entries, size) as BoundaryTree<T>;
-  tree.count = serial;
-  tree.entryCount = entries.length;
-  tree.entrySlots = new Map<T, number>(entries.map((entry, index) => [entry, index]));
-  return tree;
+  const tree = build(entries, size);
+  return Object.assign(tree, {
+    count: serial,
+    entryCount: entries.length,
+    entrySlots: new Map<T, number>(entries.map((entry, index) => [entry, index])),
+  });
 };
 export const boundaryOrder = <T>(
   tree: BoundaryTree<T>,
