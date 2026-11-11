@@ -20,6 +20,7 @@ export interface Node {
 }
 
 export interface Edge {
+  traversal?: Segment['traversal'];
   from: string;
   to: string;
   cost: number;

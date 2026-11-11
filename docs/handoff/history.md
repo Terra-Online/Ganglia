@@ -597,3 +597,20 @@ unknown region connections. Resumable exploration/fallback must be charged to th
 runtime objective. Feasible output, coverage under a finite budget, and preservation
 of reference route quality remain separate checks. No current evidence establishes
 that these new families will reach 20% remaining cost.
+
+## 2026-11-11 solver contract extraction, alpha.77
+
+Ganglia now owns physical-window strategies, goal-local support refinement and
+continuous route composition. Atlos retains resource execution and game-specific
+adaptation. The prepared solver separates scene facts, movement/search config and
+query data; same-scene batches remain whole submissions with adapter-owned
+scheduling. Moving-support display semantics are explicit route data.
+
+The fixed 50 ground-query workload was run in three fresh Node v26.13.0 processes
+per implementation. Before batch throughput: 5.682, 5.631, 5.814 queries/s; after:
+5.854, 5.790, 5.903 queries/s. Medians were 5.682 and 5.854 queries/s. All six runs
+preserved input hashes, complete route/connection result hashes and truncation
+flags across single and batch modes. Preparation and input I/O were excluded;
+there was no completed-route cache. The throughput difference is not claimed as
+an optimization. This workload excludes physical-window scheduling and goal
+refinement; their behavioral regressions are covered separately.

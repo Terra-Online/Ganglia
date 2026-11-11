@@ -7,11 +7,11 @@ async function checkSolverContract(input: SceneInput, query: RouteQuery) {
   const batch: readonly RouteResult[] = await solver.solveBatch([query]);
 
   // @ts-expect-error Body constraints belong to the scene, not to a request.
-  await solver.solve({ ...query, options: { profile: { radius: 0.3, height: 1.7 } } });
+  await solver.solve({ ...query, config: { profile: { radius: 0.3, height: 1.7 } } });
   // @ts-expect-error A batch accepts requests rather than bare target positions.
   await solver.solveBatch([query.goal]);
   // @ts-expect-error Candidate budgets must be numeric.
-  await solver.solve({ ...query, options: { maxCandidates: '512' } });
+  await solver.solve({ ...query, config: { search: { maxCandidates: '512' } } });
 
   await solver.close();
   return { single, batch };

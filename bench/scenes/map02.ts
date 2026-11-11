@@ -177,12 +177,28 @@ export async function loadMap02(dataRoot: string) {
     maxShortcutCandidates: 0,
     maxLinks: 64,
   };
+  const {
+    walls,
+    connections,
+    portals,
+    sampleSpacing,
+    maxCandidates,
+    maxShortcutCandidates,
+    maxLinks,
+    ...movementConfig
+  } = options;
   return {
     input: {
       surfaces: ground.surfaces,
       collision: { positions, indices },
       collisionOptions: { bounds },
-      options,
+      walls,
+      connections,
+      portals,
+      config: {
+        movement: movementConfig,
+        search: { sampleSpacing, maxCandidates, maxShortcutCandidates, maxLinks },
+      },
     },
     metadata: {
       scene: ground.scene,

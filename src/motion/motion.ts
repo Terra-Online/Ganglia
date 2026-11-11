@@ -10,6 +10,8 @@ export interface BoostUse {
 }
 
 export interface Segment {
+  /** Authored traversal semantics; connection identifiers remain opaque to renderers. */
+  traversal?: 'moving-support';
   boostExpiry?: number;
   boost?: BoostUse;
   mode: MovementMode;
@@ -83,6 +85,7 @@ export function routeSegment(edge: Edge): Segment {
   }
   return {
     mode: edge.mode ?? 'walk',
+    ...(edge.traversal === undefined ? {} : { traversal: edge.traversal }),
     points: edge.points.map((p): Vec3 => [...p]),
     times,
     ...(edge.connection === undefined ? {} : { connection: edge.connection }),

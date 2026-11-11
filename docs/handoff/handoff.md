@@ -6,7 +6,7 @@ The current objective is to reduce comparable solver computation to **at most 20
 
 ## Repository ownership and entry points
 
-Ganglia owns the geometry, directed passages, collision queries, movement candidates and search algorithms. Atlos owns the upstream adaptation, data exports, request scheduling, physical windows, cache policy and presentation. The separate `endfield-noclip` checkout supplies upstream source and local research evidence.
+Ganglia owns the geometry, directed passages, collision queries, movement candidates and search algorithms. Atlos owns upstream adaptation, data exports, resource/job scheduling, persistent storage and presentation. Ganglia owns physical-window selection, projection, subdivision and expansion, local goal refinement and continuous route composition. The separate `endfield-noclip` checkout supplies upstream source and local research evidence.
 
 | Area | Owning source |
 | --- | --- |
@@ -19,7 +19,7 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 | Collision and resources | [`src/geo/collision.ts`](../../src/geo/collision.ts), [`src/resource/locomotion.ts`](../../src/resource/locomotion.ts), [`src/resource/resource-search.ts`](../../src/resource/resource-search.ts) |
 | Atlos ordinary request | [`dev-route-server.ts`](../../../Atlos/talos/apps/world/dev-route-server.ts), [`travel-arrivals.ts`](../../../Atlos/talos/apps/world/travel-arrivals.ts) |
 | Atlos corridor worker | [`candidate-job.ts`](../../../Atlos/talos/apps/world/candidate-job.ts), [`candidate-worker.ts`](../../../Atlos/talos/apps/world/candidate-worker.ts) |
-| Atlos physical scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |
+| Atlos resource scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |
 | Atlos terminal assets | [`terminal-routes.ts`](../../../Atlos/talos/apps/world/terminal-routes.ts) |
 
 The authoritative noclip adaptation lives in Atlos [`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json), including `extractor.patch`, `format.patch`, `renderer.patch`, `documentation.patch` and `gpu-recovery.patch`. `Atlos/talos/.cache/noclip/` is generated source. Changes inspected there must be maintained through the integration patches. The retained upstream binding is `30f73f4609b24f033e3e2a48607d3270b01695a3`, with package protocol 98. Navigation/physical export revision 2 is a separate data binding.
@@ -108,6 +108,20 @@ incremental graph repair remain follow-up implementation work. Existing targeted
 regressions cover lazy validation, distance-field updates, cursor continuation,
 bound widening and per-arrival action reuse. They establish their fixture scope.
 
+## Solver contracts and physical windows
+
+The `./solver` entry point separates immutable scene facts from movement/search
+configuration and per-query endpoints. Its prepared solver retains single and
+whole-batch submission; adapters own batch scheduling. `createWindowRoute`
+receives resource operations rather than filesystem paths. Window strategies and
+whole-route composition stay in Ganglia so callers cannot accidentally change
+feasibility through scheduling or presentation code. The Atlos adapter loads
+physical inputs and executes jobs. Explicit traversal semantics travel with route
+segments; renderers do not interpret connection identifiers.
+
+The extractor still owns its game-specific device interpretation and the broader
+walking/device/action stage orchestration. Their migration is incomplete.
+
 ## Current scene and movement assumptions
 
 The working snapshot assumes completed tasks, enabled and powered facilities, and open doors. Geometry, body clearance, collision and applicable hazards still constrain passage. Factory region centres can serve as teleport arrivals under the fully traversable factory assumption. The fixed map02 snapshot uses daytime. Preserve these assumptions in result interpretation and source selection.
@@ -142,7 +156,7 @@ The support builder deliberately retains local climb/headroom semantics for stai
 
 The current `Surface` export consists of detail triangles. Native coarse polygon ownership has not been retained as a reusable hierarchy. Graph size therefore follows detail density. Adding a small local refinement can rebuild a much larger combined planner.
 
-Local refinement is already implemented. The patched `game/ground-refinement.ts::refineGoalGround` selects inclusive collision-AABB candidates from the collision BVH, restores original triangle order and rebuilds bounded support at one third of the coarse cell size. Shared owned surface primitives avoid repeating some preparation, while global portals and graph relations are rebuilt for the combined support. These implemented local/native operations are part of the current pipeline. Persistent regional transfers and a complete coarse/detail ownership asset remain subsequent work.
+Local refinement is implemented by `src/solver/ground-refinement.ts`; the patched extractor forwards to it. It selects inclusive collision-AABB candidates from the collision BVH, restores original triangle order and rebuilds bounded support at one third of the coarse cell size. Shared owned surface primitives avoid repeating some preparation, while global portals and graph relations are rebuilt for the combined support. These implemented local/native operations are part of the current pipeline. Persistent regional transfers and a complete coarse/detail ownership asset remain subsequent work.
 
 Imported directed portal intervals remain authoritative through graph construction, exposed-boundary discovery and straightening. Point contacts, stacked surfaces and ambiguous overlaps do not establish passage. Ground straightening uses supported continuous traces, directed passages and wall checks. Same-height corner contraction and candidate-corridor straightening remove unnecessary tessellation turns under those constraints.
 

@@ -22,6 +22,7 @@ export interface GroundArrival {
 }
 
 export interface GroundConnection {
+  traversal?: 'moving-support';
   /** A collection action ends in flight and cannot be used as a transfer. */
   terminal?: true;
   /** Conditional trajectories are unavailable without the matching active boost. */
@@ -298,6 +299,7 @@ export function createGroundPlanner(surfaces: Surface[], options: GroundOptions)
           times,
           connection: id,
           ...(requiredGait === undefined ? {} : { requiredGait }),
+          ...(connection.traversal === undefined ? {} : { traversal: connection.traversal }),
         });
       }
       // Transfer proofs belong only to the live endpoints. Growing action overlays

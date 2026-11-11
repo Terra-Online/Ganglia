@@ -9,44 +9,40 @@ export interface SceneInput {
   surfaces: Surface[];
   collision: CollisionGeometry;
   collisionOptions?: CollisionOptions;
-  // New internal planner controls require an explicit decision before entering this seam.
-  options: Pick<
+  walls: JumpRouteOptions['walls'];
+  connections?: JumpRouteOptions['connections'];
+  portals?: JumpRouteOptions['portals'];
+  boosts?: JumpRouteOptions['boosts'];
+  config: SolverConfig;
+}
+
+export interface SolverConfig {
+  movement: Pick<
     JumpRouteOptions,
     | 'activeBoost'
     | 'speed'
     | 'maxVertical'
-    | 'walls'
     | 'profile'
-    | 'connections'
-    | 'portals'
     | 'locomotion'
-    | 'boosts'
     | 'model'
     | 'runAirSpeed'
     | 'maxSlope'
     | 'maxDrop'
     | 'maxHorizontalDistance'
-    | 'sampleSpacing'
-    | 'maxCandidates'
-    | 'maxShortcutCandidates'
-    | 'maxLinks'
   >;
+  search?: SearchBudget;
 }
+
+export type SearchBudget = Partial<
+  Pick<JumpRouteOptions, 'sampleSpacing' | 'maxCandidates' | 'maxShortcutCandidates' | 'maxLinks'>
+>;
 
 export interface RouteQuery {
   starts: GroundArrival[];
   goal: Vec3;
-  options?: Partial<
-    Pick<
-      JumpRouteOptions,
-      | 'interaction'
-      | 'waypoints'
-      | 'connections'
-      | 'maxCandidates'
-      | 'maxShortcutCandidates'
-      | 'maxLinks'
-    >
-  >;
+  interaction?: JumpRouteOptions['interaction'];
+  waypoints?: Vec3[];
+  config?: { search?: SearchBudget };
 }
 
 export interface RouteResult {

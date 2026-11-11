@@ -575,6 +575,44 @@ export function retimeGroundRoute(route: Route, options: LocomotionOptions): Rou
     let seen = -1;
     const segment = segments.findIndex((part) => part.mode !== 'walk' && ++seen === ordinal);
     goalHit = { ...goalHit, segment, position: [...goalHit.position] };
+  } else if (goalHit) {
+    // Gait scheduling can split walking segments and change their clocks. Arc
+    // distance preserves event order even when a route revisits the same point.
+    const length = (part: Segment) =>
+      part.points.slice(1).reduce((sum, point, i) => sum + distance(part.points[i], point), 0);
+    let remaining = route.segments
+      .slice(0, goalHit.segment)
+      .reduce((sum, part) => sum + length(part), 0);
+    const original = route.segments[goalHit.segment];
+    for (let i = 1; i < original.points.length; i++) {
+      const span = distance(original.points[i - 1], original.points[i]);
+      const end = original.times[i];
+      if (goalHit.time >= end) remaining += span;
+      else {
+        const start = original.times[i - 1];
+        remaining += span * Math.max(0, (goalHit.time - start) / (end - start));
+        break;
+      }
+    }
+    let mapped = false;
+    for (let index = 0; index < segments.length && !mapped; index++) {
+      const part = segments[index];
+      for (let i = 1; i < part.points.length; i++) {
+        const span = distance(part.points[i - 1], part.points[i]);
+        if (part.mode === 'walk' && remaining <= span + epsilon) {
+          const fraction = span > 0 ? Math.max(0, Math.min(1, remaining / span)) : 0;
+          goalHit = {
+            ...goalHit,
+            segment: index,
+            time: part.times[i - 1] + fraction * (part.times[i] - part.times[i - 1]),
+            position: [...goalHit.position],
+          };
+          mapped = true;
+          break;
+        }
+        remaining -= span;
+      }
+    }
   }
   const points: Vec3[] = [[...route.points[0]]];
   for (const segment of segments)
