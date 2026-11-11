@@ -16,6 +16,20 @@ const options = { profile: { radius: 0.3, height: 1.7 }, walls: [], speed: 7, ru
   model: { gravity: 10, fallingGravity: 10, maxJumpHeight: 2, maxFallingSpeed: 20, apexTime: 0.2, maxHorizontalSpeed: 6.5 } };
 const arrival = position => [{ id: 'player', position, state: 'available', cost: 0 }];
 
+test('a ground-reachable airborne interaction records its exact completion event', () => {
+  const surfaces = [floor('road', 0, 20, 0)], world = createCollisionWorld(geometry(surfaces));
+  for (const start of [[2, 0, 0], [18, 0, 0]]) {
+    const result = planJumpRoute(surfaces, world, arrival(start), [18, 0, 0], {
+      ...options, maxCandidates: 0, interaction: { radius: 1, airborne: true },
+    });
+    assert.equal(result.route.status, 'complete');
+    const event = result.route.goalHit, segment = result.route.segments[event.segment];
+    assert.deepEqual(event.position, result.route.points.at(-1));
+    assert.equal(event.time, segment.times.at(-1));
+    assert.ok(Math.hypot(event.position[0] - 18, event.position[1], event.position[2]) <= 1);
+  }
+});
+
 test('a complete initial goal probe is handed to the next phase without a second unchanged solve', () => {
   const surfaces = [floor('flat', 0, 20, 0)], starts = arrival([2, 0, 0]), goal = [18, 0, 0];
   const planner = createGroundPlanner(surfaces, options), plan = planner.plan;

@@ -1,6 +1,7 @@
 import { retimeGroundRoute } from '../resource/locomotion.mjs';
 import { groundPreparation } from './ground.mjs';
 import { groundComponents, condenseComponents, canReach } from '../reach/connectivity.mjs';
+import { hasTerminalGroundEvent, markTerminalGoal } from '../motion/goals.mjs';
 
 const distance = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
 const pointsOf = (segments, start) => segments.length
@@ -86,10 +87,13 @@ export function pruneGroundDetours(route, planner, locomotion, { maxQueries = 48
   // Boost expiry is tied to the original event timeline. Keep that evidence until
   // a replacement can explicitly repropagate boost activation and expiry.
   if (route.status !== 'complete' || route.boosts?.length || route.segments.some(s => s.boost || s.boostExpiry !== undefined) ||
-      route.goalHit && route.segments[route.goalHit.segment]?.mode === 'walk') {
+      route.goalHit && route.segments[route.goalHit.segment]?.mode === 'walk' && !hasTerminalGroundEvent(route)) {
     return { route, replacements, queries };
   }
-  const scheduled = retimeGroundRoute(route, locomotion);
+  const terminalEvent = hasTerminalGroundEvent(route);
+  // Replacements preserve the exact endpoint. Temporarily remove its event so
+  // ground splitting/straightening can proceed, then bind it to the final walk.
+  const scheduled = retimeGroundRoute(terminalEvent ? { ...route, goalHit: undefined } : route, locomotion);
   if (scheduled.status !== 'complete') return { route, replacements, queries };
   const preparation = groundPreparation(planner);
   // Impossible cross-floor goals must not consume all comparisons before a
@@ -155,5 +159,5 @@ export function pruneGroundDetours(route, planner, locomotion, { maxQueries = 48
     }
     if (!improved) break;
   }
-  return { route: replacements ? best : route, replacements, queries };
+  return { route: replacements ? (terminalEvent ? markTerminalGoal(best) : best) : route, replacements, queries };
 }

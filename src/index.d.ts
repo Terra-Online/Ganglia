@@ -211,8 +211,8 @@ export interface JumpRouteOptions extends GroundOptions {
   maxLinks: number;
 }
 /** Joint ground/jump/drop action selection with a monotone complete-route incumbent.
- * After primary failure, each topologically distinct known-action entry can receive
- * an additional maxCandidates query. Progress and diagnostics expose those phases.
+ * After primary failure, topologically distinct known-action entries share
+ * one additional maxCandidates budget. Geometric approach scores order those trials. Progress and diagnostics expose those phases.
  * Sampling limits remain explicit; returned completion does not establish global optimality.
  */
 interface FlightDiagnostics { attempted: number; nominalHits: number; hits: number; approaches: number; truncated: boolean }
@@ -221,10 +221,12 @@ export interface JumpDiagnostics {
   airborne?: FlightDiagnostics;
   strategy: 'surface-action-graph'; groundStatus: Route['status']; baselineCost: number | null;
   selectedCost: number | null; truncated: boolean;
+  unusedCandidates?: number;
+  deviceImprovement?: JumpDiagnostics;
   searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[];
   /** Additional bounded entry queries after primary feasibility fails. */
   deviceApproaches?: { budgetPerGoal: number; goals: number; searches: {
-    device: string; status: Route['status']; discovery: JumpDiagnostics;
+    device: string; budget: number; status: Route['status']; discovery: JumpDiagnostics;
   }[] };
   directions?: { requestedGoals: number; regions: number; budgetPerGoal: number; remaining: number; searches: {
     point: Vec3; support?: Vec3; status: Route['status']; added: number; diagnostics?: JumpDiagnostics;

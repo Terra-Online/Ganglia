@@ -168,7 +168,7 @@ The attachment originally placed resource work at P0, requested five interleaved
 2. **Validate the claimed candidate contract.** For an optimization claiming equivalent finite enumeration, compare old and new retained representatives under unchanged seed/neighbor/endpoint/trajectory budgets. Preserve stable ties, uncertainty ordering, source/intermediate fairness, insertion order and truncation; the current dominated-face optimization still consumes its original neighbor slot. An intentional replacement of the generation/search strategy must instead state its coverage, fairness, stopping and budget semantics, and validate feasibility and route quality against the established controls. Do not silently call reordered or reduced sampling equivalent, or obtain a speedup solely by weakening the quality/coverage requirement. Unknown controls or unsupported/numerically unsafe bounds retain a conservative fallback.
 3. **Exercise cache/cursor changes where relevant.** Larger work budgets resume; changed endpoints, final bound goal, cost bound, geometry/world/body/model/walls or action revision invalidate the dependent state. Increasing a representative/link quota rebuilds when needed. An earlier incomplete solve under a tighter bound cannot block a later wider-bound search. Reusable geometry failures and changed reachability are different dependencies. Check new/removed/faster/zero-cost actions, moved endpoints and multiple arrivals without duplicate IDs or lost local edges.
 4. **Retain complete physical acceptance.** Candidate scores and polygon-center heuristics organize a finite search; they do not prove executable route optimality. Accepted motions still need real support, body clearance, walls, complete trajectory sweeps, directed device conditions, whole-route resource scheduling, boost expiry and the required terminal goal event. Supported run-off may walk uphill before actual takeoff. Terminal collection edges cannot become ordinary intermediate transfers. Preserve far/away-from-goal, interior/narrow landings and multi-hop alternatives in the affected fixtures.
-5. **Check feasibility and quality independently.** A route that remains complete can still be slower or use a changed finite candidate set. Compare selected origin, points, segments, times, gait, resources, goal event, boost annotations and connection identities where equality is promised. If differences are intentional, explain and validate them rather than silently moving the baseline. A bounded unavailable result remains inconclusive about physical impossibility; existing contract failures remain visible.
+5. **Check feasibility and quality independently.** The 2026-11-11 user acceptance gate permits complete-route cost deterioration up to 5% against the valid same-input control. Fix failures, timeouts and larger cost regressions by improving the new algorithm. Legacy enumeration remains a diagnostic control, not the requested production remedy. A route that remains complete can still be slower or use a changed finite candidate set. Compare selected origin, points, segments, times, gait, resources, goal event, boost annotations and connection identities where equality is promised. If differences are intentional, explain and validate them rather than silently moving the baseline. A bounded unavailable result remains inconclusive about physical impossibility; existing contract failures remain visible.
 6. **Use a finite verification pass.** Once edits stabilize, run directly affected tests and the established checks required for that change, then only the representative solver/HTTP cases needed to resolve its actual risk. Add a focused regression for a real failure, not a mirror of internal structure. Broaden or repeat after a new failure/change or unresolved concern; stop when sufficient evidence exists. Neither indefinite profiling nor a full cold/warm corpus on every small edit is required. A cross-map or release-wide claim still needs evidence covering that claim.
 7. **Keep timing meanings separate.** Process/application cold does not mean flushed OS pages; warm prepared planning differs from finished-route cache reuse. Exact instrumented inclusive/self timers, sampled deepest-frame attribution, CPU usage and stage progress intervals have different meanings. Nested function/stage durations overlap. Original phase timestamps may mark completion, not start; use paired attempt start/end events for per-attempt durations. Record profiler/hook overhead and use an appropriate low-overhead control before claiming elapsed-time gains. Report regressions and memory costs as well as wins.
 8. **Keep learned-data scope explicit.** Collect random support regions across maps and level-tagged windows before fitting scheduling weights. Split by whole level/map, bind labels to the tested witness and preserve budget-exhausted episodes as unresolved. Fit normalization on training data only. Compare geometry-only and control-only features, charge generation/inference/validation/fallback separately from offline training, and report early-budget losses as well as aggregate discovery gains. A local primitive-policy benchmark does not replace complete-route quality/resource/goal validation or establish production solver speed.
@@ -919,3 +919,45 @@ region representation/ownership, then measure candidate transfer materialization
 action spatial enumeration, collision and resource costs under their containing
 requests. Existing prepared caches, serialization and repeated window setup remain
 part of that pipeline rather than disappearing from the accounting.
+
+## 2026-11-11 retained-point repair in progress
+
+The retained `retained-replay-20261111/verified-replay` research run completed all
+113 unchanged requests against the alpha.67 control. All resulting routes pass
+resource and goal-event checks. The comparison contains 69 equal-cost routes,
+29 improvements, 12 increases within the user-approved 5% tolerance, two repaired
+terminal-event contracts and one larger regression (`0frHUCx`, 18.919→20.966 s).
+The old invalid terminal reference remains separately classified.
+
+The working implementation retains envelope pruning and resumable frontiers. It
+interleaves region boundary seeds, gives direction queries region-chain proposals,
+returns up to four distinct frontier components per batch, and prioritizes causal
+entries by geometric approach score under one shared fallback quota. Remaining
+entry quota can improve the complete final route. Grounded airborne-goal completion
+now records an exact terminal event and preserves it through scheduling and detours.
+The four previously unavailable requests and the 180-second timeout all complete.
+Cases 004/005 cost 30.082/14.149 s, 025 costs 19.200 s, and 052/061 cost 17.591 s
+(+3.54% versus alpha.67). The first implementation passed all 282 SDK tests.
+
+The larger quality regression comes from local refinement targeting the incumbent
+before broad shortcut improvement. A focused current-incumbent refinement trial
+reduces `0frHUCx` to 15.692 s. That adjustment subsequently completed the run in
+`retained-replay-20261111/refined-replay`; the final validation section records
+its remaining quality regression and the retained correction. Diagnostic legacy-enumeration variants were not adopted.
+Source variants, requests and intermediate failures remain in the research root.
+
+
+### Final bounded validation and delivery
+
+The current-incumbent-only experiment completed another 113-request replay with
+no route/evidence failures but introduced a >5% cost regression on case 006. The
+retained implementation compares the pre-broad incumbent locally and additionally
+compares the improved incumbent using remaining overall candidate budget. Focused
+final cases 006/038 cost 1.875152/15.480632 seconds. All 282 SDK tests pass. The
+third full replay was stopped at the user's request after 12 completed cases; its
+interrupted request is not a solver-failure claim. No complete final-source corpus
+pass is claimed. Final instrumented heavy-query cold/warm times are 95.514/98.558 s.
+CPU sample aggregation was empty, so function timers supply hotspot evidence.
+The Chinese requested benefit report is `docs/reports/2026-11-11-solver-optimization.md`.
+The final source is intended for a local commit and authorized remote push. Atlos's
+installed package has not been upgraded. The 20%-remaining-time target stays open.

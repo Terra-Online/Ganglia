@@ -219,6 +219,21 @@ export function findGoalHit(points, target, interaction) {
   return null;
 }
 
+// A grounded completion is witnessed at the verified route endpoint. Its index
+// and local time must be rebuilt when scheduling or detour removal splits walks.
+export function hasTerminalGroundEvent(route) {
+  const hit = route.goalHit, last = route.segments?.at(-1);
+  return Boolean(hit && last?.mode === 'walk' && hit.segment === route.segments.length - 1 &&
+    hit.time === last.times.at(-1) && distanceSquared(hit.position, route.points.at(-1)) <= 1e-18);
+}
+
+export function markTerminalGoal(route) {
+  const point = route.points.at(-1);
+  const segments = route.segments.length ? route.segments : [{ mode: 'walk', points: [point, point], times: [0, 0] }];
+  return { ...route, segments, goalHit: { segment: segments.length - 1,
+    time: segments.at(-1).times.at(-1), position: [...point] } };
+}
+
 // Interaction completion owns the terminal point of an airborne collection action.
 export function trimGoalFlight(arc, target, interaction) {
   if (!arc) return null;

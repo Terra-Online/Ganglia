@@ -47,7 +47,7 @@ function prepareGeometry(surfaces, options) {
   const geometry = { ...adjacency(graph.edges, shared.forward), lengthScale: shared.lengthScale, blocked, boundaries, landingSurfaces,
     boundaryIndex: createBoundsIndex(boundaries, edge => componentOf(edge.surface)),
     landingIndex: createBoundsIndex(landingSurfaces, surface => componentOf(surface.id)), representatives,
-    byId, projectSupport,
+    byId, projectSupport, componentOf,
     centers,
     project,
     visibility,
@@ -533,8 +533,8 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       const { candidate } = entry;
       const pool = candidate.connected ? 0 : 1, entries = retained[pool];
       if (!capacity[pool] || (entries.length >= capacity[pool] && (frontier || candidate.score >= entries.at(-1).score))) continue;
-      const cell = candidate.cell;
-      if (accepted.has(cell)) continue;
+      let cell = candidate.cell;
+      if (!frontier && accepted.has(cell)) continue;
       if (!entry.variants) {
         const start = standing(candidate.start);
         if (!start) {
@@ -567,6 +567,13 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
         Object.assign(entry, { start, end,
           groundTime: ground ? ground.slice(1).reduce((sum, point, index) => sum + distance(ground[index], point), 0) / speed : Infinity,
           variants: motionVariants(start.position, end.position, candidate.start.exit) });
+      }
+      // Return a small, diverse frontier batch before rebuilding reachability.
+      // The representative quota is heuristic. Alternative witnesses remain
+      // subject to the existing finite coverage and action-revision rules.
+      if (frontier) {
+        cell = String(prepared.componentOf(reverse ? entry.start.surface : entry.end.surface));
+        if (accepted.has(cell)) continue;
       }
       const next = entry.variants.next();
       if (next.done) { rejectedPairs.add(pairKey(candidate.start, candidate.end)); continue; }
@@ -608,7 +615,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
       if (entries.length > capacity[pool]) entries.pop();
       accepted.add(cell);
       pending.pop();
-      if (frontier) {
+      if (frontier && retained[0].length + retained[1].length >= Math.min(maxLinks, 4)) {
         for (let remaining = index + 1; remaining < candidates.length; remaining++) pending.push(candidates[remaining]);
         candidates = pending;
         break validation;

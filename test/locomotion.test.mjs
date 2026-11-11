@@ -13,6 +13,19 @@ const route = segments => ({
 const line = length => route([walk([[0, 0, 0], [length, 0, 0]])]);
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} != ${expected}`);
 
+test('ground completion events follow the final segment after stamina and dash splitting', () => {
+  const input = line(60);
+  input.segments[0].times = [0, 60];
+  input.goalHit = { segment: 0, time: 60, position: [60, 0, 0] };
+  const result = retimeGroundRoute(input, { ...options, stamina,
+    dash: { speed: 10, duration: .3, cooldown: .8, cost: 1 } });
+  assert.ok(result.segments.length > 1);
+  assert.equal(result.goalHit.segment, result.segments.length - 1);
+  assert.equal(result.goalHit.time, result.segments.at(-1).times.at(-1));
+  assert.deepEqual(result.goalHit.position, result.points.at(-1));
+  assert.equal(input.goalHit.time, 60);
+});
+
 test('sprint timing integrates acceleration and supplies matching playback samples', () => {
   const result = retimeGroundRoute(line(13), options);
   // The first second covers 6 metres, followed by 7 metres at sprint speed.

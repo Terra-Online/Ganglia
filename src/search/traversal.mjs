@@ -395,36 +395,52 @@ export function findJumpConnections(surfaces, world, options, workLimits, interm
           boundary.max[1] >= other.min[1] - maxDrop - endpointTolerance))
       .sort((a, b) => horizontalGap(a, other) - horizontalGap(b, other) ||
         distance(a.midpoint, takeoff ? to : from) - distance(b.midpoint, takeoff ? to : from));
-    let generated = 0;
-    for (const boundary of edges) {
+    // Interleave boundary witnesses so one densely sampled edge cannot consume
+    // the region pair's entire endpoint allowance before other ledges are seen.
+    const stream = function* (boundary) {
       const samples = Math.max(1, Math.ceil(boundary.length / sampleSpacing));
       const dx = boundary.b[0] - boundary.a[0], dz = boundary.b[2] - boundary.a[2];
       const nearest = Math.max(0, Math.min(1,
         ((center[0] - boundary.a[0]) * dx + (center[2] - boundary.a[2]) * dz) / (dx * dx + dz * dz)));
-      // Always try the closest part of a long ledge before uniform refinement.
-      const fractions = new Set([nearest, 0.5]);
-      const refinement = Math.min(samples, Math.max(0, Math.floor((limit - generated) / insets.length)));
-      if (refinement < samples) diagnostics.truncated = true;
-      for (let sample = 0; sample < refinement; sample++) fractions.add((sample + 0.5) / refinement);
-      for (const fraction of fractions) for (const inset of insets) {
+      const fractions = function* (count) {
+        yield nearest;
+        yield 0.5;
+        for (let index = 0; index < count; index++) yield (index + 0.5) / count;
+      };
+      const emitted = new Set();
+      for (const refinement of new Set([Math.min(4, samples), Math.min(16, samples), samples])) {
+        for (const fraction of fractions(refinement)) {
+          if (emitted.has(fraction)) continue;
+          emitted.add(fraction);
+          for (const inset of insets) {
+            const point = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
+            point[0] += boundary.interior[0] * inset;
+            point[2] += boundary.interior[1] * inset;
+            yield point;
+          }
+        }
+      }
+    };
+    let generated = 0, active = edges.map(stream);
+    while (active.length) {
+      const pending = [];
+      for (const iterator of active) {
         if (generated >= limit || diagnostics.seedChecks >= diagnostics.limits.seedChecks) {
           diagnostics.truncated = true;
           return seeds;
         }
+        const next = iterator.next();
+        if (next.done) continue;
+        pending.push(iterator);
         generated++;
         diagnostics.seedChecks++;
-        const point = boundary.a.map((value, axis) => value + fraction * (boundary.b[axis] - value));
-        point[0] += boundary.interior[0] * inset;
-        point[2] += boundary.interior[1] * inset;
-        const key = JSON.stringify(point);
+        const point = next.value, key = JSON.stringify(point);
         if (seen.has(key)) continue;
         seen.add(key);
         const nav = project(point, { maxVertical })[0];
-        // Pullbacks can leave a thin platform. Reject those cheap navigation
-        // misses before they consume landing diversity or physical sweep work.
-        if (!nav || componentOf(nav.surface) !== region.component) continue;
-        seeds.push(nav.position);
+        if (nav && componentOf(nav.surface) === region.component) seeds.push(nav.position);
       }
+      active = pending;
     }
     return seeds;
   };
@@ -446,8 +462,10 @@ export function findJumpConnections(surfaces, world, options, workLimits, interm
       return;
     }
     const available = diagnostics.limits.seedChecks - diagnostics.seedChecks;
-    const takeoffs = spreadSeeds(seedsFor(a, b, true, reach, Math.floor(available / 2)));
-    const landings = spreadSeeds(seedsFor(b, a, false, reach, diagnostics.limits.seedChecks - diagnostics.seedChecks));
+    const endpointBudget = Math.min(4096, Math.max(64, maxCandidates * 2));
+    const takeoffs = spreadSeeds(seedsFor(a, b, true, reach, Math.min(endpointBudget, Math.floor(available / 2))));
+    const landings = spreadSeeds(seedsFor(b, a, false, reach,
+      Math.min(endpointBudget, diagnostics.limits.seedChecks - diagnostics.seedChecks)));
     const queryLandings = createBoundsIndex(landings.map(point => ({ min: point, max: point, point })));
 
     const queryFaces = createBoundsIndex(b.surfaces.map(surface => ({ surface, ...boundsOf(surface.vertices) })));

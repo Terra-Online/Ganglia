@@ -30,6 +30,18 @@ test('a supported cheaper walk removes an unnecessary device and preserves exact
   assert.deepEqual(original, excursion(), 'caller-owned route was mutated');
 });
 
+test('detour removal preserves a grounded endpoint event without blocking the improvement', () => {
+  const original = excursion();
+  original.goalHit = { segment: 2, time: 1, position: [6, 0, .5] };
+  const result = pruneGroundDetours(original, createGroundPlanner([floor('road', 0, 8)], options), locomotion);
+  assert.ok(result.replacements > 0);
+  assert.ok(result.route.cost < retimeGroundRoute(original, locomotion).cost);
+  assert.equal(result.route.goalHit.segment, result.route.segments.length - 1);
+  assert.equal(result.route.goalHit.time, result.route.segments.at(-1).times.at(-1));
+  assert.deepEqual(result.route.goalHit.position, original.goalHit.position);
+  assert.deepEqual(result.route.points.at(-1), original.points.at(-1));
+});
+
 test('ground replacement cannot cross missing support or a blocking wall, even with a device in the planner', () => {
   const original = excursion();
   for (const planner of [

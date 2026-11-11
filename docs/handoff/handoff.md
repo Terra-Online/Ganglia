@@ -4,6 +4,8 @@ This handoff describes Ganglia `0.1.0-alpha.76` at local commit `917dfcd` and it
 
 The current objective is to reduce comparable solver computation to **at most 20% of the original cost**, while preserving supported behavior, reachability and route quality. The latest heavy-query checkpoint remains above that target. The user's latest direction covers the complete pipeline: terrain generation, support/portal/graph/index preparation, corridor search, action discovery, collision validation and resource scheduling. Work through measured bottlenecks individually and check their containing request; a local gain must not hide shifted computation. Region/action reduction remains important, but is not the only optimization target. The old resource-first P0 roadmap does not prescribe the current order.
 
+The latest user acceptance gate (2026-11-11) permits route-cost deterioration up to 5% against the valid same-input control. Feasibility failures, timeouts and larger cost regressions require fixes within the new algorithm. The retained-corpus repair and bounded validation are described in the final delivery section below. Historical timings remain bound to their implementations.
+
 ## Repository ownership and entry points
 
 Ganglia owns the geometry, directed passages, collision queries, movement candidates and search algorithms. Atlos owns the upstream adaptation, data exports, request scheduling, physical windows, cache policy and presentation. The separate `endfield-noclip` checkout supplies upstream source and local research evidence.
@@ -443,3 +445,34 @@ The next agent should concentrate on these outstanding boundaries.
 5. Complete moving-controller bindings, multi-box handling, source-bound map coverage, ordinary entry acceptance and the full south-to-north physical connection. Earlier base-collision prefixes and independent tails retain their original coverage scope.
 
 Older [architecture](../architecture.md), [roadmap](../roadmap.md), [ground topology](../ground-topology.md), [solver performance](../solver-performance.md) and [prebuilt navigation](../prebuilt-navigation.md) documents retain useful assumptions and historical acceptance definitions. Their alpha.21/alpha.58 milestones and earlier ordering need to be read alongside this current handoff and [history](history.md). Persistent regional transfers, shared validated action assets, state-preserving contraction, complete release manifests, robust recommended-route evaluation and the original time-reduction goal remain open.
+
+## Retained-point repair checkpoint, 2026-11-11
+
+The current working tree adds fair region-boundary sampling, direction-chain
+proposals, small component-diverse frontier batches and geometrically ranked
+causal-entry trials. Entry trials share one additional `maxCandidates` quota;
+unused trial quota can refine the final jointly resource-timed route. Scores only
+rank bounded coverage. Envelope, collision, support and resource checks remain
+active. Terminal grounded goal evidence survives walk scheduling and detour edits.
+
+One complete 113-request replay has no incomplete routes or resource/goal evidence
+failures. One route exceeds the accepted 5% cost tolerance. Its current-incumbent
+local-refinement experiment and subsequent dual comparison are recorded in the
+final validation section below. The user stopped further full-corpus repetition.
+See the companion history for precise experiment status and evidence paths.
+
+
+### Final bounded validation and delivery
+
+The current-incumbent-only experiment completed another 113-request replay with
+no route/evidence failures but introduced a >5% cost regression on case 006. The
+retained implementation compares the pre-broad incumbent locally and additionally
+compares the improved incumbent using remaining overall candidate budget. Focused
+final cases 006/038 cost 1.875152/15.480632 seconds. All 282 SDK tests pass. The
+third full replay was stopped at the user's request after 12 completed cases; its
+interrupted request is not a solver-failure claim. No complete final-source corpus
+pass is claimed. Final instrumented heavy-query cold/warm times are 95.514/98.558 s.
+CPU sample aggregation was empty, so function timers supply hotspot evidence.
+The Chinese requested benefit report is `docs/reports/2026-11-11-solver-optimization.md`.
+The final source is intended for a local commit and authorized remote push. Atlos's
+installed package has not been upgraded. The 20%-remaining-time target stays open.

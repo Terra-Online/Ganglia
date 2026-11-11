@@ -1,4 +1,5 @@
 import { validateMotion } from '../motion/motion.mjs';
+import { hasTerminalGroundEvent, markTerminalGoal } from '../motion/goals.mjs';
 
 const epsilon = 1e-9;
 const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
@@ -364,7 +365,7 @@ export function retimeGroundRoute(route, options) {
   for (const segment of segments) for (const point of segment.points.slice(1)) {
     if (distance(points.at(-1), point) > epsilon) points.push([...point]);
   }
-  return {
+  const result = {
     ...route, segments, points,
     ...(goalHit ? { goalHit } : {}),
     cost: route.arrivalCost + best.duration,
@@ -374,4 +375,5 @@ export function retimeGroundRoute(route, options) {
       ...(truncated ? { search: { truncated: true, maxLabels } } : {}),
     } } : {}),
   };
+  return hasTerminalGroundEvent(route) ? markTerminalGoal(result) : result;
 }
