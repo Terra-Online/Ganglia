@@ -270,6 +270,39 @@ so it cannot serve as a walking-dominance certificate. Preserve the existing
 snapshot, cost, uncertainty and finite-budget contracts when replacing generation.
 The remaining-cost target of at most 20% is still open.
 
+## Updated next-phase algorithm scope
+
+After the non-learning ablation, the user broadened the next phase to include
+reinforcement learning and evolutionary optimization. The previous round's exclusion
+of learned methods applies to that historical batch. Further structural refactoring
+is one option alongside algorithm changes. It is not a prerequisite for comparing
+new candidate-generation policies against the current solver.
+
+The proposed comparison uses the existing analytic model and physical verifier.
+CMA-ES and iCEM can search continuous takeoff/landing and steering/run-off parameters
+within proposed region/control families. A learned search policy can select region
+pairs, control families and work allocation before detailed candidates are built.
+A hybrid can combine learned proposals with continuous stochastic optimization.
+Quality-diversity methods such as CMA-MAE are another candidate when retaining
+multiple landing regions or motion families proves important. These are proposals;
+no evolutionary optimizer, learned policy or new performance result is implemented.
+
+Start with four comparable arms: the current solver, evolutionary/sampling-based
+local generation, learned high-level selection with the current local generator,
+and their combination. Use held-out regions/scenes and count all inference,
+generation, physical validation and fallback time. Report training/precomputation
+cost separately. Existing regression scenes supply environments and evaluation
+inputs; decision-level traces still need to be collected for learning. A bounded
+unsuccessful solve remains an unresolved episode, with no physical-impossibility
+label inferred for untested actions.
+
+Model proposals retain the existing support, wall, complete trajectory, goal-event
+and resource checks. Predictive scores guide proposals and scheduling. Certified
+lower bounds continue to govern safe pruning. Exploration and resumable fallback
+remain part of the comparison, with their actual runtime included. Fixed-budget
+coverage and route quality require independent validation; the 20% objective has
+no demonstrated learning/evolutionary result yet.
+
 ## Action objectives and device coverage
 
 Airborne collection uses the source-derived interaction volume. `findGoalFlights` samples supported takeoffs and nominal flight families. `planAirborneGoal` solves exact grounded approaches and clips the final flight at the first valid collection event. Prefix collision and boost validity remain required. World enables this behavior for `int_collection_coin*` rules. `sampleJourney` interpolates an existing timed route for playback. Independent forward propagation of fixed controls remains open.

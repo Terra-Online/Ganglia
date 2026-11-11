@@ -548,3 +548,52 @@ entry state. SCC identity alone cannot certify a cheap walking replacement.
 Complete coarse/detail ownership, route-driven physical expansion and L-GLS repair
 remain unimplemented; these failed retrieval/decomposition experiments do not close
 them. Learned ranking and resource-planning redesign were outside this round.
+
+
+## 2026-11-11 broadened algorithm proposals after structural ablation
+
+The user subsequently invited reinforcement learning and evolutionary algorithms
+for the next phase. This supersedes the historical restriction to non-learning
+structural trials. The implementation remains `66dbd52`, with no new solver run,
+training result or accepted algorithm in this research/update pass.
+
+Primary references were checked for the following proposed roles. Project-specific
+adaptations and their expected usefulness are hypotheses, without transferred
+speedups or convergence guarantees from the source domains.
+
+- [Hansen's CMA-ES tutorial](https://arxiv.org/abs/1604.00772) describes stochastic
+  optimization of nonlinear, nonconvex continuous objectives. Proposed use is a
+  bounded optimizer over supported endpoint coordinates and existing continuous
+  steering/run-off parameters, with discrete region/control choices handled at the
+  proposal level.
+- [Sample-efficient Cross-Entropy Method for Real-time Planning](https://proceedings.mlr.press/v155/pinneri21a.html)
+  supplies an iCEM comparison for sample-based trajectory optimization. It is a
+  neighboring black-box optimization method in this comparison. Its published
+  sample reductions do not predict this project's end-to-end runtime.
+- [Leveraging Experience in Lazy Search](https://arxiv.org/abs/2110.04669) learns
+  edge selection through imitation of oracles in a search MDP. It motivates an
+  imitation warm start for learning search decisions. The proposed project policy
+  targets region-pair/control generation and budget allocation earlier than its
+  edge-evaluation setting.
+- [HOLO-MPPI](https://arxiv.org/abs/2606.16480), a 2026 preprint evaluated in driving,
+  combines learned high-level proposals with online stochastic control refinement.
+  It supplies a hybrid design reference. Our existing analytic motion model can
+  supply evaluation without adopting that paper's learned dynamics.
+- [CMA-MAE](https://arxiv.org/abs/2205.10752) studies quality-diversity optimization.
+  It motivates retaining diverse motion proposals across landing/control niches
+  if a single search distribution collapses to one unhelpful route family.
+
+The first proposed ablation is current solver versus continuous black-box local
+search versus learned high-level selection versus their combination. Parameters
+and policies must act before mass surface-pair enumeration. Reward/evaluation
+should account for completed-route quality and actual computation, with enough
+credit for relay and temporarily away-from-goal motion. Existing failure logs need
+scope-aware labels and decision-level traces. Training and online inference costs
+must be reported under their distinct measurement scopes.
+
+Every accepted route retains exact physical/model/resource validation. Learned
+predictions do not supply certified admissible bounds or permanent rejection of
+unknown region connections. Resumable exploration/fallback must be charged to the
+runtime objective. Feasible output, coverage under a finite budget, and preservation
+of reference route quality remain separate checks. No current evidence establishes
+that these new families will reach 20% remaining cost.
