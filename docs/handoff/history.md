@@ -238,3 +238,140 @@ Completed checks on the reorganized source
 The source-layout validation uses existing small regression fixtures. No additional
 heavy map replay or performance measurement was run for this import-only change.
 The previous remaining-cost target and unresolved model/quality gaps still apply.
+
+
+## 2026-11-11 conservative algorithm combinations
+
+The user requested combinations of the remaining algorithm directions. This round
+implemented conservative reuse and earlier domain pruning, screened structural
+combinations, and measured a finite set of retained physical inputs. The complete
+set of planner families listed below has not been implemented or benchmarked.
+
+The control is the reorganized `634ed45` source. Each variant is frozen under
+`algorithm-combinations-20261111/<variant>/node_modules/@opendfieldmap/ganglia/`
+in the local research root. A resolver hook selects these immutable source copies
+for Atlos's maintained `profile-route-stages.mjs` harness. Each source manifest
+records SHA-256 hashes. Reports include request input hashes, actual resolved SDK
+path, Node v26.13.0, 4 GiB heap, source loading and cold/warm cache semantics.
+The package version string is alpha.76 throughout these experimental source copies.
+The installed Atlos solver artifact is unchanged. Source hashes identify the trials.
+
+| Combination | Implementation and decision |
+| --- | --- |
+| Numeric motion constants + dependency-checked distance fields | Implemented experimentally, then removed from the final source. A five-value cache reuses ascent/terminal constants across fresh option spreads. Field dependency checks can preserve approach labels across target changes while resetting changed departure roots |
+| Above + adjacent duplicate face evaluation reuse | Implemented experimentally, then removed. A takeoff retained only its latest face and replayed all original duplicate admissions. Heavy cold/warm time increased, with unchanged route and complete connection set. The earlier broad exact cache failure therefore also has this narrower failed trial |
+| Constants + distance fields + preprojection boundary/point cost bounds | Implemented and measured, then narrowed to the preprojection bounds. Conservative boundary-plus-inset boxes skip projection work. Every seed still consumes its original slot, and point tests use projection's exact XZ invariance. `seedProjections` reports actual projection requests |
+| Preprojection bounds only | Retained. Removes support projection before an unchanged horizontal rejection, preserves original seed slots and fallback behavior, and adds one bound-widening regression |
+| Constants + fields + bounds + numeric canonical projection cache | Implemented experimentally, then removed. Geometry-owned numeric slots covered fractions exactly 0, 0.5 and 1, bound maxVertical/body radius, returned fresh positions, and admitted at most 65,536 entries. It reduced projection requests again but showed no stable end-to-end advantage over the preceding bounds combination |
+| Dual-tree region domains + implicit physical successors + cost/effort ordering | Proposed structural combination. It directly targets region pairs, neighbors and witnesses. Requires coverage-preserving domain refinement, cursor fairness, evidence scope and acceptance for changed finite ordering. No production implementation or timing result |
+| Implicit physical graph + L-GLS repair/effort-aware lazy validation | Proposed subsequent combination. Existing incremental fields and lazy proposal replacement are narrower mechanisms. The previous heavy workload had millions of neighbors but 6,238 shortcut trajectory attempts, so full graph repair alone has no demonstrated way to remove the dominant generation work |
+| Convex regional decomposition + inverse steering + GCS local optimization | Proposed. Needs a conservative free-space cover, supported run-off semantics and a compatible local dynamics optimizer. Existing triangle geometry and scalar envelopes do not establish those prerequisites |
+| Conservative implicit successors + learned feasibility ranking | Proposed. Needs representative labels, independent evaluation and fallback coverage. No trained ranker or learned pruning was added |
+| Region guidance + kinodynamic RRT-Connect/SST/RRT* exploration | Proposed. Requires a supported propagation/connection contract and handling of nonreversible dynamics. No implementation or benchmark demonstrates lower candidate-generation cost here |
+
+The experimental constant cache preserved the phase summation order and complete sweep
+validation. A five-million-call helper experiment reported approximately 124–126 ms
+to 83 ms for mixed jump/drop calls under one model. This is helper timing, with no
+isolated end-to-end attribution. Ten thousand varied-height/model comparisons
+against the control matched, including invalid-model sequences. Its trial regression
+checked numeric model changes, fresh spreads and rejection after a valid cached call.
+
+The experimental field change delegated invalidation to `advanceDistanceField`'s exact
+base/root/direction/scale/ordered-weight checks. Changing the scene/model binding
+still clears all discovery caches. Its trial regression checked reuse of unchanged
+approach roots, reset of changed departure roots and fresh-query connection parity.
+
+The boundary bound includes the entire authored inset range and outward floating
+padding. It sums independent lower distances to source/target boxes, uses strict
+comparison with additional cost slack, and yields the original excluded-seed
+placeholders. Point pruning runs the existing horizontal tests before projection.
+A tight-bound regression performs zero seed projections and a later wider bound
+recovers the same connections as a fresh query. Seventy-two deterministic rotated
+gap/ramp comparisons varied body radius, height, gap, coordinate offset through
+1e6, cost bounds including zero, and shortcut/frontier mode. All old output and
+finite-enumeration diagnostics matched after omitting the new projection counter.
+
+The initial combined branch passed 274 SDK tests. Trial-only model/field tests were
+removed with their corresponding experiments, retaining the bound-widening test.
+The canonical cache trial also passed 36 repeated-query/changed-height cases and
+72 small-scene control comparisons before removal. The final retained branch's
+validation and physical measurements are recorded below. Historical tests do not
+certify a later source change.
+
+### Physical measurements and final disposition
+
+These are sequential single cold/warm pairs with uncontrolled OS/JIT/GC/load
+variation. Search is included in total. The model/field, failed-window and direction
+trials used an identical narrow load-hook wrapper that clones discovery diagnostics
+once per call. It performs no per-witness timing. Earlier heavy control/combined/
+bounded-fields measurements omitted that wrapper. This difference is recorded
+instead of attributing every timing delta to one algorithm.
+
+| Combination | Case | Cold total / search (s) | Warm total / search (s) |
+| --- | --- | ---: | ---: |
+| Control | action | 93.855 / 89.781 | 93.787 / 90.084 |
+| Constants + fields | action | 103.137 / 99.135 | 97.077 / 93.169 |
+| Constants + fields + face reuse | action | 102.916 / 98.929 | 105.331 / 101.623 |
+| Constants + fields + bounds | action | 86.422 / 82.411 | 87.584 / 84.043 |
+| Bounds only, retained | action | 89.654 / 85.569 | 88.752 / 85.024 |
+| Constants + fields + bounds + canonical projection cache | action | 87.921 / 83.838 | 88.313 / 84.602 |
+| Control | failed-window | 22.927 / 15.720 | 21.299 / 15.646 |
+| Constants + fields + bounds | failed-window | 24.811 / 16.812 | 23.360 / 17.346 |
+| Bounds only, retained | failed-window | 23.468 / 16.030 | 21.612 / 15.798 |
+| Control | direction | 44.804 / 22.770 | 43.405 / 25.747 |
+| Constants + fields + bounds | direction | 43.890 / 22.643 | 42.490 / 23.865 |
+| Bounds only, retained | direction | 41.342 / 21.613 | 39.109 / 21.984 |
+
+All 24 physical trial results retained the control's exact status, full route and
+complete connection array for their case. The failed-window result stayed
+unavailable. This establishes the selected input scope. It does not prove general
+physical impossibility, continuous completeness or map-wide quality equality.
+
+Final selection is **bounds only**. Heavy total fell by 4.5% cold and 5.4% warm;
+direction fell by 7.7% and 9.9%. Failed-window total rose by 2.4% and 1.5%, so a
+uniform benefit was not established. The three-mechanism combination was faster
+on the heavy input but regressed failed-window total by 8.2% cold and 9.7% warm.
+Its individual model/field mechanisms were removed from production with their
+trial-only tests. This comparison is not a complete independent ablation of each
+mechanism and provides no causal attribution for their interaction.
+
+Work counters below aggregate cold and warm, including all repeated discovery
+calls. The heavy control's projection count is derived from its 28 non-frontier
+`searched` calls and original implementation, which projects every charged seed.
+Older diagnostics lack `seedProjections`, so a missing field in their raw record
+must not be read as zero calls.
+
+| Work across the heavy cold/warm pair | Control / no preprojection bounds | Bounds only | Bounds + canonical projection cache trial |
+| --- | ---: | ---: | ---: |
+| Charged seeds | 3,584,000 | 3,584,000 | 3,584,000 |
+| Seed projection calls | 3,584,000, derived | 102,856 | 16,662 |
+| Canonical projection hits | — | — | 86,194 |
+| Charged neighbors | 14,336,000 | 14,336,000 | 14,336,000 |
+| Retained bucket candidates across calls | 9,258,772 | 9,258,772 | 9,258,772 |
+| Uncached shortcut trajectory attempts | 12,476 | 12,476 | 12,476 |
+
+The 97.1% reduction in seed projection calls produced only about 5% heavy total
+reduction. Even the canonical cache's further projection reduction did not improve
+the preceding combination's total time. Candidate generation and nearest traversal
+remain substantial. These counters measure projection requests and existing
+neighbor/candidate/trajectory work. No BVH node-visit count was collected, and the
+trajectory count excludes airborne-terminal attempts.
+
+The retained heavy cold total is 56.6% of the alpha.70 158.363 s original control;
+its search is 55.6% of the 153.896 s search control. The required remaining cost
+of at most 20% remains unmet. No equivalent claim can be made for all planner
+families or most production queries from these three inputs.
+
+The final source retains only the preprojection bound and optional declaration of
+`seedProjections`, preserving older diagnostic object compatibility. Its runtime
+module equals the frozen `bounds-only` trial after removing two obsolete comments.
+The installed package remains the previous alpha.76 artifact. Final SDK checks
+and source/diff verification are recorded at the end of this entry.
+
+
+Final verification on Node v26.13.0 passed all **272 SDK tests**, including the
+new tight-bound/no-projection and widened-bound recovery regression. The final
+runtime source comparison to the measured bounds-only snapshot passed after
+removing the obsolete experimental field comments. `git diff --check` passed.
+No installed package replacement, remote push or broad 113-request replay was
+part of this experiment batch. Atlos's working tree remained clean.

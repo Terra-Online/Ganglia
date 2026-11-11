@@ -171,7 +171,7 @@ interface FieldWork {
   reachableNodes: number;
 }
 /** Search collision-checked alternatives to an existing route, including same-component jumps and drops. */
-export interface ShortcutDiagnostics { reason: string; baselineCost: number; boundaryEdges: number; seedChecks: number;
+export interface ShortcutDiagnostics { reason: string; baselineCost: number; boundaryEdges: number; seedChecks: number; seedProjections?: number;
     candidatePairs: number; neighbourChecks: number; dominatedFaces?: number; endpointChecks: number; attempted: number;
     accepted: number; truncated: boolean; goalFaces: number;
     rejected: { support: number; projection: number; clearance: number; range: number; motion: number; groundDominated: number };

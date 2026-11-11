@@ -193,6 +193,53 @@ Frontier enumeration keeps its original pair-coordinate and pool bookkeeping. Fa
 
 Frontier cursors retain boundary-seed streams, nearest streams, pending variants, rejected pairs and accepted representatives under the exact query/action binding. Changed geometry, collision world, constraints, model, endpoints, interaction, speed, `costBound`, `boundGoal` or action revision invalidates the corresponding state. Updating an authored action under the same ID still changes its revision. Enlarging the link quota rebuilds pools because an earlier smaller quota can discard representatives. Enlarging the work budget resumes. This cursor mechanism is frontier-specific. Repeated non-frontier searches for different airborne prefix endpoints still rebuild substantial candidate work.
 
+## Subsequent conservative search experiments
+
+The 2026-11-11 experiments start from `634ed45`. Their frozen source manifests,
+request hashes and trials are under the local research directory
+`algorithm-combinations-20261111/`. The package resolver points the maintained Atlos
+measurement harness at an immutable source copy for each trial. Installed Atlos
+alpha.76 and generated extractor source are unchanged by this experiment setup.
+See [history.md](history.md) for the actual timing and acceptance scope.
+
+The retained candidate implementation applies horizontal incumbent/prefix bounds
+before seed projection. Conservative boundary-plus-inset boxes skip entire seed
+regions using outward padding and strict cost slack. Each excluded sample consumes
+its original seed slot. Remaining seeds receive the existing horizontal point tests
+before support projection, which preserves XZ exactly. `seedProjections` counts
+actual seed projection requests separately from charged `seedChecks`.
+
+Four additional mechanisms were implemented experimentally and removed from the
+final source after comparison. They include numeric vertical-model constants,
+dependency-checked distance-field retention across goal changes, adjacent duplicate
+face evaluation reuse, and geometry-owned numeric caching of boundary projections
+at fractions 0, 0.5 and 1. Some combinations reduced helper work or projection
+requests, but their end-to-end results did not establish a preferable retained
+combination across the selected cases. The companion history preserves each trial,
+including the faster heavy-only combination and its failed-window regression.
+
+The selected bounds-only cold/warm totals were 89.654/88.752 s for heavy action
+(control 93.855/93.787), 41.342/39.109 s for direction (44.804/43.405), and
+23.468/21.612 s for the failed window (22.927/21.299). Exact case status, route and
+connection arrays were retained. Failed-window time is slightly worse. The heavy
+cold result still uses 56.6% of alpha.70's original command cost, above the 20%
+target. These are individual sequential observations, with scope and instrumentation
+bindings detailed in history. No uniform or map-wide speedup is established.
+
+Across the heavy cold/warm pair, seed projection calls fell from a derived 3,584,000
+to 102,856. Charged neighbors, bucket candidate counts and shortcut trajectory
+attempts remained 14,336,000, 9,258,772 and 12,476 respectively. Projection calls
+alone therefore do not explain the remaining cost or establish smaller spatial
+node traversal. Source ownership, optimistic-edge interpretation and existing
+cache invalidation behavior retain their earlier contracts.
+
+This pruning preserves the existing finite discovery scope. A region-pair reachable
+domain combined with search-directed implicit successors remains the main structural
+candidate for reducing neighbor and witness generation. L-GLS-style repair and
+validation-effort ordering would then address repeated edge work. Complete GCS
+trajectory optimization, learned ranking and kinodynamic tree sampling still need
+separate implementations and acceptance evidence.
+
 ## Action objectives and device coverage
 
 Airborne collection uses the source-derived interaction volume. `findGoalFlights` samples supported takeoffs and nominal flight families. `planAirborneGoal` solves exact grounded approaches and clips the final flight at the first valid collection event. Prefix collision and boost validity remain required. World enables this behavior for `int_collection_coin*` rules. `sampleJourney` interpolates an existing timed route for playback. Independent forward propagation of fixed controls remains open.

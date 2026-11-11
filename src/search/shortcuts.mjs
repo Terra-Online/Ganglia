@@ -96,7 +96,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     throw new Error('Invalid shortcut baseline or ground speed');
   }
   const diagnostics = { reason: frontier ? (reverse ? 'goal-frontier' : 'reachable-frontier') : 'searched', baselineCost: baseline?.cost ?? null, boundaryEdges: 0,
-    seedChecks: 0, candidatePairs: 0, neighbourChecks: 0, dominatedFaces: 0, endpointChecks: 0,
+    seedChecks: 0, seedProjections: 0, candidatePairs: 0, neighbourChecks: 0, dominatedFaces: 0, endpointChecks: 0,
     attempted: 0, accepted: 0, truncated: false, goalFaces: 0,
     rejected: { support: 0, projection: 0, clearance: 0, range: 0, motion: 0, groundDominated: 0 },
     limits: { seedChecks: maxCandidates * 16, neighbourChecks: maxCandidates * 64,
@@ -181,6 +181,30 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     (Math.max(0, horizontal(from, start) - profile.radius) +
       Math.max(0, horizontal(end, costGoal) - profile.radius)) / boundSpeed + airTime <= costLimit + 1e-9;
   const insets = [...new Set([0, profile.radius, 1, 2, 3, 0.5, 1.5, 2.5, profile.radius * 0.5, profile.radius * 0.25])];
+  const maximumInset = Math.max(...insets);
+  // All samples on a boundary, including pullbacks, lie in this padded XZ box.
+  // Its distance bound can skip projection while retaining every original seed
+  // slot. Projection changes only Y, so these horizontal bounds also cover feet.
+  const boundaryOutsideCost = boundary => {
+    if (!Number.isFinite(durationLimit) && !Number.isFinite(costLimit)) return false;
+    const x = boundary.inward[0] * maximumInset, z = boundary.inward[1] * maximumInset;
+    const scale = Math.max(1, maximumInset, ...boundary.a.map(Math.abs), ...boundary.b.map(Math.abs));
+    const padding = 64 * Number.EPSILON * scale;
+    if (!Number.isFinite(padding)) return false;
+    const minX = Math.min(boundary.a[0], boundary.b[0]) + Math.min(0, x) - padding;
+    const maxX = Math.max(boundary.a[0], boundary.b[0]) + Math.max(0, x) + padding;
+    const minZ = Math.min(boundary.a[2], boundary.b[2]) + Math.min(0, z) - padding;
+    const maxZ = Math.max(boundary.a[2], boundary.b[2]) + Math.max(0, z) + padding;
+    const distanceTo = point => Math.hypot(Math.max(minX - point[0], 0, point[0] - maxX),
+      Math.max(minZ - point[2], 0, point[2] - maxZ));
+    const source = distanceTo(from);
+    const improvement = (source + Math.max(0, distanceTo(to) - (interaction?.radius ?? 0))) / travelSpeed;
+    const prefix = (Math.max(0, source - profile.radius) +
+      Math.max(0, distanceTo(costGoal) - profile.radius)) / boundSpeed;
+    const slack = 256 * Number.EPSILON * Math.max(1, scale / travelSpeed, scale / boundSpeed,
+      Math.abs(improvement), Math.abs(prefix));
+    return Number.isFinite(slack) && (improvement > durationLimit + slack || prefix > costLimit + slack);
+  };
   const regionSize = Math.max(sampleSpacing, diversity, maxHorizontalDistance / 2);
   const regionOf = (position, size = regionSize) => [Math.floor(position[0] / size),
     Math.floor(position[1] / Math.max(profile.height, model.maxJumpHeight)),
@@ -259,7 +283,7 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     const seedStream = function* (boundary) {
       // Preserve the original budgeted seed prefix. Proven empty regions still
       // consume their old slots, without projection or spatial-query work.
-      const excluded = predecessor && !predecessor(boundary);
+      const excluded = (predecessor && !predecessor(boundary)) || boundaryOutsideCost(boundary);
       const samples = Math.max(1, Math.ceil(boundary.length / Math.min(sampleSpacing, profile.radius / 4)));
       const dx = boundary.b[0] - boundary.a[0], dz = boundary.b[2] - boundary.a[2];
       const nearest = reference => Math.max(0, Math.min(1,
@@ -316,9 +340,13 @@ function findConnections(surfaces, world, options, frontier, cache, reverse = fa
     if (next.done) { if (cursor) cursor.seedDone = true; break; }
     diagnostics.seedChecks++;
     if (next.value.excluded) continue;
+    // Ordinary projection preserves XZ exactly. Apply its existing horizontal
+    // tests before visiting the support BVH, including on resumed frontiers.
+    if (lowerBound(next.value.seed, next.value.seed, 0) >= durationLimit ||
+        !withinCostBound(next.value.seed, next.value.seed, 0)) continue;
+    diagnostics.seedProjections++;
     const nav = project(next.value.seed, { maxVertical })[0];
-    if (!nav || lowerBound(nav.position, nav.position, 0) >= durationLimit ||
-        !withinCostBound(nav.position, nav.position, 0)) continue;
+    if (!nav) continue;
     const key = JSON.stringify(nav.position);
     if (seen.has(key)) continue;
     seen.add(key);
