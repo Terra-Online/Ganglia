@@ -177,3 +177,21 @@ test('reuses padded meshes across differently clipped regions while rebuilding s
     { ...options, cache, onTile: value => changed.push(value) });
   assert.ok(changed.every(value => !value.cached));
 });
+
+test('tile cache inputs retain source order and inclusive padding contacts after spatial assignment', async () => {
+  const a = [[9,0,1],[9,0,2],[10,0,1]];
+  const broad = [[-1000,0,0],[1000,0,0],[0,0,1000]];
+  const padding = (Math.ceil(options.profile.radius / options.cellSize) + 3) * options.cellSize;
+  const left = [[-padding,0,0],[-padding,2,0],[-padding,0,2]];
+  const seam = [[8-padding,0,0],[8-padding,2,0],[8-padding,0,2]];
+  const distant = [[1000,0,0],[1001,0,0],[1000,0,1]];
+  const received = [];
+  await buildGroundTiles(geometry([...a,...broad,...left,...distant,...seam]), { ...options,
+    tiles: [{ x: 1, z: 0 }, { x: 0, z: 0 }],
+    cache: { async load(input) { received.push(input); return []; },
+      async save() { assert.fail('an admitted empty tile must remain cached'); } },
+  });
+  assert.deepEqual(received.map(input => input.positions), [[...broad,...left,...seam].flat(), [...a,...broad,...seam].flat()]);
+  for (const input of received) assert.deepEqual(input.indices,
+    Array.from({ length: input.positions.length / 3 }, (_, index) => index));
+});

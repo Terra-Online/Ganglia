@@ -767,3 +767,155 @@ its dominant spatial enumeration cost. Production use still requires a region-pa
 policy before broad face enumeration, entry/resource/goal/boost/relay composition,
 resumable exploration and complete-route comparisons. The useful result of this
 pass is reproducible data and bounded policy evidence, not a promoted solver speedup.
+
+
+## 2026-11-11 terrain and spatial preparation pass
+
+The user clarified that optimization covers the complete pipeline, including
+terrain/support preparation, rather than only action search. The retained changes
+start from Ganglia `9f9699b` and Atlos `d7ca0b63`. This pass does not replace the
+installed alpha.76 artifact. The source integration manifest currently binds noclip
+`b54b1dcb7d01a36910c7ced1b0206e6b0b06249b`, protocol 102; older profile results
+retain their original source/protocol bindings.
+
+### Original costs and scope
+
+The original candidate control spent 65.673 s preparing and 9.040 s searching
+(74.713 s total). Alpha.70's lazy-transfer change reduced preparation to 8.480 s
+but raised search to 38.425 s, totaling 46.905 s and increasing retained memory.
+Those historical results illustrate shifted work, not an untouched current control.
+The separate ground command took 16.395/3.936 s cold/warm in its historical
+lower-overhead control. The detailed ground profile measured 9.041 s in native
+`buildPolyMeshDetail` within 18.148 s total; WASM accounted for 58.73% of sampled
+ground-detail wall time. These are different containing commands, not slices of
+one global total. In the heavy action profile, spatial-query work remains dominant.
+
+Local inputs, frozen sources, reports and manifests for this pass reside in
+`endfield-noclip/.research/stage123/terrain-space-20261111/`.
+`source-manifests.json` binds every frozen SDK variant and `comparison.json`
+retains the actual command reports. The maintained Atlos
+`profile-route-stages.mjs` harness executed `--baseline` without function hooks or
+CPU sampling, on Node v26.13.0 with a 4 GiB heap. Cold/warm retain that harness's
+existing fresh-input/tile-cache or shared-candidate-planner semantics. OS pages,
+JIT/GC and system load remain uncontrolled; module setup is reported separately.
+
+Ground uses the retained `detailed-profile-20261110/ground-args.json`: map02,
+bounds `[-1376,0,-1152,128]`, 0.15 m cells, 256-cell tiles, terminal scene selection,
+the source-bound movement/static-support inputs and local game configuration.
+Candidate uses the retained `candidate-input.json`, 640,747 navigation faces and
+85 arrivals. Reports record input identities and resolved module source hashes.
+Raw records are ignored local artifacts, not included in an ordinary clone.
+
+### Native detail experiments that were not retained
+
+| Variant | Ground cold / warm (s) | Decision |
+| --- | ---: | --- |
+| Fresh source control | 15.569 / 3.889 | Control |
+| Generate native detail output in batches of 64 coarse polygons | 15.246 / 3.547 | No stable native-stage benefit; remove |
+| Certified flat height patches with sample distance zero | Failed at the first native tile with a WASM out-of-bounds trap | Remove; not a terrain-impossibility result |
+| Same certificate with a large positive sampling distance for flat patches | 16.832 / 3.936 | Output preserved, command slower; remove |
+
+The batching hypothesis targeted repeated native output-buffer growth/copying,
+motivated by inspection of upstream
+[RecastMeshDetail.cpp](https://github.com/recastnavigation/recastnavigation/blob/main/Recast/Source/RecastMeshDetail.cpp).
+It was not a proof that copying dominates the installed 0.44.0 binary. Warm trials
+load tile caches and execute no native detail rebuild, so their timing differences
+cannot be attributed to native batching. A 256-polygon snapshot was prepared but
+not run after the 64-polygon screen failed to establish a useful benefit.
+
+The flat-patch prototype required every compact cell in a polygon's complete
+height-patch rectangle and halo to have exactly one span at the same height as
+every polygon vertex. Missing/multilayer/different-height cells retained ordinary
+sampling. Prefix sums certified the rectangles. The zero-distance attempt trapped
+in WASM; the positive-distance retry initialized the outline path and completed.
+Only 1,206 of 27,095 coarse polygons were certified flat. Checking and splitting
+these limited regions did not amortize its overhead. Both completed native variants
+preserved ground/collision content after excluding generator identity strings.
+No sampling/coarsening/native-mesh mutation from these prototypes enters `src/`.
+Native detail construction remains an open large cost.
+
+### Retained preparation changes and measurements
+
+`geo/build` reuses `createBoundsIndex` to assign source triangles once to selected
+padded tile rectangles. It preserves exact inclusive AABB tests and original
+triangle order per tile, including padding-only contacts. Each consumed tile drops
+its reference list. Native rasterization, detail sampling, height partitions,
+clipping and seam semantics remain unchanged. The representation retains a shared
+flat coordinate array per assigned source triangle rather than nested triangle
+objects re-flattened by every tile.
+
+`geo/surfaces` removes temporary coordinate arrays from 3D portal predicates and
+graph distances, preserving the accumulation order, tolerance and traversal order.
+Each face computes a rounded vertex key once per used vertex. This is local reuse,
+not a persistent topology cache or a changed quantization scheme.
+
+On the global map02 input, an isolated component pass measured portals
+2.665→2.267 s and graph construction 1.844→1.158 s, summing 4.509→3.425 s.
+Ordered portal and graph hashes matched. That component sample is not a complete
+request claim.
+
+| Command / repeat | Control cold / warm (s) | Changed cold / warm (s) |
+| --- | ---: | ---: |
+| Ground, tile-index-only screen | 15.569 / 3.889 | 15.213 / 3.282 |
+| Ground, final source + compatible generator hashing | 15.557 / 3.653 | 15.239 / 3.600 |
+| Candidate, first pair | 48.743 / 1.376 | 46.486 / 1.207 |
+| Candidate, repeated pair | 45.149 / 1.106 | 45.230 / 1.304 |
+
+Both cold ground comparisons improve about 2%; warm observations vary. The final
+tile code additionally releases consumed input lists. Native detail settings and
+all ground/collision bytes other than the expected `generator` signature match.
+
+Candidate preparation measured 7.921→7.093 s and 7.778→6.984 s, about 10% lower
+in both comparisons. Search measured 39.987→38.576 s and 36.599→37.406 s. Complete
+cold time improves 4.6% in one pair and is 0.18% worse in the other; warm candidate
+time also changes sign. There is no stable complete-candidate-request speedup.
+Unlike the old eager-to-lazy redesign, the new code does not move enumeration into
+search; source inspection and identical result/graph evidence support that limited
+mechanism, while elapsed search variation remains visible.
+
+Cold candidate RSS snapshots were 2.443→3.016 GB and 3.377→3.162 GB; heap-used
+snapshots were 3.035→2.617 GB and 2.601→2.558 GB. These are final snapshots, not
+isolated allocation or peak-memory measurements. They do not establish a uniform
+RSS benefit. All cold/warm candidate outputs match after removing timing/memory
+diagnostics, including origin, score, path, points, transfer keys and unresolved edges.
+
+### Generator signature integration and checks
+
+The first modular-source ground replay stopped before a valid build because the
+Atlos generator signer still looked for flat `src/support-field.mjs`. Initial
+isolated SDK variants supplied research-only flat-path links; fresh run directories
+prevented cross-variant cache reuse. That compatibility workaround did not hash
+`geo/build` itself, so its old signer is not a safe production solution. Actual loaded
+source manifests, independent output comparisons and fresh caches bind those screens.
+
+Atlos's owning `extractor.patch` now recognizes the stable public build forwarder
+and hashes it plus `geo/build.mjs`, `geo/support-field.mjs`, `geo/clip-surface.mjs`
+and `geo/bounds.mjs`. The new tile selector is a physical generator dependency.
+Flat installed packages keep their existing identity byte-for-byte, independently
+verified as `24db3a5799f71793059c23664787c62cef7eec9a903b69eb9f8dcb67c42b9e8a`.
+No route-only implementation is added to the physical generator signature.
+
+The final ground pair uses this integration fix through an isolated load hook.
+The main generated extractor is not edited. The maintained `noclip.mjs prepare`
+also successfully reapplied all five owning patches to the verified upstream
+archive in a separate scratch tree. Tests and lint use that real prepared tree
+with existing dependencies linked, rather than weakening module mocks.
+
+All **278 SDK tests** pass, including the new tile-cache input-order/inclusive-
+padding regression and existing slope, stairs, gaps, ceilings, stacked floors,
+directed intervals and sparse-tile checks. Three actual prepared ground-cache tests
+pass, including modular implementation/bounds invalidation. The existing source-
+preparation/tamper test also passes. Oxfmt checks pass for the changed integration
+files. Focused type-aware oxlint reports no errors and one existing no-shadow warning
+at the old test's line 25. Initial lint against detached source files could not
+resolve workspace types; the properly prepared tree resolved those environment
+errors. `git diff --check` passes in both repositories.
+
+No SDK artifact was repacked or installed, no ordinary physical-action/HTTP or
+113-request corpus replay is claimed, and no remote push occurred. The retained
+changes reduce preparation work with unchanged tested outputs; the 20% objective
+is still unmet. Next work should prioritize the unresolved native detail cost and
+region representation/ownership, then measure candidate transfer materialization,
+action spatial enumeration, collision and resource costs under their containing
+requests. Existing prepared caches, serialization and repeated window setup remain
+part of that pipeline rather than disappearing from the accounting.

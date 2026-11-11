@@ -1,3 +1,4 @@
+import { createBoundsIndex } from './bounds.mjs';
 import {
   init, RecastBuildContext, VerticesArray, TrianglesArray, TriangleAreasArray, markWalkableTriangles,
 } from '@recast-navigation/core';
@@ -313,9 +314,16 @@ export async function buildGroundTiles(geometry, options) {
     for (let z = minZ; z < maxZ; z++) for (let x = minX; x < maxX; x++) coordinates.push({ x, z });
   }
   const padding = (Math.ceil(options.profile.radius / cellSize) + 3) * cellSize;
-  const patches = selected === undefined ? null : coordinates.map(({ x, z }) =>
-    [x * size - padding, z * size - padding, (x + 1) * size + padding, (z + 1) * size + padding]);
-  const { positions, indices } = geometry, triangles = [];
+  const patches = coordinates.map(({ x, z }) => {
+    const padded = { min: [x * size - padding, z * size - padding],
+      max: [(x + 1) * size + padding, (z + 1) * size + padding] };
+    return { x, z, padded, triangles: [], min: [padded.min[0], 0, padded.min[1]],
+      max: [padded.max[0], 0, padded.max[1]] };
+  });
+  // Assign each input triangle to its inclusive padded tile bounds once. Input
+  // order within a tile remains unchanged, including boundary-only contacts.
+  const queryTiles = createBoundsIndex(patches);
+  const { positions, indices } = geometry;
   const extent = { min: [minX * size - padding, minZ * size - padding],
     max: [maxX * size + padding, maxZ * size + padding] };
   for (let i = 0; i < indices.length; i += 3) {
@@ -327,26 +335,24 @@ export async function buildGroundTiles(geometry, options) {
     // Streamed collision batches can contain millions of distant triangles.
     // Reject their packed bounds before allocating any per-triangle objects.
     if (left > extent.max[0] || right < extent.min[0] || near > extent.max[1] || far < extent.min[1]) continue;
-    if (patches && !patches.some(patch => left <= patch[2] && right >= patch[0] && near <= patch[3] && far >= patch[1])) continue;
-    const vertices = Array.from(indices.slice(i, i + 3), index => Array.from(positions.slice(index * 3, index * 3 + 3)));
-    triangles.push({ vertices, min: [left, near], max: [right, far] });
+    let vertices;
+    for (const tile of queryTiles({ min: [left, 0, near], max: [right, 0, far] })) {
+      vertices ??= [positions[a], positions[a + 1], positions[a + 2],
+        positions[b], positions[b + 1], positions[b + 2], positions[c], positions[c + 1], positions[c + 2]];
+      tile.triangles.push(vertices);
+    }
   }
   const tiles = [], surfaces = [], portals = [], byPosition = new Map();
-  for (const { x, z } of coordinates) {
+  for (const { x, z, padded, triangles } of patches) {
     const started = performance.now();
     let cached = false;
     const core = {
       min: [Math.max(bounds.min[0], x * size), Math.max(bounds.min[1], z * size)],
       max: [Math.min(bounds.max[0], (x + 1) * size), Math.min(bounds.max[1], (z + 1) * size)],
     };
-    const padded = { min: [x * size - padding, z * size - padding],
-      max: [(x + 1) * size + padding, (z + 1) * size + padding] };
     const vertices = [];
-    for (const triangle of triangles) {
-      if (triangle.min.some((value, axis) => value > padded.max[axis]) ||
-          triangle.max.some((value, axis) => value < padded.min[axis])) continue;
-      vertices.push(...triangle.vertices.flat());
-    }
+    for (const triangle of triangles) vertices.push(...triangle);
+    triangles.length = 0;
     const tile = { x, z, bounds: core, surfaces: [] };
     if (vertices.length) {
       let built;

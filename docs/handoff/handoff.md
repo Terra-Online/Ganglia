@@ -2,7 +2,7 @@
 
 This handoff describes Ganglia `0.1.0-alpha.76` at local commit `917dfcd` and its Atlos integration at `9311d063`, as inspected on 2026-11-10. The companion [history and testing record](history.md) owns the chronological experiments, complete measurement tables, regression corpus and validation procedures. The source layout was subsequently reorganized on 2026-11-11, starting from `c8cc213`. The subsystem and composition sections below describe that source refactor. The alpha.76 performance measurements remain bound to their historical implementations.
 
-The current objective is to reduce comparable solver computation to **at most 20% of the original cost**, while preserving supported behavior, reachability and route quality. The latest heavy-query checkpoint remains above that target. The immediate implementation priority is to reduce the region state space, spatial candidate generation and repeated action queries. The older roadmap's resource-first P0 order has been superseded for this optimization task. Resource-state unification remains subsequent work.
+The current objective is to reduce comparable solver computation to **at most 20% of the original cost**, while preserving supported behavior, reachability and route quality. The latest heavy-query checkpoint remains above that target. The user's latest direction covers the complete pipeline: terrain generation, support/portal/graph/index preparation, corridor search, action discovery, collision validation and resource scheduling. Work through measured bottlenecks individually and check their containing request; a local gain must not hide shifted computation. Region/action reduction remains important, but is not the only optimization target. The old resource-first P0 roadmap does not prescribe the current order.
 
 ## Repository ownership and entry points
 
@@ -22,7 +22,7 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 | Atlos physical scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |
 | Atlos terminal assets | [`terminal-routes.ts`](../../../Atlos/talos/apps/world/terminal-routes.ts) |
 
-The authoritative noclip adaptation lives in Atlos [`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json), including `extractor.patch`, `format.patch`, `renderer.patch`, `documentation.patch` and `gpu-recovery.patch`. `Atlos/talos/.cache/noclip/` is generated source. Changes inspected there must be maintained through the integration patches. The retained upstream binding is `30f73f4609b24f033e3e2a48607d3270b01695a3`, with package protocol 98. Navigation/physical export revision 2 is a separate data binding.
+The authoritative noclip adaptation lives in Atlos [`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json), including `extractor.patch`, `format.patch`, `renderer.patch`, `documentation.patch` and `gpu-recovery.patch`. `Atlos/talos/.cache/noclip/` is generated source. Changes inspected there must be maintained through the integration patches. The current source manifest binds upstream `b54b1dcb7d01a36910c7ced1b0206e6b0b06249b` and package protocol 102, checked during the terrain/preparation work. Earlier measurements retain their original bindings, including the older `30f73f4`/protocol-98 checkpoint. Navigation/physical export revision 2 is a separate data binding.
 
 ## Six source subsystems
 
@@ -146,6 +146,38 @@ Local refinement is already implemented. The patched `game/ground-refinement.ts:
 
 Imported directed portal intervals remain authoritative through graph construction, exposed-boundary discovery and straightening. Point contacts, stacked surfaces and ambiguous overlaps do not establish passage. Ground straightening uses supported continuous traces, directed passages and wall checks. Same-height corner contraction and candidate-corridor straightening remove unnecessary tessellation turns under those constraints.
 
+### Terrain and spatial preparation optimization
+
+`buildGroundTiles` indexes the selected padded tile rectangles with the existing
+`createBoundsIndex`, assigning source triangles once rather than scanning all
+retained triangles again for every tile. XZ bounds remain inclusive, source order
+within each tile stays unchanged, and each consumed tile releases its reference
+list. Padded geometry, native Recast parameters, detail heights, clipping and
+directed seam construction retain their previous semantics. This is input
+partitioning, not a lower-resolution terrain model.
+
+`surfaces` now uses scalar 3D calculations in portal interval tests and graph
+distances, with the same arithmetic order/tolerances. Each face shares its rounded
+vertex keys across adjacent edges. There is no persistent portal cache or changed
+tie order, and geometry/mask changes are still validated by each preparation.
+
+Atlos's owning `extractor.patch` now binds modular ground generator identities to
+the public forwarding entry plus `geo/build`, `support-field`, `clip-surface` and
+`bounds`. Legacy flat-package identities remain byte-for-byte unchanged. This
+prevents a forwarder-only signature from omitting actual tile selection/build code.
+The installed SDK and the main generated extractor have not been replaced by this
+source/integration patch work.
+
+On the retained 640,747-face input, portal plus graph preparation measured
+4.509 s versus 3.425 s, with identical ordered hashes. In two complete candidate
+cold/warm comparisons, preparation fell about 10% each time, but cold request
+totals were 48.743→46.486 s and 45.149→45.230 s. The second total is effectively
+unchanged/slightly worse, so no stable complete-request speedup is established.
+Ground cold totals fell about 2% in two comparisons; warm differences were variable.
+See [history](history.md) for exact bindings, memory, rejected native detail trials
+and validation. Native detail construction, repeated large planner preparation,
+serialization and lazy-transfer search remain open costs.
+
 `createCollisionWorld` retains indexed source collision and broad-phase bounds. Ground support requires a suitable normal and permitted height correction. `standingFoot` verifies corrected foot support, stationary capsule clearance, wall state and reattachment to navigation support. A projected point alone provides insufficient action evidence.
 
 Each accepted flight receives full-body capsule sweeps. Curved sample intervals are inflated to cover the quadratic deviation between chords, with interval refinement when conservative inflation contacts geometry. Collision indexing scope must cover the complete padded body and trajectory. Unknown walls and missing-cook bounds remain active conservative exclusions according to their exported state.
@@ -244,8 +276,9 @@ separate implementations and acceptance evidence.
 
 The subsequent 2026-11-11 batch compared 11 structural heavy-query variants plus
 regional-index and canonical-order query microbenchmarks. Every new prototype was
-removed after failing to demonstrate a stable benefit. Runtime source remains
-`66dbd52`, and Atlos still uses the previously installed alpha.76 artifact.
+removed after failing to demonstrate a stable benefit. At that checkpoint runtime
+source remained `66dbd52`; later terrain/preparation changes are described above.
+Atlos still uses the previously installed alpha.76 artifact.
 The [history](history.md) records the exact variants, source/input bindings, timings,
 checks and retry premises. Raw local evidence is `structural-ablation-20261111/`.
 

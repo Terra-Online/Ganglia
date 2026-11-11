@@ -1,15 +1,16 @@
 import { createBoundsIndex } from './bounds.mjs';
 
 const portalTolerance = 1e-4;
-const vertexKey = point => point.map(value => Math.round(value * 10000)).join(',');
-const distance = (a, b) => Math.hypot(...a.map((value, axis) => value - b[axis]));
+const vertexKey = point => `${Math.round(point[0] * 10000)},${Math.round(point[1] * 10000)},${Math.round(point[2] * 10000)}`;
+const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
 const onSegment = (point, a, b) => {
-  const direction = b.map((value, axis) => value - a[axis]);
-  const lengthSquared = direction.reduce((sum, value) => sum + value * value, 0);
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+  const lengthSquared = dx * dx + dy * dy + dz * dz;
   if (lengthSquared === 0) return distance(point, a) <= portalTolerance;
-  const t = point.reduce((sum, value, axis) => sum + (value - a[axis]) * direction[axis], 0) / lengthSquared;
-  return t >= -1e-8 && t <= 1 + 1e-8 && distance(point, a.map((value, axis) => value + t * direction[axis])) <= portalTolerance;
+  const t = ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy + (point[2] - a[2]) * dz) / lengthSquared;
+  return t >= -1e-8 && t <= 1 + 1e-8 && Math.hypot(point[0] - (a[0] + t * dx),
+    point[1] - (a[1] + t * dy), point[2] - (a[2] + t * dz)) <= portalTolerance;
 };
 const boundaryEdge = (surface, point, interval = [point]) => surface.vertices.findIndex((a, index) =>
   [point, ...interval].every(value => onSegment(value, a, surface.vertices[(index + 1) % surface.vertices.length])));
@@ -57,18 +58,20 @@ const portalIndex = entries => {
 };
 
 const sharedInterval = (a, b) => {
-  const direction = a.b.map((value, axis) => value - a.a[axis]);
-  const lengthSquared = direction.reduce((sum, value) => sum + value * value, 0);
-  const fraction = point => point.reduce((sum, value, axis) => sum + (value - a.a[axis]) * direction[axis], 0) / lengthSquared;
+  const dx = a.b[0] - a.a[0], dy = a.b[1] - a.a[1], dz = a.b[2] - a.a[2];
+  const lengthSquared = dx * dx + dy * dy + dz * dz;
+  const fraction = point => ((point[0] - a.a[0]) * dx + (point[1] - a.a[1]) * dy +
+    (point[2] - a.a[2]) * dz) / lengthSquared;
   const first = fraction(b.a), last = fraction(b.b);
-  const onLine = (point, t) => distance(point, a.a.map((value, axis) => value + t * direction[axis])) <= portalTolerance;
+  const onLine = (point, t) => Math.hypot(point[0] - (a.a[0] + t * dx),
+    point[1] - (a.a[1] + t * dy), point[2] - (a.a[2] + t * dz)) <= portalTolerance;
   if (!onLine(b.a, first) || !onLine(b.b, last)) return null;
   const near = Math.max(0, Math.min(first, last)), far = Math.min(1, Math.max(first, last));
   if ((far - near) * Math.sqrt(lengthSquared) <= portalTolerance) return null;
   return {
     near, far, opposite: last < first,
-    start: a.a.map((value, axis) => value + near * direction[axis]),
-    end: a.a.map((value, axis) => value + far * direction[axis]),
+    start: [a.a[0] + near * dx, a.a[1] + near * dy, a.a[2] + near * dz],
+    end: [a.a[0] + far * dx, a.a[1] + far * dy, a.a[2] + far * dz],
   };
 };
 
@@ -85,10 +88,15 @@ export function surfacePortals(surfaces) {
     if (surface.portals !== undefined && (!Array.isArray(surface.portals) || surface.portals.some(index =>
       !Number.isInteger(index) || index < 0 || index >= surface.vertices.length))) throw new Error('Invalid surface portals');
     ids.add(surface.id);
+    // Each vertex participates in two edges. Share its rounded key within this
+    // face, without a cross-call cache that could outlive changed geometry.
+    const keys = [];
     for (let edge = 0; edge < surface.vertices.length; edge++) {
       if (surface.portals && !surface.portals.includes(edge)) continue;
       const a = surface.vertices[edge], b = surface.vertices[(edge + 1) % surface.vertices.length];
-      const from = vertexKey(a), to = vertexKey(b);
+      const from = keys[edge] ??= vertexKey(a);
+      const next = (edge + 1) % surface.vertices.length;
+      const to = keys[next] ??= vertexKey(b);
       if (from === to) throw new Error('Degenerate surface edge');
       const key = from < to ? from + '/' + to : to + '/' + from;
       let group = groups.get(key);
