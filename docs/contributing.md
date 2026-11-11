@@ -124,7 +124,7 @@ cd "$TALOS"
 test -e config/config.json || cp config/config.template.json config/config.json
 test -e config/config.r2.json || cp config/config.r2.template.json config/config.r2.json
 pnpm noclip:prepare
-ppnpm install --frozen-lockfile
+pnpm install --frozen-lockfile
 pnpm data prepare
 ```
 
@@ -298,7 +298,7 @@ Run the checks appropriate to the changed boundary:
 ```sh
 cd "$TALOS"
 pnpm type-check --app world
-ppnpm test --app world
+pnpm test --app world
 pnpm build --app world
 python3 scripts/noclip-download-test.py  # when changing the downloader
 ```
