@@ -240,6 +240,36 @@ validation-effort ordering would then address repeated edge work. Complete GCS
 trajectory optimization, learned ranking and kinodynamic tree sampling still need
 separate implementations and acceptance evidence.
 
+## Further non-learning structural comparisons
+
+The subsequent 2026-11-11 batch compared 11 structural heavy-query variants plus
+regional-index and canonical-order query microbenchmarks. Every new prototype was
+removed after failing to demonstrate a stable benefit. Runtime source remains
+`66dbd52`, and Atlos still uses the previously installed alpha.76 artifact.
+The [history](history.md) records the exact variants, source/input bindings, timings,
+checks and retry premises. Raw local evidence is `structural-ablation-20261111/`.
+
+The candidates included regional BVH views, tighter candidate-span and triangle
+hull domains, canonical nearest ordering, exact-SCC-mask successor prefixes,
+target-independent landing witnesses with global/local quotas, and jump/run-off
+family cost domains. Candidate-span filtering measured 89.701/90.182 s cold/warm,
+against the reused 89.654/88.752 s control. All 22 heavy physical outputs retained
+the exact route and connection arrays. No cross-map benefit was established.
+
+Every variant still charged 14,336,000 neighbors over its cold/warm pair.
+Family-entry filtering reduced retained candidate representatives by 2.7% while
+increasing uncached shortcut trajectory attempts by 4.8%. Shared geometric prefixes
+lost goal-aware indexed pruning, and reuse did not repay sorting/filtering overhead.
+These are measured local strategies, not a completed search-driven physical graph.
+
+The main open structural work remains owned coarse/detail support regions and
+route-search-directed physical successors. Support-aware run-off launch domains
+and certified walking alternatives can distinguish useful transfers from reachable
+but unhelpful local motions. Same-SCC membership alone permits detours and holes,
+so it cannot serve as a walking-dominance certificate. Preserve the existing
+snapshot, cost, uncertainty and finite-budget contracts when replacing generation.
+The remaining-cost target of at most 20% is still open.
+
 ## Action objectives and device coverage
 
 Airborne collection uses the source-derived interaction volume. `findGoalFlights` samples supported takeoffs and nominal flight families. `planAirborneGoal` solves exact grounded approaches and clips the final flight at the first valid collection event. Prefix collision and boost validity remain required. World enables this behavior for `int_collection_coin*` rules. `sampleJourney` interpolates an existing timed route for playback. Independent forward propagation of fixed controls remains open.

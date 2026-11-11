@@ -375,3 +375,176 @@ runtime source comparison to the measured bounds-only snapshot passed after
 removing the obsolete experimental field comments. `git diff --check` passed.
 No installed package replacement, remote push or broad 113-request replay was
 part of this experiment batch. Atlos's working tree remained clean.
+
+
+## 2026-11-11 non-learning structural ablation
+
+The next user request prioritized invalid-candidate reduction and structural
+comparisons, excluding learned algorithms. This round implemented and compared
+regional index views, candidate-domain filtering, canonical successor ordering,
+reusable geometric prefixes, target-independent witness decomposition, local
+cache quotas, and complete-motion-family cost domains. Every new prototype was
+removed after failing to show a stable benefit on the heavy input. The retained
+solver source is still `66dbd52`; this record adds no runtime optimization.
+
+### Source and input binding
+
+Frozen variants, SHA-256 manifests, helper checks, full extractor reports and the
+comparison are in the local ignored research directory
+`structural-ablation-20261111/` under the previously recorded research root.
+Region-view and canonical-heap microbenchmarks additionally reside in
+`algorithm-combinations-20261111/`, with `region-aabb/`, `region-envelope-source/`,
+`region-envelope-query.mjs/json` and `canonical-heap-overhead.json`.
+`prototype-working-source/` preserves the final composite prototype and its tests.
+These local archives are not distributed by an ordinary Git clone.
+
+The physical control is the preceding round's `bounds-only-action` cold/warm pair,
+whose runtime matches `66dbd52`. This control was reused, with identical retained
+`action-args.json` input files. All 22 new physical trial reports matched its input
+SHA-256 identities and resolved their named frozen SDK source paths. The maintained
+Atlos harness ran on Node v26.13.0 with a 4 GiB heap and function timing hooks off.
+A narrow research load wrapper collected discovery counters once per call. Later
+catalogue variants additionally collected private cache counters through that
+wrapper. Source hashes identify the variants, whose package strings remain
+alpha.76. The installed Atlos SDK artifact and generated extractor were untouched.
+
+These are sequential single cold/warm pairs with uncontrolled OS/JIT/GC/load
+variation. Small differences do not establish causal regressions or broad speedups.
+Since every variant failed the heavy performance screen, the batch stopped before
+additional failed-window/direction or cross-map replay. This follows the finite
+validation standard instead of multiplying unsuccessful full-corpus runs.
+
+| Structural variant | Cold total / search (s) | Warm total / search (s) |
+| --- | ---: | ---: |
+| Reused `66dbd52` control | 89.654 / 85.569 | 88.752 / 85.024 |
+| Candidate-span domain + same-surface exclusion after nearest yield (`span-entry`) | 89.701 / 85.398 | 90.182 / 86.316 |
+| Above + projected triangle-hull domain (`hull-entry`) | 93.472 / 89.045 | 94.684 / 90.826 |
+| Above + candidate-span BVH predicate (`hull-node`) | 101.683 / 96.833 | 92.763 / 88.954 |
+| Canonical nearest order + exact SCC-mask partition reuse (`canonical-direct`) | 90.448 / 86.248 | 89.640 / 85.943 |
+| Goal-independent geometric streams + indexed fallback, uncached (`catalog-uncached`) | 94.834 / 90.728 | 97.289 / 93.546 |
+| Above + shared canonical source prefixes (`catalog-shared`) | 95.308 / 91.183 | 95.244 / 91.531 |
+| Target-independent landing witnesses, original nearest order (`witness-only`) | 91.009 / 86.760 | 90.481 / 86.775 |
+| Shared source prefixes + landing witness catalogue (`catalog-witnesses`) | 96.495 / 92.370 | 97.050 / 93.280 |
+| Landing witnesses with per-source FIFO quotas (`local-witness`) | 95.136 / 90.893 | 95.469 / 91.576 |
+| Jump/run-off union cost domain after nearest yield (`family-entry`) | 90.071 / 85.828 | 90.141 / 86.485 |
+| Jump/run-off union cost domain inside BVH traversal (`family-node`) | 95.334 / 91.211 | 92.953 / 88.919 |
+
+All 22 physical results preserved the control's exact status, complete route and
+connection array, including modeled cost `8.94138859157342`. Canonical ordering and
+node-level pruning still changed some finite candidate sets and work counts.
+Equality of these selected outputs provides the stated input scope.
+
+### Implemented structures and failure mechanisms
+
+**Regional views.** `bounds.region(domain)` retained original node bounds, unary
+ancestors, empty overlapping ancestors and heap events. Queries outside the view
+fell back to the complete tree. A second view used a conservative cell-wide motion
+envelope. Exact tied prefixes and filtering behavior passed focused tests. On
+121,081 faces, 3,000 queries and 64-result prefixes, AABB-view preparation took
+4.495 ms; original traversal measured 39.335/38.694 ms and regional traversal
+39.216/38.667 ms. The motion-envelope view took 11.691 ms to prepare, reduced
+predicate calls only 557,411 to 556,038 (0.25%), and measured 59.992/60.110 ms
+against 60.626/59.364 ms. It preserved all 192,000 outputs. Keeping the accepted
+heap work while removing a few cheap exclusions left no useful gain. Retry needs
+a changed representation or a certificate that removes substantial accepted work.
+
+**Candidate-span and triangle domains.** A shortcut-specific rounded-up table
+bounded `jumpDuration * maxHorizontalSpeed`, matching the later candidate span
+prerequisite. Generic launch-overspeed reach stayed separate. Post-yield filtering
+charged each old neighbor slot. A projected triangle-hull test excluded empty AABB
+corners before constructing witnesses, with numeric padding and polygon fallback.
+The first stage also skipped same-surface witnesses already rejected downstream.
+Across both trials, 112,722 faces were excluded by the first stage and 113,534 by
+the hull stage. The extra hull test removed only 812 of 14,336,000 charged faces,
+while adding per-face work. Node-level filtering changed finite prefixes and
+increased aggregate retained candidates. Retry needs a more selective domain or
+coarser representation; this detail-triangle workload did not justify these tests.
+
+**Canonical successor ordering and prefixes.** An opt-in `.ordered` query used
+lexicographic priority `(squared box distance, original input ordinal)`, including
+minimum descendant ordinal in node priorities. This allowed a goal-independent
+sequence to be filtered without historical heap tie effects. The original `.nearest`
+body stayed intact. Query-only attribution measured about 27–31% more CPU for the
+new ordering (77.677/77.748 ms versus 59.273/61.081 ms), with a 19.737 ms initial
+metadata pass. This ordering intentionally replaces the old finite tie strategy.
+
+The geometric catalogue interned exact SCC-eligibility masks, retained canonical
+boundary identities at fractions 0, 0.5 and 1, verified source targets/bounds, and
+bound the owner to geometry/model/range/body/projection settings. Limits of 64
+partitions, 8,192 streams and 256 cached entries per stream fell back to complete
+canonical traversal. Interleaved readers and capped tails were tested. Goal-cost
+filtering ran again for each read. After 32 rejected geometric leaves, an indexed
+goal-aware query resumed the same emitted canonical prefix. This relies on the
+current box predicates being monotone under containment and the goal predicate
+refining the geometric envelope. Cache metrics remained private to the experiment.
+
+Across the heavy cold/warm pair, direct canonical queries emitted 14,336,000
+geometric entries. Goal-independent uncached queries emitted 17,033,524. Sharing
+prefixes reduced that to 14,761,190, with 28,832 stream hits and 44,230 indexed
+fallbacks. The shared catalogue recovered some duplicated work but still exceeded
+direct query emissions and paid canonical-ordering overhead. Preserving goal-aware
+indexed rejection is a prerequisite for revisiting this structure. This prototype
+reused successor retrieval; it did not implement route-search-directed expansion
+or a complete incremental lazy physical planner.
+
+**Target-independent witness decomposition.** A separate catalogue reused source
+projections, centre witnesses and reach-boundary witnesses. The goal witness stayed
+second and was recomputed under the current query. Exact source coordinates,
+model snapshots, geometry ownership and fresh result positions protected reuse.
+The original six-argument `landingCandidates` generator remained intact. The flat
+65,536 source/face quota recorded 1,706,032 hits, 131,072 creations and 11,082,578
+uncached calls across cold/warm. Most requests bypassed the full catalogue after
+admission filled. Combining it with shared prefixes did not improve total time.
+
+A fairer cache admitted 4,096 sources with 16 FIFO faces each, keeping the same
+maximum retained pair count. It recorded 1,250,664 hits, 10,091,798 creations and
+1,577,220 uncached calls. Broader admission produced more materialization churn
+and fewer hits than the flat catalogue. Retry requires evidence of materially
+better source/face locality or reusable regional primitives; neither admission
+counts nor nominal cache coverage established a speedup.
+
+**Union of complete-motion-family cost domains.** For finite prefix bounds, the
+prototypes enclosed corrected feet and boundary projection in padded boxes, then
+used `min(jumpLowerBound, wholeRunOffLowerBound)` plus source/goal travel bounds.
+They reused `createMotionBounds`, included witness-rounding padding and preserved
+the supported-uphill-run-off fallback. They apply to complete nonterminal motions.
+No bound for a full jump was applied to an earlier airborne terminal hit.
+
+Entry-level filtering charged each neighbor and excluded 564,716 bounding faces
+before the existing bucket test. Some would also have failed the older bucket
+bound. Aggregate retained candidates fell 9,258,772 to 9,005,418 (2.7%), while
+uncached shortcut trajectory attempts rose 12,476 to 13,076 (4.8%). Removing
+representatives let other witnesses reach validation without improving the result.
+The node-level variant retained 9,429,814 candidates and attempted 12,898 uncached
+trajectories. All variants still charged 14,336,000 neighbors. Local elimination
+therefore did not translate into less total search under the current refill and
+ranking policy. Stronger run-off bounds require a supported launch-prefix domain;
+a seed-height ballistic restriction would repeat the previously rejected error.
+
+### Validation and retained state
+
+Focused checks included eight bounds tests, seven reachability tests, candidate
+and triangle-domain enclosure cases, 24 small-scene query comparisons, and the
+existing frontier resume/bound-widening/action-revision tests. Witness catalogue
+checks covered 576 deterministic cases, source/goal/model changes, FIFO eviction,
+admission caps and returned-position mutation. Family bounds were checked against
+80 accepted jump/steering/overspeed/uphill-run-off motions and 24 small scenes.
+Scripts, logs and source manifests retain their individual scopes.
+
+One experimental full SDK run passed 274/275 tests. The failure was the existing
+reused-versus-fresh complete-result comparison, because newly returned cache-work
+counters depended on prior preparation. The implementation moved those counters
+to the research hook. The unchanged regression then passed in the focused 21-test
+jump-planner/catalogue run. No post-fix full-suite pass is claimed for that discarded
+prototype. Final runtime and test files were restored byte-for-byte to `66dbd52`;
+only these English records change in the final checkout.
+
+The 20% remaining-cost objective is still unmet. The retained heavy cold total
+remains 89.654 s, 56.6% of alpha.70's original control. The next structural gap is
+search-driven physical successor generation over owned support regions, including
+support-aware run-off domains and walking-dominance evidence. It must preserve
+nonlocal/relay/interior/backward possibilities, directed passages, holes and exact
+entry state. SCC identity alone cannot certify a cheap walking replacement.
+Complete coarse/detail ownership, route-driven physical expansion and L-GLS repair
+remain unimplemented; these failed retrieval/decomposition experiments do not close
+them. Learned ranking and resource-planning redesign were outside this round.
