@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { createSupportProjector } from '../src/geo/support-projector.ts';
+import { projectPoint } from '../src/geo/surfaces.ts';
 import type { Surface, Vec3 } from '../src/index-types.ts';
-import { createSupportProjector } from '../src/support-projector.ts';
-import { projectPoint } from '../src/surfaces.ts';
 
 const floor = (id: string, y: number): Surface => ({
   id,

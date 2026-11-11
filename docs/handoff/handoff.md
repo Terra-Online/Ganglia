@@ -1,6 +1,6 @@
 # Route solver handoff
 
-This handoff describes Ganglia `0.1.0-alpha.76` at local commit `917dfcd` and its Atlos integration at `9311d063`, as inspected on 2026-11-10. The companion [history and testing record](history.md) owns the chronological experiments, complete measurement tables, regression corpus and validation procedures. This documentation pass reads existing evidence and source. It adds no solver run or test result.
+This handoff describes Ganglia `0.1.0-alpha.76` at local commit `917dfcd` and its Atlos integration at `9311d063`, as inspected on 2026-11-10. The companion [history and testing record](history.md) owns the chronological experiments, complete measurement tables, regression corpus and validation procedures. The source layout was subsequently reorganized on 2026-11-11, starting from `c8cc213`. The subsystem and composition sections below describe that source refactor. The alpha.76 performance measurements remain bound to their historical implementations.
 
 The current objective is to reduce comparable solver computation to **at most 20% of the original cost**, while preserving supported behavior, reachability and route quality. The latest heavy-query checkpoint remains above that target. The immediate implementation priority is to reduce the region state space, spatial candidate generation and repeated action queries. The older roadmap's resource-first P0 order has been superseded for this optimization task. Resource-state unification remains subsequent work.
 
@@ -10,19 +10,103 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 
 | Area | Owning source |
 | --- | --- |
-| Global corridor proposals | [`src/candidate-planner.ts`](../../src/candidate-planner.ts), [`src/candidate-transfers.ts`](../../src/candidate-transfers.ts) |
-| Physical support generation | [`src/build.ts`](../../src/build.ts), [`src/support-field.ts`](../../src/support-field.ts) |
-| Ground query and geometry preparation | [`src/ground.ts`](../../src/ground.ts), [`src/surfaces.ts`](../../src/surfaces.ts), [`src/straighten.ts`](../../src/straighten.ts), [`src/movement-geometry.ts`](../../src/movement-geometry.ts) |
-| Movement search | [`src/jump-planner.ts`](../../src/jump-planner.ts), [`src/traversal.ts`](../../src/traversal.ts), [`src/shortcuts.ts`](../../src/shortcuts.ts), [`src/route-shortcuts.ts`](../../src/route-shortcuts.ts) |
-| Dynamics and pruning | [`src/jumps.ts`](../../src/jumps.ts), [`src/reachability.ts`](../../src/reachability.ts), [`src/motion-bounds.ts`](../../src/motion-bounds.ts), [`src/flight-steering.ts`](../../src/flight-steering.ts), [`src/candidate-bounds.ts`](../../src/candidate-bounds.ts) |
-| Airborne objectives and boosts | [`src/airborne-goal.ts`](../../src/airborne-goal.ts), [`src/boosted-route.ts`](../../src/boosted-route.ts), [`src/goals.ts`](../../src/goals.ts) |
-| Collision and resources | [`src/collision.ts`](../../src/collision.ts), [`src/locomotion.ts`](../../src/locomotion.ts), [`src/resource-search.ts`](../../src/resource-search.ts) |
+| Global corridor proposals | [`src/search/candidate-planner.ts`](../../src/search/candidate-planner.ts), [`src/search/candidate-transfers.ts`](../../src/search/candidate-transfers.ts) |
+| Physical support generation | [`src/geo/build.ts`](../../src/geo/build.ts), [`src/geo/support-field.ts`](../../src/geo/support-field.ts) |
+| Ground query and geometry preparation | [`src/route/ground.ts`](../../src/route/ground.ts), [`src/geo/surfaces.ts`](../../src/geo/surfaces.ts), [`src/route/straighten.ts`](../../src/route/straighten.ts), [`src/route/movement-geometry.ts`](../../src/route/movement-geometry.ts) |
+| Movement search | [`src/route/jump-planner.ts`](../../src/route/jump-planner.ts), [`src/search/traversal.ts`](../../src/search/traversal.ts), [`src/search/shortcuts.ts`](../../src/search/shortcuts.ts), [`src/route/route-shortcuts.ts`](../../src/route/route-shortcuts.ts) |
+| Dynamics and pruning | [`src/motion/jumps.ts`](../../src/motion/jumps.ts), [`src/reach/reachability.ts`](../../src/reach/reachability.ts), [`src/reach/motion-bounds.ts`](../../src/reach/motion-bounds.ts), [`src/motion/flight-steering.ts`](../../src/motion/flight-steering.ts), [`src/search/candidate-bounds.ts`](../../src/search/candidate-bounds.ts) |
+| Airborne objectives and boosts | [`src/route/airborne-goal.ts`](../../src/route/airborne-goal.ts), [`src/route/boosted-route.ts`](../../src/route/boosted-route.ts), [`src/motion/goals.ts`](../../src/motion/goals.ts) |
+| Collision and resources | [`src/geo/collision.ts`](../../src/geo/collision.ts), [`src/resource/locomotion.ts`](../../src/resource/locomotion.ts), [`src/resource/resource-search.ts`](../../src/resource/resource-search.ts) |
 | Atlos ordinary request | [`dev-route-server.ts`](../../../Atlos/talos/apps/world/dev-route-server.ts), [`travel-arrivals.ts`](../../../Atlos/talos/apps/world/travel-arrivals.ts) |
 | Atlos corridor worker | [`candidate-job.ts`](../../../Atlos/talos/apps/world/candidate-job.ts), [`candidate-worker.ts`](../../../Atlos/talos/apps/world/candidate-worker.ts) |
 | Atlos physical scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |
 | Atlos terminal assets | [`terminal-routes.ts`](../../../Atlos/talos/apps/world/terminal-routes.ts) |
 
 The authoritative noclip adaptation lives in Atlos [`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json), including `extractor.patch`, `format.patch`, `renderer.patch`, `documentation.patch` and `gpu-recovery.patch`. `Atlos/talos/.cache/noclip/` is generated source. Changes inspected there must be maintained through the integration patches. The retained upstream binding is `30f73f4609b24f033e3e2a48607d3270b01695a3`, with package protocol 98. Navigation/physical export revision 2 is a separate data binding.
+
+## Six source subsystems
+
+The 2026-11-11 source reorganization uses these ownership boundaries. The package
+entry points remain `src/index.ts`, `src/build.ts` and `src/collision.ts`, with
+their existing declarations and export names. Internal consumers import the owning
+module directly. Public build and collision entry points forward to `geo`.
+
+| Directory | Responsibility and modules |
+| --- | --- |
+| `geo` | Scene representation and support construction. `surfaces`, `bounds`, `walls`, `collision`, `build`, `clip-surface`, `support-field`, `support-projector`, `support-snapshot` |
+| `reach` | Directed connectivity and conservative reach information. `connectivity`, `distance-field`, `reachability`, `motion-bounds` |
+| `motion` | Motion models, landing witnesses and interaction geometry. `jumps`, `flight-steering`, `landings`, `motion`, `goals` |
+| `search` | Implicit successors, proposal search and discovery. `candidate-planner`, `candidate-transfers`, `candidate-bounds`, `lazy-route`, `shortcuts`, `traversal`, `boundary-order`, `heap` |
+| `resource` | Continuation-state search and fixed-route scheduling. `resource-search`, `locomotion` |
+| `route` | Route orchestration, prepared planning context and improvement. `routes`, `ground`, `jump-planner`, `airborne-goal`, `boosted-route`, `route-shortcuts`, `ground-detours`, `straighten`, `movement-geometry` |
+
+These directories describe current responsibilities. Cross-subsystem dependencies
+remain explicit. `route/movement-geometry` assembles geometry with ground-planner
+preparation and discovery boundaries. It retains the existing runtime dependency
+cycle with `search/traversal`. `traversal` also owns `standingFoot` and discovery
+validation shared by motion callers. `motion/goals` combines support projection
+with terminal flight clipping. The generic `search/heap` is used by distance and
+resource searches. Future extraction of these mixed responsibilities must preserve
+snapshot ownership and avoid a second implementation of support or goal semantics.
+
+### Search-state ownership and composition contracts
+
+| Owner | Meaning of its state | Composition boundary |
+| --- | --- | --- |
+| `reach/reachability` | Necessary geometric/dynamic envelope predicates | An envelope intersection permits further validation. Rejection requires a conservative bound for the specific control family, support correction and objective |
+| `reach/distance-field` | Shortest labels over the supplied retained base graph and action overlay | Root costs and edge costs must use one unit. Ground costs are scaled with `lengthScale`, action costs already use that field unit. Missing labels describe this graph's coverage |
+| `search/candidate-planner` | SCC proposals, transfer materialization and proposal scores | Unknown transfers guide physical coverage. Penalties rank proposals and provide no physical time bound |
+| `search/lazy-route` | Optimistic graph plus validated edge replacements | Unknown costs must be lower bounds in seconds. Accepted replacement cost must be at least the optimistic cost. Validation failure and an interrupted validation have different persistence |
+| `search/shortcuts` | Query-bound cursors, witnesses, action revisions and discovery caches | Geometry-only results can survive query changes under their binding. Reachability-dependent cursors must follow query and action revisions |
+| `route/jump-planner` | Per-solve verified action pool, per-arrival discovery and complete incumbent | Every arrival sees reusable actions locally. New-link quotas count its discoveries. Incumbents are compared after complete resource scheduling |
+| `resource/resource-search` | Cost labels for exact continuation-state keys | Labels include energy, recovery delay, sprint activation, velocity, direction and dash state. Resource feasibility is specific to the entry state and scheduling policy |
+
+The following rules govern changes across these owners.
+
+1. **Bind immutable inputs at the query boundary.** Geometry, directed portals,
+   collision world, body, walls, movement model and device state belong to the same
+   snapshot. Existing identity-based caches require replacement objects when these
+   inputs change. In-place mutation violates their current contract. Persistent or
+   cross-worker sharing will require an explicit source/model revision binding.
+   A common runtime snapshot/version object across all six subsystems remains open.
+2. **Keep three cost roles explicit.** Proposal ranking, admissible lower bounds
+   and executable resource-timed costs have different contracts. Candidate penalties
+   must never be fed directly into lazy-route unknown costs or incumbent pruning.
+   `distance-field` labels are exact for their supplied graph, which can omit future
+   actions. Using such labels as a lower bound on an expanded graph requires an
+   additional conservative argument. The current discovery uses them for retained
+   connectivity and ordering under its finite coverage rules.
+3. **Separate physical evidence from discovery coverage.** A swept, supported
+   action establishes a particular motion under its bound inputs. A failed witness
+   establishes only that witness's failure. An exhausted quota or an ungenerated
+   successor leaves unresolved coverage. Avoid caching a whole region pair as
+   impossible from either event. Resource rejection belongs to the continuation
+   state, and terminal-only collection actions cannot become ordinary transfers.
+4. **Invalidate by actual dependencies.** Appended action edges can incrementally
+   relax distance fields. Changed roots, base graph, weights, direction or scale
+   restart them. Discovery action revisions include motion content under stable IDs.
+   Changed query endpoints, interaction, speed, `costBound` or `boundGoal` clear the
+   relevant cursors/fields. Increasing work resumes a cursor, while a larger retained
+   link quota can require rebuilding discarded representatives. A wider prefix bound
+   retries a prior tighter-bound failure. Transfer keys remain snapshot-scoped.
+5. **Preserve uncertainty through validation.** `lazy-route` keeps an edge unknown
+   after cancellation or a thrown validator and closes it only when validation
+   returns `null`. Callers must reserve `null` for rejection under the fixed validator
+   context. Changing physics or resource-entry context requires a fresh planner.
+   Discovery truncation must remain visible when composing route results.
+6. **Keep pruning proofs local to their domain.** Complete-flight bounds do not
+   apply to an earlier terminal hit. Immediate ballistic launch bounds do not cover
+   supported uphill run-off. New speed devices can invalidate a time lower bound.
+   More stamina alone does not justify resource dominance with automatic sprint
+   restart. Existing bounded scheduling and retained DP dominance still have the
+   model limits recorded below.
+
+This reorganization preserves the existing algorithms and cache implementations.
+It establishes module ownership and review contracts. A shared action-evidence
+registry, a common query revision object, consistent resource transitions and full
+incremental graph repair remain follow-up implementation work. Existing targeted
+regressions cover lazy validation, distance-field updates, cursor continuation,
+bound widening and per-arrival action reuse. They establish their fixture scope.
 
 ## Current scene and movement assumptions
 
@@ -108,6 +192,116 @@ Frontier enumeration keeps its original pair-coordinate and pool bookkeeping. Fa
 `landings.mjs` retains static face metadata and centre witnesses. A per-query `createLandingGoalCache` reuses only the goal-dependent face projection, returns fresh positions and bypasses reuse when goal coordinates change. Start-dependent projections and reach witnesses remain query-specific. Witness order remains start, goal, centre and reach-boundary intersections.
 
 Frontier cursors retain boundary-seed streams, nearest streams, pending variants, rejected pairs and accepted representatives under the exact query/action binding. Changed geometry, collision world, constraints, model, endpoints, interaction, speed, `costBound`, `boundGoal` or action revision invalidates the corresponding state. Updating an authored action under the same ID still changes its revision. Enlarging the link quota rebuilds pools because an earlier smaller quota can discard representatives. Enlarging the work budget resumes. This cursor mechanism is frontier-specific. Repeated non-frontier searches for different airborne prefix endpoints still rebuild substantial candidate work.
+
+## Subsequent conservative search experiments
+
+The 2026-11-11 experiments start from `634ed45`. Their frozen source manifests,
+request hashes and trials are under the local research directory
+`algorithm-combinations-20261111/`. The package resolver points the maintained Atlos
+measurement harness at an immutable source copy for each trial. Installed Atlos
+alpha.76 and generated extractor source are unchanged by this experiment setup.
+See [history.md](history.md) for the actual timing and acceptance scope.
+
+The retained candidate implementation applies horizontal incumbent/prefix bounds
+before seed projection. Conservative boundary-plus-inset boxes skip entire seed
+regions using outward padding and strict cost slack. Each excluded sample consumes
+its original seed slot. Remaining seeds receive the existing horizontal point tests
+before support projection, which preserves XZ exactly. `seedProjections` counts
+actual seed projection requests separately from charged `seedChecks`.
+
+Four additional mechanisms were implemented experimentally and removed from the
+final source after comparison. They include numeric vertical-model constants,
+dependency-checked distance-field retention across goal changes, adjacent duplicate
+face evaluation reuse, and geometry-owned numeric caching of boundary projections
+at fractions 0, 0.5 and 1. Some combinations reduced helper work or projection
+requests, but their end-to-end results did not establish a preferable retained
+combination across the selected cases. The companion history preserves each trial,
+including the faster heavy-only combination and its failed-window regression.
+
+The selected bounds-only cold/warm totals were 89.654/88.752 s for heavy action
+(control 93.855/93.787), 41.342/39.109 s for direction (44.804/43.405), and
+23.468/21.612 s for the failed window (22.927/21.299). Exact case status, route and
+connection arrays were retained. Failed-window time is slightly worse. The heavy
+cold result still uses 56.6% of alpha.70's original command cost, above the 20%
+target. These are individual sequential observations, with scope and instrumentation
+bindings detailed in history. No uniform or map-wide speedup is established.
+
+Across the heavy cold/warm pair, seed projection calls fell from a derived 3,584,000
+to 102,856. Charged neighbors, bucket candidate counts and shortcut trajectory
+attempts remained 14,336,000, 9,258,772 and 12,476 respectively. Projection calls
+alone therefore do not explain the remaining cost or establish smaller spatial
+node traversal. Source ownership, optimistic-edge interpretation and existing
+cache invalidation behavior retain their earlier contracts.
+
+This pruning preserves the existing finite discovery scope. A region-pair reachable
+domain combined with search-directed implicit successors remains the main structural
+candidate for reducing neighbor and witness generation. L-GLS-style repair and
+validation-effort ordering would then address repeated edge work. Complete GCS
+trajectory optimization, learned ranking and kinodynamic tree sampling still need
+separate implementations and acceptance evidence.
+
+## Further non-learning structural comparisons
+
+The subsequent 2026-11-11 batch compared 11 structural heavy-query variants plus
+regional-index and canonical-order query microbenchmarks. Every new prototype was
+removed after failing to demonstrate a stable benefit. Runtime source remains
+`66dbd52`, and Atlos still uses the previously installed alpha.76 artifact.
+The [history](history.md) records the exact variants, source/input bindings, timings,
+checks and retry premises. Raw local evidence is `structural-ablation-20261111/`.
+
+The candidates included regional BVH views, tighter candidate-span and triangle
+hull domains, canonical nearest ordering, exact-SCC-mask successor prefixes,
+target-independent landing witnesses with global/local quotas, and jump/run-off
+family cost domains. Candidate-span filtering measured 89.701/90.182 s cold/warm,
+against the reused 89.654/88.752 s control. All 22 heavy physical outputs retained
+the exact route and connection arrays. No cross-map benefit was established.
+
+Every variant still charged 14,336,000 neighbors over its cold/warm pair.
+Family-entry filtering reduced retained candidate representatives by 2.7% while
+increasing uncached shortcut trajectory attempts by 4.8%. Shared geometric prefixes
+lost goal-aware indexed pruning, and reuse did not repay sorting/filtering overhead.
+These are measured local strategies, not a completed search-driven physical graph.
+
+The main open structural work remains owned coarse/detail support regions and
+route-search-directed physical successors. Support-aware run-off launch domains
+and certified walking alternatives can distinguish useful transfers from reachable
+but unhelpful local motions. Same-SCC membership alone permits detours and holes,
+so it cannot serve as a walking-dominance certificate. Preserve the existing
+snapshot, cost, uncertainty and finite-budget contracts when replacing generation.
+The remaining-cost target of at most 20% is still open.
+
+## Updated next-phase algorithm scope
+
+After the non-learning ablation, the user broadened the next phase to include
+reinforcement learning and evolutionary optimization. The previous round's exclusion
+of learned methods applies to that historical batch. Further structural refactoring
+is one option alongside algorithm changes. It is not a prerequisite for comparing
+new candidate-generation policies against the current solver.
+
+The proposed comparison uses the existing analytic model and physical verifier.
+CMA-ES and iCEM can search continuous takeoff/landing and steering/run-off parameters
+within proposed region/control families. A learned search policy can select region
+pairs, control families and work allocation before detailed candidates are built.
+A hybrid can combine learned proposals with continuous stochastic optimization.
+Quality-diversity methods such as CMA-MAE are another candidate when retaining
+multiple landing regions or motion families proves important. These are proposals;
+no evolutionary optimizer, learned policy or new performance result is implemented.
+
+Start with four comparable arms: the current solver, evolutionary/sampling-based
+local generation, learned high-level selection with the current local generator,
+and their combination. Use held-out regions/scenes and count all inference,
+generation, physical validation and fallback time. Report training/precomputation
+cost separately. Existing regression scenes supply environments and evaluation
+inputs; decision-level traces still need to be collected for learning. A bounded
+unsuccessful solve remains an unresolved episode, with no physical-impossibility
+label inferred for untested actions.
+
+Model proposals retain the existing support, wall, complete trajectory, goal-event
+and resource checks. Predictive scores guide proposals and scheduling. Certified
+lower bounds continue to govern safe pruning. Exploration and resumable fallback
+remain part of the comparison, with their actual runtime included. Fixed-budget
+coverage and route quality require independent validation; the 20% objective has
+no demonstrated learning/evolutionary result yet.
 
 ## Action objectives and device coverage
 

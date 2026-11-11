@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { directedComponents, canReach } from '../src/connectivity.ts';
 import type { Arrival, Edge, Graph, Node, Vec3 } from '../src/index-types.ts';
-import { route, routeFrom, createRoutePlanner, sampleRoute } from '../src/routes.ts';
+import { directedComponents, canReach } from '../src/reach/connectivity.ts';
+import { route, routeFrom, createRoutePlanner, sampleRoute } from '../src/route/routes.ts';
 import { expectStatus } from './assertions.ts';
 const nodes: Node[] = [
   { id: 'a', position: [0, 0, 0] },

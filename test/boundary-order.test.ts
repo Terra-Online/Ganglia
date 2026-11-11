@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { boundaryTree, boundaryOrder } from '../src/boundary-order.ts';
-import { interleave } from '../src/traversal.ts';
+import { boundaryTree, boundaryOrder } from '../src/search/boundary-order.ts';
+import { interleave } from '../src/search/traversal.ts';
 
 type Entry = { index: number; score: number; midpoint: number[] };
 // The reference is the original full-list ordering. New construction may avoid

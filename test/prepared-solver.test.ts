@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.ts';
 import type { Surface } from '../src/index-types.ts';
-import { planJumpRoute } from '../src/jump-planner.ts';
+import { planJumpRoute } from '../src/route/jump-planner.ts';
 import type { RouteQuery } from '../src/solver/index-types.ts';
 import { prepareSurfaceActionSolver } from '../src/solver/index.ts';
 

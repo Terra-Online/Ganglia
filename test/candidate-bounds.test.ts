@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Face } from '../src/candidate-bounds.ts';
-import { createCandidateBounds } from '../src/candidate-bounds.ts';
 import type { JumpModel, Vec3 } from '../src/index-types.ts';
-import { jumpDuration } from '../src/jumps.ts';
-import { landingCandidates } from '../src/landings.ts';
+import { jumpDuration } from '../src/motion/jumps.ts';
+import { landingCandidates } from '../src/motion/landings.ts';
+import type { Face } from '../src/search/candidate-bounds.ts';
+import { createCandidateBounds } from '../src/search/candidate-bounds.ts';
 
 const model: JumpModel = {
   gravity: 10,

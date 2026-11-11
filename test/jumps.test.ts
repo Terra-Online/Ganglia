@@ -4,8 +4,8 @@ import { test } from 'node:test';
 import type { Capsule } from '../src/collision-types.ts';
 import { createCollisionWorld } from '../src/collision.ts';
 import type { Vec3, Wall } from '../src/index-types.ts';
-import type { JumpOptions, RunOffOptions } from '../src/jumps.ts';
-import { jumpConnection, jumpDuration, runOffConnection } from '../src/jumps.ts';
+import type { JumpOptions, RunOffOptions } from '../src/motion/jumps.ts';
+import { jumpConnection, jumpDuration, runOffConnection } from '../src/motion/jumps.ts';
 
 const profile = { radius: 0.35, height: 1.66 };
 const options: JumpOptions = {

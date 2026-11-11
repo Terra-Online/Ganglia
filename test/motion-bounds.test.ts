@@ -3,9 +3,9 @@ import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.ts';
 import type { JumpModel, Vec3 } from '../src/index-types.ts';
-import type { JumpOptions } from '../src/jumps.ts';
-import { jumpConnection, runOffConnection } from '../src/jumps.ts';
-import { createMotionBounds } from '../src/motion-bounds.ts';
+import type { JumpOptions } from '../src/motion/jumps.ts';
+import { jumpConnection, runOffConnection } from '../src/motion/jumps.ts';
+import { createMotionBounds } from '../src/reach/motion-bounds.ts';
 
 const point = (position: Vec3) => ({ min: position, max: position });
 const model: JumpModel = {

@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.ts';
-import { createGroundPlanner } from '../src/ground.ts';
 import type { GroundArrival, GroundConnection, Surface, Vec3 } from '../src/index-types.ts';
-import type { ShortcutCache, ShortcutOptions } from '../src/shortcuts.ts';
-import { findJumpShortcuts, findJumpFrontier } from '../src/shortcuts.ts';
-import { findJumpConnections } from '../src/traversal.ts';
+import { createGroundPlanner } from '../src/route/ground.ts';
+import type { ShortcutCache, ShortcutOptions } from '../src/search/shortcuts.ts';
+import { findJumpShortcuts, findJumpFrontier } from '../src/search/shortcuts.ts';
+import { findJumpConnections } from '../src/search/traversal.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0: number, z1: number): Surface => ({
   id,
@@ -286,4 +286,21 @@ test('a larger link quota rebuilds frontier pools while a larger work budget res
   );
   const fresh = findJumpFrontier(surfaces, world, { ...settings, maxLinks: 8 }, {});
   assert.deepEqual(larger.connections, fresh.connections);
+});
+
+test('excludes costly seed regions before projection and retries after the bound widens', () => {
+  const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const settings: ShortcutOptions = { ...options, from: [2, 0, 0], to: [9, 0, 0] };
+  const cache = {};
+  const tight = findJumpFrontier(surfaces, world, { ...settings, costBound: 0.01 }, cache);
+  assert.ok(tight.diagnostics.seedChecks > 0);
+  assert.equal(tight.diagnostics.seedProjections, 0);
+  assert.deepEqual(tight.connections, []);
+  const wider = findJumpFrontier(surfaces, world, { ...settings, costBound: 10 }, cache);
+  const fresh = findJumpFrontier(surfaces, world, { ...settings, costBound: 10 }, {});
+  assert.ok(wider.connections.length > 0);
+  assert.deepEqual(wider.connections, fresh.connections);
+  assert.equal(wider.diagnostics.seedChecks, fresh.diagnostics.seedChecks);
+  assert.equal(wider.diagnostics.truncated, fresh.diagnostics.truncated);
 });

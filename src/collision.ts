@@ -1,4 +1,4 @@
-import { createCollisionWorld as createCollisionWorldImplementation } from './collision-implementation.ts';
+import { createCollisionWorld as createCollisionWorldImplementation } from './geo/collision.ts';
 
 export type * from './collision-types.ts';
 

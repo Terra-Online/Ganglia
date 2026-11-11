@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { planAirborneGoal, findGoalFlights } from '../src/airborne-goal.ts';
 import { createCollisionWorld } from '../src/collision.ts';
-import { findGoalHit } from '../src/goals.ts';
 import type { GroundArrival, JumpRouteOptions, Surface, Vec3 } from '../src/index-types.ts';
 import { planJumpRoute } from '../src/index.ts';
-import { retimeGroundRoute } from '../src/locomotion.ts';
+import { findGoalHit } from '../src/motion/goals.ts';
+import { retimeGroundRoute } from '../src/resource/locomotion.ts';
+import { planAirborneGoal, findGoalFlights } from '../src/route/airborne-goal.ts';
 
 const floor = (id: string, left: number, right: number): Surface => ({
   id,

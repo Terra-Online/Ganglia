@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { clipSurface } from '../src/clip-surface.ts';
+import { clipSurface } from '../src/geo/clip-surface.ts';
 import type { Vec3 } from '../src/index-types.ts';
 import { projectPoint, surfaceGraph } from '../src/index.ts';
 

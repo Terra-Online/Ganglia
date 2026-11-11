@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { groundPreparation } from '../src/ground.ts';
 import type {
   GroundArrival,
   GroundConnection,
@@ -12,6 +11,7 @@ import type {
   Wall,
 } from '../src/index-types.ts';
 import { planGroundRoute, route, createGroundPlanner } from '../src/index.ts';
+import { groundPreparation } from '../src/route/ground.ts';
 const surfaces: Surface[] = [
   {
     id: 'a',

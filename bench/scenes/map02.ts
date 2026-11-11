@@ -11,7 +11,7 @@ import type {
   LocomotionOptions,
   Wall,
 } from '../../src/index-types.ts';
-import { jumpDuration } from '../../src/jumps.ts';
+import { jumpDuration } from '../../src/motion/jumps.ts';
 import type { SceneInput } from '../../src/solver/index-types.ts';
 import type { RouteQuery } from '../../src/solver/index-types.ts';
 // Use separated ground regions to exercise motion discovery rather than only

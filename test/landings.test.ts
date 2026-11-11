@@ -3,8 +3,8 @@ import { test } from 'node:test';
 
 import { createCollisionWorld } from '../src/collision.ts';
 import type { JumpModel, Surface, Vec3, Wall } from '../src/index-types.ts';
-import { jumpConnection } from '../src/jumps.ts';
-import { landingCandidates, createLandingGoalCache } from '../src/landings.ts';
+import { jumpConnection } from '../src/motion/jumps.ts';
+import { landingCandidates, createLandingGoalCache } from '../src/motion/landings.ts';
 
 test('finds feasible landing interiors when nearest, goal and centre witnesses fail', () => {
   const surface: Surface = {

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { mayReachGoal } from '../src/flight-steering.ts';
-import { findGoalHit } from '../src/goals.ts';
 import type { JumpModel, Vec3 } from '../src/index-types.ts';
-import type { MotionControl } from '../src/jumps.ts';
-import { jumpConnection, jumpDuration, jumpVerticalRange } from '../src/jumps.ts';
+import { mayReachGoal } from '../src/motion/flight-steering.ts';
+import { findGoalHit } from '../src/motion/goals.ts';
+import type { MotionControl } from '../src/motion/jumps.ts';
+import { jumpConnection, jumpDuration, jumpVerticalRange } from '../src/motion/jumps.ts';
 
 const model: JumpModel = {
   gravity: 10,

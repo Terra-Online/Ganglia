@@ -414,6 +414,7 @@ export interface ShortcutDiagnostics {
   baselineCost: number;
   boundaryEdges: number;
   seedChecks: number;
+  seedProjections?: number;
   candidatePairs: number;
   neighbourChecks: number;
   dominatedFaces?: number;

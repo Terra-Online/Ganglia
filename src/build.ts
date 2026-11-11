@@ -1,5 +1,5 @@
-import { buildGroundSurfaces as buildGroundSurfacesImplementation } from './build-implementation.ts';
-import { buildGroundTiles as buildGroundTilesImplementation } from './build-implementation.ts';
+import { buildGroundSurfaces as buildGroundSurfacesImplementation } from './geo/build.ts';
+import { buildGroundTiles as buildGroundTilesImplementation } from './geo/build.ts';
 
 export type * from './build-types.ts';
 

@@ -3,8 +3,6 @@ import { test } from 'node:test';
 
 import type { Capsule, CollisionWorld } from '../src/collision-types.ts';
 import { createCollisionWorld } from '../src/collision.ts';
-import { createGoalProjector } from '../src/goals.ts';
-import { planGroundRoute, createGroundPlanner } from '../src/ground.ts';
 import type {
   DiscoveryOptions,
   GroundConnection,
@@ -12,8 +10,10 @@ import type {
   Vec3,
   Wall,
 } from '../src/index-types.ts';
-import { jumpConnection } from '../src/jumps.ts';
-import { findJumpConnections, exposedBoundaries, standingFoot } from '../src/traversal.ts';
+import { createGoalProjector } from '../src/motion/goals.ts';
+import { jumpConnection } from '../src/motion/jumps.ts';
+import { planGroundRoute, createGroundPlanner } from '../src/route/ground.ts';
+import { findJumpConnections, exposedBoundaries, standingFoot } from '../src/search/traversal.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
   id,
