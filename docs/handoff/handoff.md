@@ -119,8 +119,14 @@ feasibility through scheduling or presentation code. The Atlos adapter loads
 physical inputs and executes jobs. Explicit traversal semantics travel with route
 segments; renderers do not interpret connection identifiers.
 
-The extractor still owns its game-specific device interpretation and the broader
-walking/device/action stage orchestration. Their migration is incomplete.
+Ganglia also owns the physical-query stage orchestration, feasible fixed-device
+connections, moving-support baking and route annotations, and following-support
+placement search. `preparePhysicalRouteSolver` implements the existing single and
+whole-batch solver contract. The extractor adapter validates exported source/profile
+bindings and normalizes game fields; its `player-route` command is a file/CLI entry.
+Atlos runs an owned worker against that resource adapter instead of invoking the
+extractor command for online solving. Browser resource and routing clients expose
+transfer accounting separately from algorithm timing.
 
 ## Current scene and movement assumptions
 
@@ -141,7 +147,7 @@ The retained vortex interpretation comes from build `2954fa80-23c1-1579-2b22-4ec
 3. A serial candidate worker loads `${scene}-ground-all.json`, prepares the candidate planner and searches across eligible origins. Its points guide physical coverage selection.
 4. `createWindowRoute` divides the corridor into bounded physical windows. Unknown/device transfer trajectories remain indivisible. Long straight ground spans receive intermediate coverage points.
 5. `physicalRouteBuilder` obtains source-bound collision and ground inputs, constructs missing tiles, and schedules walking, known-device and full-action stages. Failures can widen coverage or shorten a window. Pending results retain explicit partial scope.
-6. The patched extractor's `commands/player-route.ts::run` prepares ground, collision, devices, moving support and target refinement, then calls Ganglia. Following-box placement is a fallback when ordinary planning has no complete route.
+6. The World worker reads physical scene resources through the game adapter, which prepares Ganglia's physical solver. Ganglia projects endpoints, prepares collision and ground, compares walking/device/action candidates, refines missing goal support and applies following-support fallback under its declared model.
 7. Accepted physical pieces propagate their actual exits. Window joining, ground-detour comparisons and terminal joining preserve exact endpoints and retime the complete motion sequence. World publishes the route with coverage, assumptions, physical progress and resource/event evidence.
 
 A single `player-route` duration covers one physical request. Whole-task latency additionally includes queueing, process startup, origins, coverage attempts, ground construction, polling and optional improvement. A verified prefix or independent target-side approach retains its partial status until the ordinary connection completes.

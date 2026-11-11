@@ -1,6 +1,6 @@
 {
   "name": "@opendfieldmap/ganglia",
-  "version": "0.1.0-alpha.77",
+  "version": "0.1.0-alpha.78",
   "private": true,
   "description": "Conservative ground-route planning for Open Endfield Map",
   "license": "SEE LICENSE IN LICENSE",

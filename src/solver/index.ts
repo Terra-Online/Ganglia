@@ -17,3 +17,9 @@ export type {
   Corridor,
 } from './window-route.ts';
 export { refineGoalGround } from './ground-refinement.ts';
+export type { PhysicalInput, PhysicalConfig } from './physical/solve.ts';
+export { createDeviceConnections } from './physical/devices.ts';
+export type { DeviceFacts } from './physical/devices.ts';
+export type { SweptSupport, FollowingSupport, PoseBounds, PoseSpan } from './physical/supports.ts';
+export { sweepSupports, supportBounds, supportEndpoints } from './physical/supports.ts';
+export { preparePhysicalRouteSolver } from './physical/prepared.ts';

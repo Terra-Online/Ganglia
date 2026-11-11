@@ -614,3 +614,37 @@ flags across single and batch modes. Preparation and input I/O were excluded;
 there was no completed-route cache. The throughput difference is not claimed as
 an optimization. This workload excludes physical-window scheduling and goal
 refinement; their behavioral regressions are covered separately.
+
+
+## 2026-11-11: physical-query orchestration and browser transfer seams
+
+The alpha.78 physical solver accepts normalized geometry, movement and device
+facts. Stage policy, device feasibility, moving support, placement fallback and
+route annotations moved out of the extractor adapter. Existing behavior fixtures
+moved with their owning algorithms. World uses its own IPC worker and keeps game
+source validation and file loading in the resource adapter. The CLI delegates to
+the same adapter and prepared solver.
+
+The fixed 50 map02 ground-query workload ran five times before and after on Node
+v26.13.0. Batch throughput medians were 6.012610 and 5.901315 queries/s respectively
+(-1.851%). All single and batch outcome hashes, costs, movement counts and
+truncation flags matched the baseline. Final source SHA-256:
+`a7a09188bdfb44438695eee1fbec4ed30a74bb867f36fc2ea865760b076f520f`.
+Reports are retained under `.local/research/atlos-service-seams/` as
+`before-1..5.json`, `final-1..5.json` and `solver-summary.json`. Preparation and I/O
+are excluded and no completed-route cache is used. This corpus measures the
+surface-action adapter; physical orchestration and special supports have separate
+behavioral coverage, so these numbers do not establish their throughput.
+
+Ganglia checks passed 319 tests. World checks passed 59 browser-module tests and
+10 Node server/worker tests. The extractor's physical-query and device-adaptation
+fixtures passed 21 tests after the prepared-solver migration. These counts bind
+the inspected implementation; further changes require focused revalidation.
+
+The browser workload fixes scene/package binding, targets, camera poses and display
+configuration. It measures scene and routing clients across cold/warm browser
+caches. Backend prewarming is recorded outside the measured browser session so
+route-cache state does not silently change the stream-loading observation window.
+HTTP Range fallback counts the full received response. Network visibility gaps
+remain unknown rather than zero. Logical blob categories retain mixed/coalesced
+request overhead rather than attributing it arbitrarily to geometry or textures.
