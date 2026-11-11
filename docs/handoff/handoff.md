@@ -284,8 +284,9 @@ within proposed region/control families. A learned search policy can select regi
 pairs, control families and work allocation before detailed candidates are built.
 A hybrid can combine learned proposals with continuous stochastic optimization.
 Quality-diversity methods such as CMA-MAE are another candidate when retaining
-multiple landing regions or motion families proves important. These are proposals;
-no evolutionary optimizer, learned policy or new performance result is implemented.
+multiple landing regions or motion families proves important. The production solver
+does not enable these policies. Research-only local CEM and learned witness scheduling
+now live in `scripts/research/`; their limited scope is described below.
 
 Start with four comparable arms: the current solver, evolutionary/sampling-based
 local generation, learned high-level selection with the current local generator,
@@ -302,6 +303,58 @@ lower bounds continue to govern safe pruning. Exploration and resumable fallback
 remain part of the comparison, with their actual runtime included. Fixed-budget
 coverage and route quality require independent validation; the 20% objective has
 no demonstrated learning/evolutionary result yet.
+
+### Random-window data and local policy experiments
+
+The research tools [`collect.mjs`](../../scripts/research/collect.mjs),
+[`policy.mjs`](../../scripts/research/policy.mjs) and
+[`analyze.mjs`](../../scripts/research/analyze.mjs) collect individual motion decisions,
+fit logistic scheduling weights and compare a fixed random-pool heuristic, basic
+diagonal CEM, learned ordering and their combination. Their
+[usage and measurement contracts](../../scripts/research/README.md) are separate
+from the production API. Runtime source under `src/`, package alpha.76 and the Atlos
+installation remain unchanged by this experiment.
+
+Sampling uses occupied 6 m XZ / 3 m Y support regions, projected-area endpoint
+sampling, and nine distance/height strata. A region is a sampling domain; it grants
+no support continuity or walking passage. Each tested witness still uses
+`standingFoot`, the existing direct jump/split or supported run-off implementation,
+wall checks and complete swept-body collision. An actual continuous ground trace
+can reject a walking-dominated motion. Labels concern those individual witnesses.
+An exhausted sample pool is unresolved, not a negative region-pair label.
+
+Training normalization and weights use training witnesses only. Whole levels stay
+in one split and map02 is held out from training. Window level tags come from
+unanimous exported marker labels inside each build rectangle; native per-surface
+level ownership is unavailable. Input hashes, model/body/selection, source hashes,
+coverage and random seeds are retained per window. The local artifacts are under
+`endfield-noclip/.research/stage123/learned-search-20261111/`; an ordinary clone does
+not contain them.
+
+CEM proposes endpoint witnesses before detailed surface-pair enumeration, but
+region-pair selection is supplied by the experiment. Its support chart is piecewise
+continuous at triangle-CDF boundaries, with uniform exploration and a variance floor.
+The learned score only changes scheduling. All original reference witnesses remain
+available. CEM/hybrid execute and charge their complete reference fallback. The
+fixed random-pool heuristic is a local comparator, not the current solver's candidate
+generator. Local discovery counts and warm geometry timings cannot establish an
+end-to-end solver speedup. Whole-route resource/goal/boost/relay validation, route
+quality, resumable production integration and the 20% objective remain open.
+
+The completed corpus contains 4,666 region pairs and 186,640 individually tested
+witnesses across 26 windows, with 2,414 useful local motions. The full learned
+model found useful motions in 429/2,506 map02 test pairs within eight validations,
+versus 204 for its local heuristic; control-only learning reached 424. Geometry-only
+features do not show a stable gain across budgets. A strong fixed control-priority
+comparison is needed before attributing the benefit to geometric learning.
+
+Two physical execution repeats on 711 new map02 pairs retained exact witness
+outcomes. Learned first-hit work on 149 common successes used 30.8%/29.5% of the
+local reference time, but full-pool time stayed essentially unchanged. CEM/hybrid
+with full fallback roughly doubled work and found 21 additional pairs. Extra random
+sampling at the same enlarged budget was not compared. No policy is promoted into
+the default solver; the [history](history.md) retains the detailed table, corrected
+feature ablation, timing scope and actual checks.
 
 ## Action objectives and device coverage
 
