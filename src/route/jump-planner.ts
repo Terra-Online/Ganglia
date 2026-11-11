@@ -426,16 +426,7 @@ function planDirectedRoute(
   stage: Stage,
 ): JumpResult {
   const { waypoints, onProgress, ...base } = options;
-  if (
-    waypoints !== undefined &&
-    (!Array.isArray(waypoints) ||
-      waypoints.length > 128 ||
-      waypoints.some(
-        (point) => !Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite),
-      ))
-  ) {
-    throw new Error('Invalid coarse waypoints');
-  }
+  validateWaypoints(waypoints);
   if (onProgress !== undefined && typeof onProgress !== 'function')
     throw new Error('Invalid route progress callback');
   if (!waypoints?.length) return solveJumpRoute(surfaces, world, starts, goal, base, shared, stage);
@@ -790,4 +781,17 @@ export function planJumpRoute(
   return options.boosts?.length
     ? planBoostedRoute(surfaces, world, starts, goal, options, result, planBaseRoute)
     : result;
+}
+
+export function validateWaypoints(waypoints: unknown): asserts waypoints is Vec3[] | undefined {
+  if (
+    waypoints !== undefined &&
+    (!Array.isArray(waypoints) ||
+      waypoints.length > 128 ||
+      waypoints.some(
+        (point) => !Array.isArray(point) || point.length !== 3 || !point.every(Number.isFinite),
+      ))
+  ) {
+    throw new Error('Invalid coarse waypoints');
+  }
 }

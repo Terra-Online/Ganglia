@@ -675,3 +675,59 @@ measurement modules pass lint. Full Atlos lint remains blocked by existing unsaf
 JSON, old test and configuration-project diagnostics; old-source comparison found
 no added diagnostics for the changed modules. Full Atlos check is not reported as
 passing. The local spec retains that unresolved acceptance item.
+
+## 2026-11-12: prepared solver and resource-host separation, alpha.79
+
+The ordinary physical factory no longer accepts effort, cache slots, raw result
+callbacks or diagnostic maps. Per-query events share `RouteResult` with the final
+return and expose cooperative cancellation. Grounded targets and support boxes
+survive that seam. Resource hosts use a dedicated integration entry point with an
+opaque preparation and Ganglia-selected serialized work. The host consumes a plan
+for resource loading and foreground/background scheduling; it does not select the
+algorithm phase. Whole-workload batch submission and its implementation-owned
+scheduling contract remain unchanged.
+
+The game adapter prepares scene resources and a structured query, retaining source,
+profile and selection checks. CLI request-file reading and atomic output are
+outside it. Online IPC no longer writes a request JSON file. Coverage calculation moved from World into Ganglia. Call-site inspection found
+that the legacy proposal-ranking and cross-origin attempt helpers were used only
+by isolated tests; those dead implementations and tests were removed. The active
+window strategy remains in Ganglia.
+Resource jobs, worker ownership, memory policy and persistent result files remain
+in World. The routing adaptation and its fixtures have their own owned patch.
+
+Review consolidated result normalization in the prepared implementation, removed
+a historical comment, and found that walking early returns bypassed waypoint
+validation. A failing CLI behavior test reproduced malformed waypoints being
+accepted. One shared validator now checks those inputs before work selection.
+The existing interruption fixture uses an independent completion barrier so it
+continues to detect early candidate publication, interruption and cached resume
+without depending on the solver's private output path.
+
+Final core validation passed 320 tests plus formatting, lint and type checking.
+World's full suite passed 1,235 tests, excluding two deleted tests of unused helpers;
+its browser/worker and extractor type checks and source-only build passed. Physical
+CLI/device/cache fixtures passed 24 tests, including the malformed-waypoint case.
+New worker/task adapters pass focused lint; pre-existing Atlos lint failures remain
+outside this change and full Atlos check is not reported as passing.
+
+The same 50-query map02 ground/jump corpus ran five times against alpha.78
+(source `b5f4d5d4bdcb188046819f9afe017c31d45a05840fa40e8d7b7250ecebe4b6ae`) and five against final alpha.79
+(source `c666cc58700f61d6d201756e2d7dcb27b7f70549eed4ffc7b8ff15c2952dd055`), on Node v26.13.0. Median batch throughput was
+6.135274 and 6.151580 queries/s (+0.266%). All ten runs
+preserve single and batch outcome hashes and truncation flags with identical input
+hashes. Input I/O and scene preparation are excluded, without completed-route
+caching. These figures measure the surface-action adapter; separate physical
+behavior fixtures cover host preparation and window orchestration. This difference
+is not claimed as an optimization. Reports are retained under the local
+`atlos-service-seams/alpha79/` evidence directory. Pre-cleanup measurements have
+their own filenames and are not included in the final median.
+
+The final integration replay passed five cold and five warm browser sessions, with
+route cost 2.316174 s retained, no resource failures and empty stream queues.
+Browser/source binding: `afe000d3d79c1b5fbd5cd4753e4c5d1536fbfa524f67473ed5a401c702f73b4d`. Median observed CDP bytes were
+500,393,313 cold and 491,734,579 warm. Each session retains one aborted
+catalogue request with an unknown complete length, so those network figures are
+lower bounds. Backend prewarming is recorded separately (58.430 s); it does
+not measure fresh-query throughput. The input-cache adapter releases opaque
+preparation after oversized/non-retained queries, preserving its memory policy.

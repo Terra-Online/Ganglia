@@ -1,4 +1,5 @@
-import type { PreparedRouteSolver, RouteQuery, RouteResult } from '../contract.ts';
+import { validateWaypoints } from '../../route/jump-planner.ts';
+import type { PreparedRouteSolver, RouteQuery, RouteResult, SolveOptions } from '../contract.ts';
 import { createPhysicalCache } from './preparation.ts';
 import {
   solvePhysicalRoute,
@@ -7,14 +8,22 @@ import {
   type PhysicalInput,
 } from './solve.ts';
 
-export async function preparePhysicalRouteSolver(
+export async function preparePhysicalSolver(
   input: PhysicalInput,
-  context: Omit<PhysicalContext, 'emit'> & { emit?: PhysicalContext['emit'] } = {},
+  context: Omit<PhysicalContext, 'emit'> & {
+    observe?: (
+      result: RouteResult,
+      optimizing: boolean,
+      diagnostics: unknown,
+    ) => void | Promise<void>;
+  } = {},
 ): Promise<PreparedRouteSolver> {
   let scene: PhysicalInput | null = input;
   let cache: PhysicalCache | null = context.cache ?? createPhysicalCache();
-  const solve = async (query: RouteQuery): Promise<RouteResult> => {
+  const solve = async (query: RouteQuery, options: SolveOptions = {}): Promise<RouteResult> => {
     if (!scene || !cache) throw new Error('Route solver is closed');
+    options.signal?.throwIfAborted();
+    validateWaypoints(query.waypoints);
     const fixed = scene;
     const preparation = cache;
     let best: RouteResult = {
@@ -23,7 +32,7 @@ export async function preparePhysicalRouteSolver(
       diagnostics: { truncated: false },
     };
     let truncated = false;
-    for (const arrival of query.starts) {
+    for (const [index, arrival] of query.starts.entries()) {
       await solvePhysicalRoute(
         fixed,
         {
@@ -36,12 +45,38 @@ export async function preparePhysicalRouteSolver(
         {
           ...context,
           cache: preparation,
+          progress(progress) {
+            options.signal?.throwIfAborted();
+            context.progress?.(progress);
+            const phase =
+              progress.phase === 'goal-refinement'
+                ? 'refine'
+                : progress.phase === 'collision-index' || progress.phase === 'moving-supports'
+                  ? 'prepare'
+                  : progress.phase === 'route-search'
+                    ? 'validate'
+                    : 'search';
+            options.onEvent?.({
+              type: 'progress',
+              phase,
+              ...(typeof progress.completed === 'number' ? { completed: progress.completed } : {}),
+              ...(typeof progress.total === 'number' ? { total: progress.total } : {}),
+            });
+            options.signal?.throwIfAborted();
+          },
           async emit(result, optimizing, diagnostics) {
             truncated ||= diagnostics.truncated === true;
             const route = result.route;
-            if (best.route.status !== 'complete' && result.reason === 'no-verified-route')
+            if (
+              best.route.status !== 'complete' &&
+              result.reason &&
+              (result.reason === 'no-verified-route' || best.route.status === 'unmapped')
+            )
               best = {
-                route: { status: 'no-verified-route' },
+                route: {
+                  status: result.reason === 'no-verified-route' ? 'no-verified-route' : 'unmapped',
+                },
+                reason: result.reason,
                 connections: result.connections ?? [],
                 diagnostics: { truncated },
               };
@@ -49,8 +84,25 @@ export async function preparePhysicalRouteSolver(
               route?.status === 'complete' &&
               (best.route.status !== 'complete' || route.cost < best.route.cost)
             )
-              best = { route, connections: result.connections ?? [], diagnostics: { truncated } };
-            await context.emit?.(result, optimizing, diagnostics);
+              best = {
+                route,
+                connections: result.connections ?? [],
+                diagnostics: { truncated },
+                groundedTarget: result.groundedTarget,
+                supportBoxes: result.supportBoxes,
+              };
+            if (route?.status === 'complete')
+              options.onEvent?.({
+                type: 'candidate',
+                result: { ...best, diagnostics: { truncated } },
+                optimizing: optimizing || index < query.starts.length - 1,
+              });
+            options.signal?.throwIfAborted();
+            await context.observe?.(
+              { ...best, diagnostics: { truncated } },
+              optimizing || index < query.starts.length - 1,
+              diagnostics,
+            );
           },
         },
         query.config?.search,
@@ -60,11 +112,11 @@ export async function preparePhysicalRouteSolver(
   };
   return {
     solve,
-    async solveBatch(queries) {
+    async solveBatch(queries, options) {
       if (!scene) throw new Error('Route solver is closed');
       const results: RouteResult[] = [];
       // Scheduling belongs to this adapter; callers submit the whole workload.
-      for (const query of queries) results.push(await solve(query));
+      for (const query of queries) results.push(await solve(query, options));
       return results;
     },
     async close() {
@@ -72,4 +124,10 @@ export async function preparePhysicalRouteSolver(
       cache = null;
     },
   };
+}
+
+export async function preparePhysicalRouteSolver(
+  input: PhysicalInput,
+): Promise<PreparedRouteSolver> {
+  return preparePhysicalSolver(input);
 }

@@ -230,7 +230,7 @@ test('walking can replace an unnecessary device excursion across two solved wind
       collision: 'collision',
     }),
     solve: async (_ground, local, _start, stage) => {
-      if (stage === 'walking')
+      if (stage.step === 0)
         return {
           status: 'ready',
           message: '',

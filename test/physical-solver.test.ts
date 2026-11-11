@@ -40,7 +40,7 @@ const input: PhysicalInput = {
   locomotion: { speed: 1, sprintSpeed: 2, sprintAcceleration: 1 },
 };
 test('physical solver returns fresh single and batch routes through the prepared seam', async () => {
-  const solver = await preparePhysicalRouteSolver(input, { effort: 'walking' });
+  const solver = await preparePhysicalRouteSolver(input);
   const query = {
     starts: [
       {
@@ -54,6 +54,18 @@ test('physical solver returns fresh single and batch routes through the prepared
   };
   const single = await solver.solve(query);
   assert.equal(single.route.status, 'complete');
+  assert.deepEqual(single.groundedTarget, [9, 0, 1]);
+  const abort = new AbortController();
+  await assert.rejects(
+    solver.solve(query, {
+      signal: abort.signal,
+      onEvent(event) {
+        if (event.type === 'candidate') abort.abort(new Error('query cancelled'));
+      },
+    }),
+    /query cancelled/,
+  );
+  assert.equal((await solver.solve(query)).route.status, 'complete');
   const batch = await solver.solveBatch([query, query]);
   assert.deepEqual(batch[0], single);
   assert.deepEqual(batch[1], single);
@@ -63,27 +75,24 @@ test('physical solver returns fresh single and batch routes through the prepared
 });
 
 test('physical solver distinguishes mapped but disconnected ground from unmapped endpoints', async () => {
-  const solver = await preparePhysicalRouteSolver(
-    {
-      ...input,
-      ground: {
-        ...input.ground,
-        surfaces: [
-          ...input.ground.surfaces,
-          {
-            id: 'island',
-            vertices: [
-              [20, 0, 0],
-              [20, 0, 10],
-              [30, 0, 10],
-              [30, 0, 0],
-            ],
-          },
-        ],
-      },
+  const solver = await preparePhysicalRouteSolver({
+    ...input,
+    ground: {
+      ...input.ground,
+      surfaces: [
+        ...input.ground.surfaces,
+        {
+          id: 'island',
+          vertices: [
+            [20, 0, 0],
+            [20, 0, 10],
+            [30, 0, 10],
+            [30, 0, 0],
+          ],
+        },
+      ],
     },
-    { effort: 'walking' },
-  );
+  });
   const result = await solver.solve({
     starts: [{ id: 'start', state: 'available', cost: 0, position: [1, 0, 1] }],
     goal: [25, 0, 1],
@@ -109,41 +118,38 @@ test('physical solver retains incomplete placement coverage at the prepared seam
     positions: surfaces.flatMap((s) => s.vertices.flat()),
     indices: surfaces.flatMap((_, i) => [i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3]),
   };
-  const solver = await preparePhysicalRouteSolver(
-    {
-      ...input,
-      collision,
-      ground: {
-        ...input.ground,
-        surfaces,
-        build: { bounds: { min: [0, 0], max: [10, 10] }, cellSize: 0.25, cellHeight: 0.1 },
-      },
-      devices: {
-        devices: [],
-        ropes: [],
-        followingSupports: [
-          {
-            id: 'box',
-            level: 'fixture',
-            model: 'box',
-            spawn: [4, 0, 4],
-            bodies: [
-              Array.from({ length: 8 }, (_, bits): [number, number, number] => [
-                4 + (bits & 1 ? 0.8 : -0.8),
-                bits & 2 ? 1.2 : 0,
-                4 + (bits & 4 ? 0.8 : -0.8),
-              ]),
-            ],
-            geometryKind: 'box',
-            initialState: 0,
-            maxDistance: 65,
-            assumption: 'placement-within-activity-range',
-          },
-        ],
-      },
+  const solver = await preparePhysicalRouteSolver({
+    ...input,
+    collision,
+    ground: {
+      ...input.ground,
+      surfaces,
+      build: { bounds: { min: [0, 0], max: [10, 10] }, cellSize: 0.25, cellHeight: 0.1 },
     },
-    { effort: 'devices' },
-  );
+    devices: {
+      devices: [],
+      ropes: [],
+      followingSupports: [
+        {
+          id: 'box',
+          level: 'fixture',
+          model: 'box',
+          spawn: [4, 0, 4],
+          bodies: [
+            Array.from({ length: 8 }, (_, bits): [number, number, number] => [
+              4 + (bits & 1 ? 0.8 : -0.8),
+              bits & 2 ? 1.2 : 0,
+              4 + (bits & 4 ? 0.8 : -0.8),
+            ]),
+          ],
+          geometryKind: 'box',
+          initialState: 0,
+          maxDistance: 65,
+          assumption: 'placement-within-activity-range',
+        },
+      ],
+    },
+  });
   const result = await solver.solve({
     starts: [{ id: 'start', state: 'available', cost: 0, position: [1, 0, 1] }],
     goal: [8, 2.5, 8],

@@ -6,6 +6,8 @@ export type {
   RouteQuery,
   RouteResult,
   PreparedRouteSolver,
+  SolveOptions,
+  RouteEvent,
 } from './contract.ts';
 export { composeRoutes } from './route-result.ts';
 export { createWindowRoute } from './window-route.ts';
@@ -23,4 +25,3 @@ export type { DeviceFacts } from './physical/devices.ts';
 export type { SweptSupport, FollowingSupport, PoseBounds, PoseSpan } from './physical/supports.ts';
 export { sweepSupports, supportBounds, supportEndpoints } from './physical/supports.ts';
 export { preparePhysicalRouteSolver } from './physical/prepared.ts';
-export { createPhysicalCache } from './physical/preparation.ts';

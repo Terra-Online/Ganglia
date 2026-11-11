@@ -6,6 +6,7 @@ import type { LocomotionOptions } from '../resource/locomotion.ts';
 import { pruneGroundDetours } from '../route/ground-detours.ts';
 import { createGroundPlanner, type GroundOptions, type GroundArrival } from '../route/ground.ts';
 import type { Route } from '../route/routes.ts';
+import { physicalWork, type PhysicalWork } from './physical/work.ts';
 import { composeRoutes } from './route-result.ts';
 type Complete = Extract<Route, { status: 'complete' }>;
 export interface WindowRequest {
@@ -35,12 +36,7 @@ export interface WindowResources<Request extends WindowRequest, Job extends Wind
     target: number[],
     options: { startBuild: boolean; margin: number; corridor: Corridor },
   ): Promise<Job | null>;
-  solve(
-    job: Job,
-    request: Request,
-    start: boolean,
-    stage: 'walking' | 'devices' | 'all',
-  ): Promise<Job | null>;
+  solve(job: Job, request: Request, start: boolean, work: PhysicalWork): Promise<Job | null>;
   key(job: Job): string;
   ground(job: Job): Promise<{ surfaces: Surface[]; options: GroundOptions }>;
   route(job: Job): { route?: Route; reason?: string };
@@ -326,7 +322,12 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
           interaction: final ? request.interaction : undefined,
           waypoints: coarseWaypoints([corridor]),
         };
-        const job = await builder.solve(ground, local, true, stages[stage]);
+        const job = await builder.solve(
+          ground,
+          local,
+          true,
+          physicalWork(([0, 1, 2] as const)[stage]),
+        );
         if (!job) return progress('incomplete', 'solver-unavailable');
         if (job.status === 'failed') return progress('incomplete', job.message);
         if (job.status !== 'ready') return progress('pending');

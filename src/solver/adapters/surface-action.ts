@@ -56,14 +56,24 @@ export async function prepareSurfaceActionSolver(input: SceneInput): Promise<Pre
     });
   };
   return {
-    async solve(query) {
-      return solve(query);
+    async solve(query, options) {
+      options?.signal?.throwIfAborted();
+      options?.onEvent?.({ type: 'progress', phase: 'search' });
+      options?.signal?.throwIfAborted();
+      const result = solve(query);
+      if (result.route.status === 'complete')
+        options?.onEvent?.({ type: 'candidate', result, optimizing: false });
+      options?.signal?.throwIfAborted();
+      return result;
     },
-    async solveBatch(queries) {
+    async solveBatch(queries, options) {
       if (!prepared) throw new Error('Route solver is closed');
       // Serial execution belongs to this adapter, leaving replacements free to
       // schedule a whole batch without a caller-side loop.
-      return queries.map(solve);
+      return queries.map((query) => {
+        options?.signal?.throwIfAborted();
+        return solve(query);
+      });
     },
     async close() {
       prepared = null;
