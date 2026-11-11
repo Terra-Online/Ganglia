@@ -23,3 +23,4 @@ export type { DeviceFacts } from './physical/devices.ts';
 export type { SweptSupport, FollowingSupport, PoseBounds, PoseSpan } from './physical/supports.ts';
 export { sweepSupports, supportBounds, supportEndpoints } from './physical/supports.ts';
 export { preparePhysicalRouteSolver } from './physical/prepared.ts';
+export { createPhysicalCache } from './physical/preparation.ts';

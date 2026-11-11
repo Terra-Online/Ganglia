@@ -91,3 +91,64 @@ test('physical solver distinguishes mapped but disconnected ground from unmapped
   assert.equal(result.route.status, 'no-verified-route');
   await solver.close();
 });
+
+test('physical solver retains incomplete placement coverage at the prepared seam', async () => {
+  const surfaces: typeof input.ground.surfaces = [
+    ...input.ground.surfaces,
+    {
+      id: 'upper',
+      vertices: [
+        [6, 2.5, 6],
+        [6, 2.5, 9],
+        [9, 2.5, 9],
+        [9, 2.5, 6],
+      ],
+    },
+  ];
+  const collision = {
+    positions: surfaces.flatMap((s) => s.vertices.flat()),
+    indices: surfaces.flatMap((_, i) => [i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3]),
+  };
+  const solver = await preparePhysicalRouteSolver(
+    {
+      ...input,
+      collision,
+      ground: {
+        ...input.ground,
+        surfaces,
+        build: { bounds: { min: [0, 0], max: [10, 10] }, cellSize: 0.25, cellHeight: 0.1 },
+      },
+      devices: {
+        devices: [],
+        ropes: [],
+        followingSupports: [
+          {
+            id: 'box',
+            level: 'fixture',
+            model: 'box',
+            spawn: [4, 0, 4],
+            bodies: [
+              Array.from({ length: 8 }, (_, bits): [number, number, number] => [
+                4 + (bits & 1 ? 0.8 : -0.8),
+                bits & 2 ? 1.2 : 0,
+                4 + (bits & 4 ? 0.8 : -0.8),
+              ]),
+            ],
+            geometryKind: 'box',
+            initialState: 0,
+            maxDistance: 65,
+            assumption: 'placement-within-activity-range',
+          },
+        ],
+      },
+    },
+    { effort: 'devices' },
+  );
+  const result = await solver.solve({
+    starts: [{ id: 'start', state: 'available', cost: 0, position: [1, 0, 1] }],
+    goal: [8, 2.5, 8],
+    config: { search: { maxCandidates: 1 } },
+  });
+  assert.equal(result.diagnostics.truncated, true);
+  await solver.close();
+});

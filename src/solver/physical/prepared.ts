@@ -1,4 +1,5 @@
 import type { PreparedRouteSolver, RouteQuery, RouteResult } from '../contract.ts';
+import { createPhysicalCache } from './preparation.ts';
 import {
   solvePhysicalRoute,
   type PhysicalCache,
@@ -6,34 +7,12 @@ import {
   type PhysicalInput,
 } from './solve.ts';
 
-/** One cache slot holds values produced by the same physical preparation site.
- * Slot/key changes invalidate dependants before a different preparation is stored. */
-function preparationCache(): PhysicalCache {
-  const slots = new Map<string, { key: string; value: unknown }>();
-  return {
-    release(slot) {
-      slots.delete(slot);
-    },
-    async memo<T>(slot: string, key: string, create: () => T | Promise<T>) {
-      const found = slots.get(slot);
-      if (found?.key === key) return { value: found.value as T, reused: true };
-      slots.delete(slot);
-      if (slot === 'ground')
-        for (const dependent of ['devices', 'moving', 'refinement']) slots.delete(dependent);
-      if (slot === 'moving') slots.delete('refinement');
-      const value = await create();
-      slots.set(slot, { key, value });
-      return { value, reused: false };
-    },
-  };
-}
-
 export async function preparePhysicalRouteSolver(
   input: PhysicalInput,
   context: Omit<PhysicalContext, 'emit'> & { emit?: PhysicalContext['emit'] } = {},
 ): Promise<PreparedRouteSolver> {
   let scene: PhysicalInput | null = input;
-  let cache: PhysicalCache | null = context.cache ?? preparationCache();
+  let cache: PhysicalCache | null = context.cache ?? createPhysicalCache();
   const solve = async (query: RouteQuery): Promise<RouteResult> => {
     if (!scene || !cache) throw new Error('Route solver is closed');
     const fixed = scene;

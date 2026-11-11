@@ -61,8 +61,7 @@ const launchLanding = (
     }
   }
   for (const start of starts) {
-    // JumpMachineComponent._CalcSpeed uses this 3 m target-to-apex minimum
-    // when unlock_height_limit is false, in addition to the authored height.
+    // A launch must clear its aim by the adapter-supplied minimum height.
     const model = {
       gravity: options.model.gravity,
       fallingGravity: options.model.fallingGravity,

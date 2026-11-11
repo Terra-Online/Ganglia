@@ -626,19 +626,19 @@ source validation and file loading in the resource adapter. The CLI delegates to
 the same adapter and prepared solver.
 
 The fixed 50 map02 ground-query workload ran five times before and after on Node
-v26.13.0. Batch throughput medians were 6.012610 and 5.901315 queries/s respectively
-(-1.851%). All single and batch outcome hashes, costs, movement counts and
+v26.13.0. Batch throughput medians were 6.012610 and 6.117068 queries/s respectively
+(+1.737%). All single and batch outcome hashes, costs, movement counts and
 truncation flags matched the baseline. Final source SHA-256:
-`a7a09188bdfb44438695eee1fbec4ed30a74bb867f36fc2ea865760b076f520f`.
+`b5f4d5d4bdcb188046819f9afe017c31d45a05840fa40e8d7b7250ecebe4b6ae`.
 Reports are retained under `.local/research/atlos-service-seams/` as
 `before-1..5.json`, `final-1..5.json` and `solver-summary.json`. Preparation and I/O
 are excluded and no completed-route cache is used. This corpus measures the
 surface-action adapter; physical orchestration and special supports have separate
 behavioral coverage, so these numbers do not establish their throughput.
 
-Ganglia checks passed 319 tests. World checks passed 59 browser-module tests and
-10 Node server/worker tests. The extractor's physical-query and device-adaptation
-fixtures passed 21 tests after the prepared-solver migration. These counts bind
+Ganglia checks passed 320 tests. World checks passed 59 browser-module tests and
+11 Node server/worker/network tests. The extractor's physical-query and device-adaptation
+fixtures passed 23 tests after the prepared-solver migration. These counts bind
 the inspected implementation; further changes require focused revalidation.
 
 The browser workload fixes scene/package binding, targets, camera poses and display
@@ -648,3 +648,30 @@ route-cache state does not silently change the stream-loading observation window
 HTTP Range fallback counts the full received response. Network visibility gaps
 remain unknown rather than zero. Logical blob categories retain mixed/coalesced
 request overhead rather than attributing it arbitrarily to geometry or textures.
+
+Review additionally bound browser queries and responses to the catalog generation,
+source and supported fully-enabled state. The physical prepared solver preserves
+following-placement truncation in its top-level diagnostics. Preparation-slot
+invalidation has one Ganglia owner; the extractor retains decoded-file identity
+and budget policy. Online IPC carries validated resource fields instead of CLI
+arguments. Cancelled CDP reads retain observed response headers and compressed body
+bytes; unavailable measurements remain unknown. The fixed corpus does not exercise
+following-placement truncation; a focused behavior test verifies it independently.
+
+The final browser replay completed five cold and five warm sessions with the same
+route cost (2.316174 s), no streaming failures and empty work queues on completion.
+Median observed CDP network bytes were 499,887,177 cold and 492,342,284 warm;
+median client-observed decoded response bytes were 508,292,043 and 498,960,719.
+Every session contains one aborted catalogue read without a complete CDP length,
+so total network transfer stays unknown and observed network bytes are a lower
+bound. Query plus repeat-query responses total 30,460 decoded bytes per session.
+Backend preparation took 64.409 s outside the measured browser sessions; both route
+reads report completed-result cache hits. These latencies do not measure fresh
+solver throughput. Browser/source binding:
+`06a41a04f1a89793f884f8035d077778c69dd3dcb14da3d8ce2681524768e66e`.
+The full Atlos test command passed 1,237 tests; World browser/worker and extractor
+type checks and source-only World build passed. New client, worker, binding and
+measurement modules pass lint. Full Atlos lint remains blocked by existing unsafe
+JSON, old test and configuration-project diagnostics; old-source comparison found
+no added diagnostics for the changed modules. Full Atlos check is not reported as
+passing. The local spec retains that unresolved acceptance item.

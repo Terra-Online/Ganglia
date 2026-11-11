@@ -126,7 +126,7 @@ whole-batch solver contract. The extractor adapter validates exported source/pro
 bindings and normalizes game fields; its `player-route` command is a file/CLI entry.
 Atlos runs an owned worker against that resource adapter instead of invoking the
 extractor command for online solving. Browser resource and routing clients expose
-transfer accounting separately from algorithm timing.
+transfer accounting separately from algorithm timing. Browser requests and results bind the catalog generation, source and fully-enabled state. Scene state changes invalidate the current request/result. The resource adapter shares preparation-slot invalidation with Ganglia, while retaining file identity and memory-budget policy.
 
 ## Current scene and movement assumptions
 
@@ -338,7 +338,7 @@ The boost planner compares one reachable pickup and its accelerated tail. Ground
 | Following stepping boxes | Placement sampling inside the authored activity sphere, supported/collision-checked placement, reconstructed box-top support and used-position output. Retained audit covers 23 map01 and 9 map02 boxes. |
 | Steam and other hazards | Applicable exported exclusions participate in planning. Complete map-wide hazard coverage remains an audit item. |
 
-Following-box search currently runs after ordinary planning fails, moves one source box per trial and retains other source collisions. It supports horizontal box tops and handled BoxCollider geometry, emits diagnostics for unsupported/missing ownership and spends a finite placement budget. Multi-box coordination, box shortcuts to an already complete route, continuous placement completeness and moving time remain open. Relevant patched modules are `game/following-route.ts`, `following-supports.ts`, `forklift-supports.ts`, `moving-ground.ts` and `commands/player-route.ts`.
+Following-box search currently runs after ordinary planning fails, moves one source box per trial and retains other source collisions. It supports horizontal box tops and handled BoxCollider geometry, emits diagnostics for unsupported/missing ownership and spends a finite placement budget. Multi-box coordination, box shortcuts to an already complete route, continuous placement completeness and moving time remain open. Placement search and moving-support algorithms live in Ganglia `src/solver/physical/`; game-specific geometry export remains in the extractor adapter.
 
 The later traversal export audit also identified incomplete motion relationships for five `InteractiveMovingPlatform` objects, fifteen water-level-driven waterdrone platforms, one waterbody floating support and the separate box-game elevator controller. Existing static/current-pose collision remains useful, while complete transport semantics require the missing control bindings. Actual bridge geometry and bridge-end access are separate investigations. See the Atlos [traversal audit](../../../Atlos/talos/apps/world/docs/traversal-data-audit-2026-11-10.md).
 

@@ -572,6 +572,7 @@ export const solvePhysicalRoute = async (
       },
     );
     diagnostics.followingSupports = following.diagnostics;
+    diagnostics.truncated = diagnostics.truncated === true || following.diagnostics.truncated;
     timing.following = performance.now() - followingStart;
     return following.route.status === 'complete' ? following : null;
   };
