@@ -1,4 +1,4 @@
-import type { CollisionWorld } from './collision-types.js';
+import type { CollisionWorld } from './collision-types.ts';
 export type Vec3 = [number, number, number];
 export interface Node {
   id: string;

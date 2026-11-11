@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Portal, Surface, Vec3 } from '../src/index-types.js';
-import { surfaceGraph, projectPoint, route } from '../src/index.js';
-import { expectStatus } from './assertions.js';
+import type { Portal, Surface, Vec3 } from '../src/index-types.ts';
+import { surfaceGraph, projectPoint, route } from '../src/index.ts';
+import { expectStatus } from './assertions.ts';
 test('joins a shared 3D edge but never an overlapping upper floor', () => {
   const a: Surface = {
     id: 'a',

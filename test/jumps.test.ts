@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Capsule } from '../src/collision-types.js';
-import { createCollisionWorld } from '../src/collision.js';
-import type { Vec3, Wall } from '../src/index-types.js';
-import type { JumpOptions, RunOffOptions } from '../src/jumps.js';
-import { jumpConnection, jumpDuration, runOffConnection } from '../src/jumps.js';
+import type { Capsule } from '../src/collision-types.ts';
+import { createCollisionWorld } from '../src/collision.ts';
+import type { Vec3, Wall } from '../src/index-types.ts';
+import type { JumpOptions, RunOffOptions } from '../src/jumps.ts';
+import { jumpConnection, jumpDuration, runOffConnection } from '../src/jumps.ts';
 
 const profile = { radius: 0.35, height: 1.66 };
 const options: JumpOptions = {

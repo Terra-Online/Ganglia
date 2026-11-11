@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Portal, Surface, Vec3, Wall } from '../src/index-types.js';
-import { createGroundStraightener } from '../src/straighten.js';
+import type { Portal, Surface, Vec3, Wall } from '../src/index-types.ts';
+import { createGroundStraightener } from '../src/straighten.ts';
 
 const options = { walls: [], profile: { radius: 0.3, height: 1.7 } };
 const rectangle = (

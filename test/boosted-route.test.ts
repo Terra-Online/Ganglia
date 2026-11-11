@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.js';
-import type { GroundArrival, Route, SpeedBoost, Surface, Vec3 } from '../src/index-types.js';
-import { planJumpRoute, createGroundPlanner, retimeGroundRoute } from '../src/index.js';
-import { expectStatus } from './assertions.js';
+import { createCollisionWorld } from '../src/collision.ts';
+import type { GroundArrival, Route, SpeedBoost, Surface, Vec3 } from '../src/index-types.ts';
+import { planJumpRoute, createGroundPlanner, retimeGroundRoute } from '../src/index.ts';
+import { expectStatus } from './assertions.ts';
 
 const floor = (id: string, left: number, right: number): Surface => ({
   id,

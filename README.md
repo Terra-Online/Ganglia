@@ -72,11 +72,14 @@ are available for importers. `sampleRoute(points, meters)` samples arc length wi
 smoothing through corners. `unmapped` or `no-verified-route` means the inputs cannot prove
 a route, not that the game destination is absolutely unreachable.
 
-Run `pnpm pack` (which runs the tests) for an installable archive. The package includes modules,
-declarations and the repository's license, never game assets. Registry publication
-is separate. Atlos consumes this archive as a package dependency. Runtime player-state
-integration, complete player navigation coverage and in-game traversal validation remain
-outstanding; this is an alpha implementation.
+Run `pnpm check` for formatting, lint, type checking and tests. Node.js 24.12 or newer
+runs the TypeScript sources directly; no JavaScript build is needed. `pnpm pack`
+checks the package and creates an archive containing TypeScript sources and licenses,
+never game assets. Native Node consumers must link the extracted source outside
+`node_modules`; browser consumers process it through their application bundler.
+Atlos consumes the pinned archive through a generated workspace package.
+Runtime player-state integration, complete player navigation coverage and in-game
+traversal validation remain outstanding; this is an alpha implementation.
 
 ## Workspace ownership
 

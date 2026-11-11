@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { CollisionWorld } from '../src/collision-types.js';
-import { createCollisionWorld } from '../src/collision.js';
-import type { Vec3 } from '../src/index-types.js';
+import type { CollisionWorld } from '../src/collision-types.ts';
+import { createCollisionWorld } from '../src/collision.ts';
+import type { Vec3 } from '../src/index-types.ts';
 
 interface Entry {
   id: number;

@@ -1,5 +1,5 @@
-import type { GroundTopology } from './connectivity.js';
-import type { Surface, Vec3 } from './index-types.js';
+import type { GroundTopology } from './connectivity.ts';
+import type { Surface, Vec3 } from './index-types.ts';
 interface Occurrence {
   surface: string;
   ordinal: number;

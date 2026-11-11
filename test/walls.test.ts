@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Graph, Vec3, Wall } from '../src/index-types.js';
-import { blockedByWalls, createWallChecker, route } from '../src/index.js';
+import type { Graph, Vec3, Wall } from '../src/index-types.ts';
+import { blockedByWalls, createWallChecker, route } from '../src/index.ts';
 const wall: Wall = { min: [0, 0, -2], max: [0.2, 3, 2], state: 'unknown' };
 const profile = { radius: 0.4, height: 2 };
 test('unknown walls reject crossing and radius grazing; inactive walls allow crossing', () => {

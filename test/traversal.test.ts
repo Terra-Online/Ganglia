@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Capsule, CollisionWorld } from '../src/collision-types.js';
-import { createCollisionWorld } from '../src/collision.js';
-import { createGoalProjector } from '../src/goals.js';
-import { planGroundRoute, createGroundPlanner } from '../src/ground.js';
+import type { Capsule, CollisionWorld } from '../src/collision-types.ts';
+import { createCollisionWorld } from '../src/collision.ts';
+import { createGoalProjector } from '../src/goals.ts';
+import { planGroundRoute, createGroundPlanner } from '../src/ground.ts';
 import type {
   DiscoveryOptions,
   GroundConnection,
   Surface,
   Vec3,
   Wall,
-} from '../src/index-types.js';
-import { jumpConnection } from '../src/jumps.js';
-import { findJumpConnections, exposedBoundaries, standingFoot } from '../src/traversal.js';
+} from '../src/index-types.ts';
+import { jumpConnection } from '../src/jumps.ts';
+import { findJumpConnections, exposedBoundaries, standingFoot } from '../src/traversal.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
   id,

@@ -1,5 +1,5 @@
-import type { Surface, Vec3, projectPoint as ProjectPoint } from './index-types.js';
-import { projectPoint } from './surfaces.js';
+import type { Surface, Vec3, projectPoint as ProjectPoint } from './index-types.ts';
+import { projectPoint } from './surfaces.ts';
 
 type Projection = ReturnType<typeof ProjectPoint>;
 

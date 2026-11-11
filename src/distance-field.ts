@@ -1,4 +1,4 @@
-import { createMinHeap } from './heap.js';
+import { createMinHeap } from './heap.ts';
 
 export interface WeightedEdge {
   from: string;

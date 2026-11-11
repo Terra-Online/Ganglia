@@ -7,8 +7,8 @@ import { parseArgs } from 'node:util';
 
 import { prepareSurfaceActionSolver } from '@opendfieldmap/ganglia/solver';
 
-import { runBenchmark } from './run.js';
-import { loadMap02, cases } from './scenes/map02.js';
+import { runBenchmark } from './run.ts';
+import { loadMap02, cases } from './scenes/map02.ts';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { values } = parseArgs({
   options: {
@@ -33,11 +33,6 @@ if (values.help) {
         sourceHash.update(`${dir}/${name}\0`).update(await readFile(resolve(root, dir, name)));
       }
     }
-    const artifactHash = createHash('sha256');
-    for (const name of (await readdir(resolve(root, 'dist'), { recursive: true })).sort()) {
-      if (name.endsWith('.js'))
-        artifactHash.update(name).update(await readFile(resolve(root, 'dist', name)));
-    }
     const preparationMs: number[] = [];
     const report = await runBenchmark(async () => {
       const started = performance.now();
@@ -46,14 +41,14 @@ if (values.help) {
       return solver;
     }, cases);
     const output = {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      runtime: 'native-typescript',
       adapter: 'surface-action',
       execution: 'serial',
       node: process.version,
       execArgv: process.execArgv,
       revision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
       sourceSha256: sourceHash.digest('hex'),
-      artifactSha256: artifactHash.digest('hex'),
       ...metadata,
       cases,
       policy:

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { BuildOptions } from '../src/build-types.js';
-import { buildGroundSurfaces } from '../src/build.js';
-import type { Surface, Vec3, Wall } from '../src/index-types.js';
-import { planGroundRoute, projectPoint } from '../src/index.js';
+import type { BuildOptions } from '../src/build-types.ts';
+import { buildGroundSurfaces } from '../src/build.ts';
+import type { Surface, Vec3, Wall } from '../src/index-types.ts';
+import { planGroundRoute, projectPoint } from '../src/index.ts';
 const options: BuildOptions = {
   profile: { radius: 0.35, height: 1.66 },
   maxSlope: 46,

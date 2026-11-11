@@ -1,7 +1,7 @@
-import type { Bounds } from './bounds.js';
-import { createBoundsIndex } from './bounds.js';
-import type { CollisionWorld } from './collision-types.js';
-import { createMinHeap } from './heap.js';
+import type { Bounds } from './bounds.ts';
+import { createBoundsIndex } from './bounds.ts';
+import type { CollisionWorld } from './collision-types.ts';
+import { createMinHeap } from './heap.ts';
 import type {
   Vec3,
   Surface,
@@ -9,13 +9,13 @@ import type {
   DiscoveryOptions,
   DiscoveryDiagnostics,
   GroundConnection,
-} from './index-types.js';
-import { jumpConnection, jumpDuration } from './jumps.js';
-import { landingCandidates } from './landings.js';
-import { movementGeometry } from './movement-geometry.js';
-import type { SharedPortal } from './surfaces.js';
-import { surfacePortals, directedPortals } from './surfaces.js';
-import { createWallChecker } from './walls.js';
+} from './index-types.ts';
+import { jumpConnection, jumpDuration } from './jumps.ts';
+import { landingCandidates } from './landings.ts';
+import { movementGeometry } from './movement-geometry.ts';
+import type { SharedPortal } from './surfaces.ts';
+import { surfacePortals, directedPortals } from './surfaces.ts';
+import { createWallChecker } from './walls.ts';
 
 export interface Boundary {
   surface: string;
@@ -67,7 +67,7 @@ type DiscoveredConnection = GroundConnection & {
   motionValidation: 'model-based';
 };
 
-export { groundComponents } from './connectivity.js';
+export { groundComponents } from './connectivity.ts';
 
 const finitePoint = (point: unknown) =>
   Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
@@ -301,7 +301,6 @@ export function findJumpConnections(
 ): { connections: DiscoveredConnection[]; diagnostics: DiscoveryDiagnostics } {
   const {
     profile,
-    portals = [],
     walls,
     from,
     to,

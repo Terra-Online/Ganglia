@@ -1,5 +1,5 @@
-import type { Graph, Edge, Arrival, createLazyRoutePlanner as LazyPlanner } from './index-types.js';
-import { createUpdatingRoutePlanner } from './routes.js';
+import type { Graph, Edge, Arrival, createLazyRoutePlanner as LazyPlanner } from './index-types.ts';
+import { createUpdatingRoutePlanner } from './routes.ts';
 
 type PlanOptions = Parameters<ReturnType<typeof LazyPlanner>['plan']>[2];
 type PlanResult = Awaited<ReturnType<ReturnType<typeof LazyPlanner>['plan']>>;

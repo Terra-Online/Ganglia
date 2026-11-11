@@ -1,2 +1,2 @@
-export { prepareSurfaceActionSolver } from './adapters/surface-action.js';
-export type { SceneInput, RouteQuery, RouteResult, PreparedRouteSolver } from './index-types.js';
+export { prepareSurfaceActionSolver } from './adapters/surface-action.ts';
+export type { SceneInput, RouteQuery, RouteResult, PreparedRouteSolver } from './index-types.ts';

@@ -1,5 +1,5 @@
-import type { CollisionGeometry } from '../build-types.js';
-import type { CollisionOptions } from '../collision-types.js';
+import type { CollisionGeometry } from '../build-types.ts';
+import type { CollisionOptions } from '../collision-types.ts';
 import type {
   Surface,
   GroundArrival,
@@ -8,7 +8,7 @@ import type {
   Route,
   GroundConnection,
   JumpDiagnostics,
-} from '../index-types.js';
+} from '../index-types.ts';
 
 /** One immutable physical snapshot. Keep inputs unchanged until close(). */
 export interface SceneInput {

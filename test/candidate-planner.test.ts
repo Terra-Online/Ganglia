@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createCandidatePlanner } from '../src/candidate-planner.js';
+import { createCandidatePlanner } from '../src/candidate-planner.ts';
 import type {
   CandidateEdge,
   GroundArrival,
@@ -10,9 +10,9 @@ import type {
   Surface,
   Vec3,
   Wall,
-} from '../src/index-types.js';
-import { blockedByWalls } from '../src/walls.js';
-import { expectStatus } from './assertions.js';
+} from '../src/index-types.ts';
+import { blockedByWalls } from '../src/walls.ts';
+import { expectStatus } from './assertions.ts';
 const square = (id: string, x: number, z: number): Surface => ({
   id,
   vertices: [

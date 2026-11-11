@@ -1,10 +1,10 @@
-import { createBoundsTree } from './bounds.js';
-import type { Vec3, Surface, GroundOptions } from './index-types.js';
-import type { SupportTriangle } from './support-snapshot.js';
-import { supportSnapshot, supportTriangles } from './support-snapshot.js';
-import type { SharedPortal } from './surfaces.js';
-import { surfacePortals, directedPortals } from './surfaces.js';
-import { createWallChecker } from './walls.js';
+import { createBoundsTree } from './bounds.ts';
+import type { Vec3, Surface, GroundOptions } from './index-types.ts';
+import type { SupportTriangle } from './support-snapshot.ts';
+import { supportSnapshot, supportTriangles } from './support-snapshot.ts';
+import type { SharedPortal } from './surfaces.ts';
+import { surfacePortals, directedPortals } from './surfaces.ts';
+import { createWallChecker } from './walls.ts';
 
 interface Triangle extends Pick<SupportTriangle, 'vertices' | 'min' | 'max' | 'determinant'> {
   id: number;

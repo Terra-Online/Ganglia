@@ -1,14 +1,14 @@
-import { groundComponents, condenseComponents, canReach } from './connectivity.js';
-import { groundPreparation } from './ground.js';
+import { groundComponents, condenseComponents, canReach } from './connectivity.ts';
+import { groundPreparation } from './ground.ts';
 import type {
   Vec3,
   Segment,
   Route,
   LocomotionOptions,
   createGroundPlanner,
-} from './index-types.js';
-import { retimeGroundRoute } from './locomotion.js';
-import type { GroundStraightener } from './straighten.js';
+} from './index-types.ts';
+import { retimeGroundRoute } from './locomotion.ts';
+import type { GroundStraightener } from './straighten.ts';
 
 type CompleteRoute = Extract<Route, { status: 'complete' }>;
 

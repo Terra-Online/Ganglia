@@ -1,6 +1,6 @@
-import type { Bounds } from './bounds.js';
-import type { JumpModel } from './index-types.js';
-import { jumpDuration, jumpTravel } from './jumps.js';
+import type { Bounds } from './bounds.ts';
+import type { JumpModel } from './index-types.ts';
+import { jumpDuration, jumpTravel } from './jumps.ts';
 
 export interface EnvelopeOptions {
   model: JumpModel;

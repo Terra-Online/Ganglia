@@ -1,13 +1,13 @@
-import { createBoundsIndex } from './bounds.js';
-import type { CollisionWorld } from './collision-types.js';
-import { createGoalProjector } from './goals.js';
-import { groundPreparation } from './ground.js';
-import type { Vec3, Route, Surface, GroundConnection, ShortcutDiagnostics } from './index-types.js';
-import type { MotionControl, JumpOptions } from './jumps.js';
-import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.js';
-import type { ShortcutOptions, ShortcutCache } from './shortcuts.js';
-import { standingFoot, validateDiscovery } from './traversal.js';
-import { createWallChecker } from './walls.js';
+import { createBoundsIndex } from './bounds.ts';
+import type { CollisionWorld } from './collision-types.ts';
+import { createGoalProjector } from './goals.ts';
+import { groundPreparation } from './ground.ts';
+import type { Vec3, Route, Surface, GroundConnection, ShortcutDiagnostics } from './index-types.ts';
+import type { MotionControl, JumpOptions } from './jumps.ts';
+import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.ts';
+import type { ShortcutOptions, ShortcutCache } from './shortcuts.ts';
+import { standingFoot, validateDiscovery } from './traversal.ts';
+import { createWallChecker } from './walls.ts';
 
 interface Sample {
   id: number;

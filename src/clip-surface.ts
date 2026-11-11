@@ -1,5 +1,5 @@
-import type { BuildOptions } from './build-types.js';
-import type { Vec3 } from './index-types.js';
+import type { BuildOptions } from './build-types.ts';
+import type { Vec3 } from './index-types.ts';
 export const tolerance = 1e-4;
 const cross = (a: Vec3, b: Vec3, c: Vec3) =>
   (b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0]);

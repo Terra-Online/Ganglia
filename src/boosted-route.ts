@@ -1,5 +1,5 @@
-import type { CollisionWorld } from './collision-types.js';
-import { findGoalHit, trimGoalFlight } from './goals.js';
+import type { CollisionWorld } from './collision-types.ts';
+import { findGoalHit, trimGoalFlight } from './goals.ts';
 import type {
   Vec3,
   Surface,
@@ -7,10 +7,10 @@ import type {
   Route,
   SpeedBoost,
   JumpDiagnostics,
-} from './index-types.js';
-import type { PlannerOptions, JumpResult } from './jump-planner.js';
-import { jumpConnection } from './jumps.js';
-import { retimeGroundRoute } from './locomotion.js';
+} from './index-types.ts';
+import type { PlannerOptions, JumpResult } from './jump-planner.ts';
+import { jumpConnection } from './jumps.ts';
+import { retimeGroundRoute } from './locomotion.ts';
 const findPickup = (route: Extract<Route, { status: 'complete' }>, boost: SpeedBoost) => {
   if (!route.segments.length) {
     const hit = findGoalHit([route.points[0], route.points[0]], boost.position, boost.interaction);

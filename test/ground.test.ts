@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { groundPreparation } from '../src/ground.js';
+import { groundPreparation } from '../src/ground.ts';
 import type {
   GroundArrival,
   GroundConnection,
@@ -10,8 +10,8 @@ import type {
   Surface,
   Vec3,
   Wall,
-} from '../src/index-types.js';
-import { planGroundRoute, route, createGroundPlanner } from '../src/index.js';
+} from '../src/index-types.ts';
+import { planGroundRoute, route, createGroundPlanner } from '../src/index.ts';
 const surfaces: Surface[] = [
   {
     id: 'a',
@@ -176,7 +176,7 @@ test('prepared action queries preserve explicit support faces across overlapping
 });
 
 test('prepared queries straighten arbitrary endpoints and apply continuous sprint timing', async () => {
-  const { createGroundPlanner } = await import('../src/index.js');
+  const { createGroundPlanner } = await import('../src/index.ts');
   const planner = createGroundPlanner(surfaces, {
     ...options,
     locomotion: { speed: 1, sprintSpeed: 2, sprintAcceleration: 4 },
@@ -202,7 +202,7 @@ test('prepared queries straighten arbitrary endpoints and apply continuous sprin
 });
 
 test('interaction queries end on reachable standing ground within an explicit volume', async () => {
-  const { createGroundPlanner } = await import('../src/index.js');
+  const { createGroundPlanner } = await import('../src/index.ts');
   const planner = createGroundPlanner(
     [
       {

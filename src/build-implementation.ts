@@ -11,10 +11,10 @@ import type {
   CollisionGeometry,
   BuildOptions,
   buildGroundTiles as BuildTiles,
-} from './build-types.js';
-import { clipSurface, tolerance } from './clip-surface.js';
-import type { Vec3, Surface, Portal } from './index-types.js';
-import { buildSupportField } from './support-field.js';
+} from './build-types.ts';
+import { clipSurface, tolerance } from './clip-surface.ts';
+import type { Vec3, Surface, Portal } from './index-types.ts';
+import { buildSupportField } from './support-field.ts';
 
 type Rect = NonNullable<BuildOptions['bounds']>;
 interface Settings {

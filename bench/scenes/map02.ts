@@ -3,17 +3,17 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { CollisionGeometry } from '../../src/build-types.js';
+import type { CollisionGeometry } from '../../src/build-types.ts';
 import type {
   Vec3,
   Surface,
   GroundOptions,
   LocomotionOptions,
   Wall,
-} from '../../src/index-types.js';
-import { jumpDuration } from '../../src/jumps.js';
-import type { SceneInput } from '../../src/solver/index-types.js';
-import type { RouteQuery } from '../../src/solver/index-types.js';
+} from '../../src/index-types.ts';
+import { jumpDuration } from '../../src/jumps.ts';
+import type { SceneInput } from '../../src/solver/index-types.ts';
+import type { RouteQuery } from '../../src/solver/index-types.ts';
 // Use separated ground regions to exercise motion discovery rather than only
 // tracing a continuous walking corridor.
 const starts: Vec3[] = [

@@ -1,11 +1,11 @@
-import type { CondensedTopology, GroundTopology } from './connectivity.js';
+import type { CondensedTopology, GroundTopology } from './connectivity.ts';
 import {
   groundComponents,
   condenseComponents,
   directedComponents,
   canReach,
-} from './connectivity.js';
-import { createMinHeap } from './heap.js';
+} from './connectivity.ts';
+import { createMinHeap } from './heap.ts';
 import type {
   Vec3,
   Edge,
@@ -14,10 +14,10 @@ import type {
   Route,
   LocomotionOptions,
   route as RouteFunction,
-} from './index-types.js';
-import { validateMotion, routeSegment } from './motion.js';
-import { searchResources } from './resource-search.js';
-import { createWallChecker } from './walls.js';
+} from './index-types.ts';
+import { validateMotion, routeSegment } from './motion.ts';
+import { searchResources } from './resource-search.ts';
+import { createWallChecker } from './walls.ts';
 
 type Constraints = Parameters<typeof RouteFunction>[3];
 interface Index<V> {

@@ -4,7 +4,7 @@ import type {
   Segment,
   BoostUse,
   sampleJourney as SampleJourney,
-} from './index-types.js';
+} from './index-types.ts';
 const modes = new Set<string>(['walk', 'rope', 'jump', 'drop', 'launch']);
 const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((v, i) => v - b[i]));
 // Shared by graph and grounded-connection import. Sample times are measured from

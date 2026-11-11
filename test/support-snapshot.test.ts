@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Surface } from '../src/index-types.js';
-import type { SupportSnapshot } from '../src/support-snapshot.js';
-import { supportSnapshot, supportTriangles } from '../src/support-snapshot.js';
+import type { Surface } from '../src/index-types.ts';
+import type { SupportSnapshot } from '../src/support-snapshot.ts';
+import { supportSnapshot, supportTriangles } from '../src/support-snapshot.ts';
 
 test('reuses owned geometric primitives after a content check without retaining caller vertices', () => {
   const surface: Surface = {

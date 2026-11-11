@@ -6,7 +6,6 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "noEmit": true,
-    "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
@@ -14,7 +13,8 @@
     "noEmitOnError": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
-    "customConditions": ["ganglia-source"]
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true
   },
   "include": ["src/**/*.ts", "bench/**/*.ts", "test/**/*.ts"]
 }

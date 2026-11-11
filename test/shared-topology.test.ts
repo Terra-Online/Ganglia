@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { groundComponents, condenseComponents, directedComponents } from '../src/connectivity.js';
-import { createGroundPlanner, groundPreparation } from '../src/ground.js';
-import type { Arrival, Edge, Graph, GroundOptions, Node, Surface } from '../src/index-types.js';
-import { movementGeometry } from '../src/movement-geometry.js';
-import { prepareRoutePlanner, routeFrom } from '../src/routes.js';
-import { createWallChecker } from '../src/walls.js';
+import { groundComponents, condenseComponents, directedComponents } from '../src/connectivity.ts';
+import { createGroundPlanner, groundPreparation } from '../src/ground.ts';
+import type { Arrival, Edge, Graph, GroundOptions, Node, Surface } from '../src/index-types.ts';
+import { movementGeometry } from '../src/movement-geometry.ts';
+import { prepareRoutePlanner, routeFrom } from '../src/routes.ts';
+import { createWallChecker } from '../src/walls.ts';
 
 const empty = { nodes: [], edges: [] };
 

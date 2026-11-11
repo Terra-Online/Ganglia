@@ -1,4 +1,4 @@
-import type { Surface } from './index-types.js';
+import type { Surface } from './index-types.ts';
 export interface CollisionGeometry {
   /** World-space triangle positions, xyz packed; outward normals, metres. */
   positions: number[] | Float32Array | Float64Array;
@@ -67,7 +67,7 @@ export declare function buildGroundTiles(
   },
 ): Promise<{
   surfaces: Surface[];
-  portals: import('./index-types.js').Portal[];
+  portals: import('./index-types.ts').Portal[];
   tiles: {
     x: number;
     z: number;

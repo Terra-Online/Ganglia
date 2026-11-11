@@ -1,5 +1,5 @@
-import type { Vec3, Segment, LocomotionOptions, Route } from './index-types.js';
-import { validateMotion } from './motion.js';
+import type { Vec3, Segment, LocomotionOptions, Route } from './index-types.ts';
+import { validateMotion } from './motion.ts';
 
 export interface LocomotionState {
   energy: number;

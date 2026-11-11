@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.js';
-import type { Surface } from '../src/index-types.js';
-import { planJumpRoute } from '../src/jump-planner.js';
-import type { RouteQuery } from '../src/solver/index-types.js';
-import { prepareSurfaceActionSolver } from '../src/solver/index.js';
+import { createCollisionWorld } from '../src/collision.ts';
+import type { Surface } from '../src/index-types.ts';
+import { planJumpRoute } from '../src/jump-planner.ts';
+import type { RouteQuery } from '../src/solver/index-types.ts';
+import { prepareSurfaceActionSolver } from '../src/solver/index.ts';
 
 const surfaces: Surface[] = [0, 7, 14].map((x, i) => ({
   id: `floor/${i}`,

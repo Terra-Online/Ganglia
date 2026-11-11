@@ -1,5 +1,5 @@
-import type { CollisionGeometry } from './build-types.js';
-import type { Vec3 } from './index-types.js';
+import type { CollisionGeometry } from './build-types.ts';
+import type { Vec3 } from './index-types.ts';
 export interface CollisionOptions {
   /** Inclusive XZ rectangle in world metres, retaining full vertical coverage.
    * Triangles whose XZ bounds intersect this rectangle are indexed. All source

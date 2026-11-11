@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Bounds, BoundsNode } from '../src/bounds.js';
-import { createBoundsIndex, createBoundsTree } from '../src/bounds.js';
-import { createMinHeap } from '../src/heap.js';
-import type { Vec3 } from '../src/index-types.js';
+import type { Bounds, BoundsNode } from '../src/bounds.ts';
+import { createBoundsIndex, createBoundsTree } from '../src/bounds.ts';
+import { createMinHeap } from '../src/heap.ts';
+import type { Vec3 } from '../src/index-types.ts';
 
 type Entry = { min: number[]; max: number[]; id: number };
 type Tree = BoundsNode<Entry, unknown>;

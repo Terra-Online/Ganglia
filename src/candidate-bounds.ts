@@ -1,6 +1,6 @@
-import type { Bounds } from './bounds.js';
-import type { JumpModel, Vec3, Surface } from './index-types.js';
-import { jumpDuration } from './jumps.js';
+import type { Bounds } from './bounds.ts';
+import type { JumpModel, Vec3, Surface } from './index-types.ts';
+import { jumpDuration } from './jumps.ts';
 
 interface FaceBounds {
   minX: number;

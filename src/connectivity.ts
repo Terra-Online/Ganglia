@@ -1,4 +1,4 @@
-import type { Edge, Graph } from './index-types.js';
+import type { Edge, Graph } from './index-types.ts';
 export interface GroundTopology<Id = string> {
   ids: Map<Id, number>;
   components: Int32Array;

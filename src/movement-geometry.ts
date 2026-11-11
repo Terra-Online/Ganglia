@@ -1,14 +1,14 @@
-import type { BoundsIndex } from './bounds.js';
-import type { GroundTopology } from './connectivity.js';
-import { groundComponents } from './connectivity.js';
-import { createGoalProjector } from './goals.js';
-import { groundPreparation } from './ground.js';
-import type { Surface, Vec3, DiscoveryOptions, Graph } from './index-types.js';
-import { createSupportProjector } from './support-projector.js';
-import { surfaceGraph, surfacePortals } from './surfaces.js';
-import type { Region, Boundary } from './traversal.js';
-import { exposedBoundaries } from './traversal.js';
-import { createWallChecker } from './walls.js';
+import type { BoundsIndex } from './bounds.ts';
+import type { GroundTopology } from './connectivity.ts';
+import { groundComponents } from './connectivity.ts';
+import { createGoalProjector } from './goals.ts';
+import { groundPreparation } from './ground.ts';
+import type { Surface, Vec3, DiscoveryOptions, Graph } from './index-types.ts';
+import { createSupportProjector } from './support-projector.ts';
+import { surfaceGraph, surfacePortals } from './surfaces.ts';
+import type { Region, Boundary } from './traversal.ts';
+import { exposedBoundaries } from './traversal.ts';
+import { createWallChecker } from './walls.ts';
 
 interface Geometry {
   graph: Graph;

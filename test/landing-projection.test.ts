@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { closestOnSurface } from '../src/goals.js';
-import type { Vec3 } from '../src/index-types.js';
+import { closestOnSurface } from '../src/goals.ts';
+import type { Vec3 } from '../src/index-types.ts';
 
 // Original vector formulation is an independent numeric oracle for the scalar path.
 const distanceSquared = (a: Vec3, b: number[]) =>

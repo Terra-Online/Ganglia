@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { WeightedEdge } from '../src/distance-field.js';
-import { advanceDistanceField } from '../src/distance-field.js';
+import type { WeightedEdge } from '../src/distance-field.ts';
+import { advanceDistanceField } from '../src/distance-field.ts';
 
 const adjacency = (edges: { from: string; to: string; cost: number }[]) => {
   const forward = new Map<string, WeightedEdge[]>(),

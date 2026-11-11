@@ -1,6 +1,6 @@
-import type { CollisionWorld } from './collision-types.js';
-import { mayReachGoal } from './flight-steering.js';
-import { createGoalProjector, findGoalHit, trimGoalFlight } from './goals.js';
+import type { CollisionWorld } from './collision-types.ts';
+import { mayReachGoal } from './flight-steering.ts';
+import { createGoalProjector, findGoalHit, trimGoalFlight } from './goals.ts';
 import type {
   Vec3,
   Surface,
@@ -8,15 +8,15 @@ import type {
   GroundConnection,
   Route,
   InteractionGoal,
-} from './index-types.js';
-import type { PlannerOptions, JumpResult } from './jump-planner.js';
-import type { MotionControl, Arc } from './jumps.js';
-import { createMotionVariants, jumpConnection, jumpDuration, runOffConnection } from './jumps.js';
-import { boundaryLanding } from './landings.js';
-import { retimeGroundRoute } from './locomotion.js';
-import { movementGeometry } from './movement-geometry.js';
-import { standingFoot, validateDiscovery } from './traversal.js';
-import { createWallChecker } from './walls.js';
+} from './index-types.ts';
+import type { PlannerOptions, JumpResult } from './jump-planner.ts';
+import type { MotionControl, Arc } from './jumps.ts';
+import { createMotionVariants, jumpConnection, jumpDuration, runOffConnection } from './jumps.ts';
+import { boundaryLanding } from './landings.ts';
+import { retimeGroundRoute } from './locomotion.ts';
+import { movementGeometry } from './movement-geometry.ts';
+import { standingFoot, validateDiscovery } from './traversal.ts';
+import { createWallChecker } from './walls.ts';
 
 type Options = PlannerOptions & { interaction: InteractionGoal };
 interface Witness {

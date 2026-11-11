@@ -1,4 +1,4 @@
-import { createGoalProjector } from './goals.js';
+import { createGoalProjector } from './goals.ts';
 import type {
   Vec3,
   Surface,
@@ -10,15 +10,15 @@ import type {
   Segment,
   ResourceSearch,
   createGroundPlanner as GroundPlannerFactory,
-} from './index-types.js';
-import { retimeGroundRoute } from './locomotion.js';
-import { validateMotion } from './motion.js';
-import { createRoutePlanner, prepareRoutePlanner } from './routes.js';
-import type { GroundStraightener } from './straighten.js';
-import { createGroundStraightener } from './straighten.js';
-import { createSupportProjector } from './support-projector.js';
-import type { SharedPortal } from './surfaces.js';
-import { surfaceGraph, surfacePortals } from './surfaces.js';
+} from './index-types.ts';
+import { retimeGroundRoute } from './locomotion.ts';
+import { validateMotion } from './motion.ts';
+import { createRoutePlanner, prepareRoutePlanner } from './routes.ts';
+import type { GroundStraightener } from './straighten.ts';
+import { createGroundStraightener } from './straighten.ts';
+import { createSupportProjector } from './support-projector.ts';
+import type { SharedPortal } from './surfaces.ts';
+import { surfaceGraph, surfacePortals } from './surfaces.ts';
 
 type Planner = ReturnType<typeof GroundPlannerFactory>;
 interface Preparation {

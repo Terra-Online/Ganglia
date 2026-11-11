@@ -1,7 +1,7 @@
-import type { CollisionWorld } from '../../collision-types.js';
-import { createCollisionWorld } from '../../collision.js';
-import { createGroundPlanner, planJumpRoute } from '../../index.js';
-import type { PreparedRouteSolver, RouteQuery, RouteResult, SceneInput } from '../index-types.js';
+import type { CollisionWorld } from '../../collision-types.ts';
+import { createCollisionWorld } from '../../collision.ts';
+import { createGroundPlanner, planJumpRoute } from '../../index.ts';
+import type { PreparedRouteSolver, RouteQuery, RouteResult, SceneInput } from '../index-types.ts';
 
 export async function prepareSurfaceActionSolver(input: SceneInput): Promise<PreparedRouteSolver> {
   let prepared: {

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.js';
-import type { JumpModel, Vec3 } from '../src/index-types.js';
-import type { JumpOptions } from '../src/jumps.js';
-import { jumpConnection, runOffConnection } from '../src/jumps.js';
-import { createMotionBounds } from '../src/motion-bounds.js';
+import { createCollisionWorld } from '../src/collision.ts';
+import type { JumpModel, Vec3 } from '../src/index-types.ts';
+import type { JumpOptions } from '../src/jumps.ts';
+import { jumpConnection, runOffConnection } from '../src/jumps.ts';
+import { createMotionBounds } from '../src/motion-bounds.ts';
 
 const point = (position: Vec3) => ({ min: position, max: position });
 const model: JumpModel = {

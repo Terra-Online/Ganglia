@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createGoalProjector, projectGoal } from '../src/goals.js';
-import type { Surface, Vec3 } from '../src/index-types.js';
+import { createGoalProjector, projectGoal } from '../src/goals.ts';
+import type { Surface, Vec3 } from '../src/index-types.ts';
 
 const ground = (id: string, x0: number, x1: number, z0 = 0, z1 = 2, y = 0): Surface => ({
   id,

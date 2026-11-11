@@ -1,6 +1,6 @@
-import type { Bounds } from './bounds.js';
-import { createBoundsIndex } from './bounds.js';
-import type { Vec3, Surface, Portal, Graph, Edge, Node } from './index-types.js';
+import type { Bounds } from './bounds.ts';
+import { createBoundsIndex } from './bounds.ts';
+import type { Vec3, Surface, Portal, Graph, Edge, Node } from './index-types.ts';
 
 export interface SharedPortal {
   from: string;

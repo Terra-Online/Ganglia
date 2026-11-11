@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.js';
-import { createGroundPlanner } from '../src/ground.js';
-import type { GroundArrival, GroundConnection, Surface, Vec3 } from '../src/index-types.js';
-import type { ShortcutCache, ShortcutOptions } from '../src/shortcuts.js';
-import { findJumpShortcuts, findJumpFrontier } from '../src/shortcuts.js';
-import { findJumpConnections } from '../src/traversal.js';
+import { createCollisionWorld } from '../src/collision.ts';
+import { createGroundPlanner } from '../src/ground.ts';
+import type { GroundArrival, GroundConnection, Surface, Vec3 } from '../src/index-types.ts';
+import type { ShortcutCache, ShortcutOptions } from '../src/shortcuts.ts';
+import { findJumpShortcuts, findJumpFrontier } from '../src/shortcuts.ts';
+import { findJumpConnections } from '../src/traversal.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0: number, z1: number): Surface => ({
   id,

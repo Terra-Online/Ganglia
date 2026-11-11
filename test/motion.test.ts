@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Graph, GroundArrival, GroundConnection, Surface, Vec3 } from '../src/index-types.js';
-import { planGroundRoute, routeFrom, sampleJourney } from '../src/index.js';
+import type { Graph, GroundArrival, GroundConnection, Surface, Vec3 } from '../src/index-types.ts';
+import { planGroundRoute, routeFrom, sampleJourney } from '../src/index.ts';
 const floor = (y: number): Surface => ({
   id: String(y),
   vertices: [

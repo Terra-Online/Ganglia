@@ -1,6 +1,6 @@
-import type { CollisionGeometry } from './build-types.js';
-import type { CollisionOptions, CollisionWorld, Capsule } from './collision-types.js';
-import type { Vec3 } from './index-types.js';
+import type { CollisionGeometry } from './build-types.ts';
+import type { CollisionOptions, CollisionWorld, Capsule } from './collision-types.ts';
+import type { Vec3 } from './index-types.ts';
 type Triangle = readonly (readonly number[])[];
 type GroundHit = ReturnType<CollisionWorld['groundAt']>;
 type SweepHit = ReturnType<CollisionWorld['sweepCapsule']>;

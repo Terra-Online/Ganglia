@@ -1,8 +1,8 @@
-import { planAirborneGoal } from './airborne-goal.js';
-import { planBoostedRoute } from './boosted-route.js';
-import type { CollisionWorld } from './collision-types.js';
-import { createGoalProjector } from './goals.js';
-import { createGroundPlanner, groundPreparation } from './ground.js';
+import { planAirborneGoal } from './airborne-goal.ts';
+import { planBoostedRoute } from './boosted-route.ts';
+import type { CollisionWorld } from './collision-types.ts';
+import { createGoalProjector } from './goals.ts';
+import { createGroundPlanner, groundPreparation } from './ground.ts';
 import type {
   Vec3,
   Surface,
@@ -11,12 +11,12 @@ import type {
   JumpRouteOptions,
   JumpDiagnostics,
   Route,
-} from './index-types.js';
-import { movementGeometry } from './movement-geometry.js';
-import { findRouteShortcuts } from './route-shortcuts.js';
-import type { ShortcutCache } from './shortcuts.js';
-import { findJumpFrontier, findJumpShortcuts } from './shortcuts.js';
-import { findJumpConnections } from './traversal.js';
+} from './index-types.ts';
+import { movementGeometry } from './movement-geometry.ts';
+import { findRouteShortcuts } from './route-shortcuts.ts';
+import type { ShortcutCache } from './shortcuts.ts';
+import { findJumpFrontier, findJumpShortcuts } from './shortcuts.ts';
+import { findJumpConnections } from './traversal.ts';
 
 export type PlannerOptions = JumpRouteOptions & {
   endpointTolerance?: number;

@@ -1,18 +1,18 @@
-import { createBoundsIndex } from './bounds.js';
-import { createTransferQuery } from './candidate-transfers.js';
-import { groundComponents } from './connectivity.js';
-import type { GoalProjection } from './goals.js';
-import { closestOnSurface } from './goals.js';
-import { createMinHeap } from './heap.js';
+import { createBoundsIndex } from './bounds.ts';
+import { createTransferQuery } from './candidate-transfers.ts';
+import { groundComponents } from './connectivity.ts';
+import type { GoalProjection } from './goals.ts';
+import { closestOnSurface } from './goals.ts';
+import { createMinHeap } from './heap.ts';
 import type {
   Vec3,
   CandidateEdge,
   GroundArrival,
   GroundOptions,
   createCandidatePlanner as CandidatePlanner,
-} from './index-types.js';
-import { createGroundStraightener } from './straighten.js';
-import { surfaceGraph, surfacePortals } from './surfaces.js';
+} from './index-types.ts';
+import { createGroundStraightener } from './straighten.ts';
+import { surfaceGraph, surfacePortals } from './surfaces.ts';
 
 type Arc = Omit<CandidateEdge, 'index' | 'unresolved'> & {
   unresolved?: boolean;

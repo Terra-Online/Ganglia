@@ -1,5 +1,5 @@
-import type { Bounds } from './bounds.js';
-import type { Vec3, Wall } from './index-types.js';
+import type { Bounds } from './bounds.ts';
+import type { Vec3, Wall } from './index-types.ts';
 type Point2 = readonly number[];
 type Profile = { radius: number; height: number };
 interface Sphere {

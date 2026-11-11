@@ -1,11 +1,11 @@
-import { boundaryTree, boundaryOrder } from './boundary-order.js';
-import type { Bounds, BoundsIndex } from './bounds.js';
-import { createBoundsIndex } from './bounds.js';
-import { createCandidateBounds } from './candidate-bounds.js';
-import type { CollisionWorld } from './collision-types.js';
-import type { DistanceField, WeightedEdge } from './distance-field.js';
-import { advanceDistanceField } from './distance-field.js';
-import type { GoalProjection } from './goals.js';
+import { boundaryTree, boundaryOrder } from './boundary-order.ts';
+import type { Bounds, BoundsIndex } from './bounds.ts';
+import { createBoundsIndex } from './bounds.ts';
+import { createCandidateBounds } from './candidate-bounds.ts';
+import type { CollisionWorld } from './collision-types.ts';
+import type { DistanceField, WeightedEdge } from './distance-field.ts';
+import { advanceDistanceField } from './distance-field.ts';
+import type { GoalProjection } from './goals.ts';
 import type {
   Vec3,
   Surface,
@@ -15,17 +15,17 @@ import type {
   ShortcutDiagnostics,
   Route,
   GroundOptions,
-} from './index-types.js';
-import type { Arc, ApproachCache, ExitCache, MotionControl, JumpOptions } from './jumps.js';
-import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.js';
-import { landingCandidates, boundaryLanding, createLandingGoalCache } from './landings.js';
-import { createMotionBounds } from './motion-bounds.js';
-import { movementGeometry } from './movement-geometry.js';
-import { createJumpEnvelope, createJumpPredecessor } from './reachability.js';
-import type { GroundStraightener } from './straighten.js';
-import { createGroundStraightener } from './straighten.js';
-import type { Boundary } from './traversal.js';
-import { interleave, standingFoot, validateDiscovery } from './traversal.js';
+} from './index-types.ts';
+import type { Arc, ApproachCache, ExitCache, MotionControl, JumpOptions } from './jumps.ts';
+import { jumpConnection, jumpDuration, runOffConnection, createMotionVariants } from './jumps.ts';
+import { landingCandidates, boundaryLanding, createLandingGoalCache } from './landings.ts';
+import { createMotionBounds } from './motion-bounds.ts';
+import { movementGeometry } from './movement-geometry.ts';
+import { createJumpEnvelope, createJumpPredecessor } from './reachability.ts';
+import type { GroundStraightener } from './straighten.ts';
+import { createGroundStraightener } from './straighten.ts';
+import type { Boundary } from './traversal.ts';
+import { interleave, standingFoot, validateDiscovery } from './traversal.ts';
 
 type IndexedBoundary = Boundary & Bounds & { ordinal: number };
 type LandingFace = Surface & Bounds;
@@ -344,7 +344,7 @@ function findConnections(
     }
     return traces.get(key)!;
   };
-  const approaches = cache?.approaches ?? new Map<string, import('./jumps.js').Approach | null>(),
+  const approaches = cache?.approaches ?? new Map<string, import('./jumps.ts').Approach | null>(),
     exits = cache?.exits ?? new Map<string, [number, number] | null>();
   if (cache) {
     cache.approaches = approaches;

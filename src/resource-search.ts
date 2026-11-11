@@ -1,9 +1,9 @@
-import { createMinHeap } from './heap.js';
-import type { Vec3, Arrival, LocomotionOptions, Segment, Route } from './index-types.js';
-import type { LocomotionState } from './locomotion.js';
-import { createLocomotion } from './locomotion.js';
-import { routeSegment } from './motion.js';
-import type { RouteBase } from './routes.js';
+import { createMinHeap } from './heap.ts';
+import type { Vec3, Arrival, LocomotionOptions, Segment, Route } from './index-types.ts';
+import type { LocomotionState } from './locomotion.ts';
+import { createLocomotion } from './locomotion.ts';
+import { routeSegment } from './motion.ts';
+import type { RouteBase } from './routes.ts';
 
 interface Label {
   node: string;

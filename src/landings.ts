@@ -1,8 +1,8 @@
-import type { GoalProjection } from './goals.js';
-import { closestOnSurface } from './goals.js';
-import type { Vec3, Surface, JumpModel } from './index-types.js';
-import { jumpDuration } from './jumps.js';
-import type { Boundary } from './traversal.js';
+import type { GoalProjection } from './goals.ts';
+import { closestOnSurface } from './goals.ts';
+import type { Vec3, Surface, JumpModel } from './index-types.ts';
+import { jumpDuration } from './jumps.ts';
+import type { Boundary } from './traversal.ts';
 
 interface Witness {
   surface: string;

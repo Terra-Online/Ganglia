@@ -1,6 +1,6 @@
-import type { CollisionWorld } from './collision-types.js';
-import type { Vec3, JumpModel, jumpConnection as JumpConnection } from './index-types.js';
-import { createWallChecker } from './walls.js';
+import type { CollisionWorld } from './collision-types.ts';
+import type { Vec3, JumpModel, jumpConnection as JumpConnection } from './index-types.ts';
+import { createWallChecker } from './walls.ts';
 
 export type JumpOptions = Parameters<typeof JumpConnection>[2];
 export type VerticalOptions = Omit<JumpModel, 'maxHorizontalSpeed'> & { mode: 'jump' | 'drop' };
@@ -515,7 +515,7 @@ export function jumpConnection(start: Vec3, end: Vec3, options: JumpOptions): Ar
 function sweepTrajectory(
   start: Vec3,
   end: Vec3,
-  { phases, duration }: Trajectory,
+  { phases }: Trajectory,
   {
     profile,
     clearance,

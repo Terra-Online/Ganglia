@@ -1,6 +1,6 @@
-import type { Bounds } from './bounds.js';
-import type { JumpModel, Vec3 } from './index-types.js';
-import { jumpDuration } from './jumps.js';
+import type { Bounds } from './bounds.ts';
+import type { JumpModel, Vec3 } from './index-types.ts';
+import { jumpDuration } from './jumps.ts';
 const horizontalGap = (a: Bounds, b: Bounds) =>
   Math.hypot(
     Math.max(a.min[0] - b.max[0], b.min[0] - a.max[0], 0),

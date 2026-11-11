@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.js';
+import { createCollisionWorld } from '../src/collision.ts';
 import type {
   GroundArrival,
   GroundConnection,
@@ -10,8 +10,8 @@ import type {
   Surface,
   Vec3,
   Wall,
-} from '../src/index-types.js';
-import { planJumpRoute, createGroundPlanner, findJumpConnections } from '../src/index.js';
+} from '../src/index-types.ts';
+import { planJumpRoute, createGroundPlanner, findJumpConnections } from '../src/index.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
   id,

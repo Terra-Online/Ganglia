@@ -1,12 +1,12 @@
-import { createBoundsIndex } from './bounds.js';
+import { createBoundsIndex } from './bounds.ts';
 import type {
   Vec3,
   Surface,
   InteractionGoal,
   createGoalProjector as GoalProjector,
-} from './index-types.js';
-import { supportSnapshot } from './support-snapshot.js';
-import { projectPoint } from './surfaces.js';
+} from './index-types.ts';
+import { supportSnapshot } from './support-snapshot.ts';
+import { projectPoint } from './surfaces.ts';
 
 type Plane = (point: Vec3) => number;
 export interface GoalProjection {

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Route, Segment, Vec3 } from '../src/index-types.js';
-import { retimeGroundRoute } from '../src/locomotion.js';
-import { sampleJourney } from '../src/motion.js';
+import type { Route, Segment, Vec3 } from '../src/index-types.ts';
+import { retimeGroundRoute } from '../src/locomotion.ts';
+import { sampleJourney } from '../src/motion.ts';
 
 const options = { speed: 5, sprintSpeed: 7, sprintAcceleration: 2 };
 const stamina = {

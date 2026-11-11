@@ -1,55 +1,30 @@
 {
   "name": "@opendfieldmap/ganglia",
   "version": "0.1.0-alpha.76",
+  "private": true,
   "description": "Conservative ground-route planning for Open Endfield Map",
   "license": "SEE LICENSE IN LICENSE",
   "files": [
-    "dist",
-    "README.md",
+    "src",
     "LICENSE",
     "LICENSE-AGPL-3.0"
   ],
   "type": "module",
   "exports": {
-    ".": {
-      "types": {
-        "ganglia-source": "./src/index.ts",
-        "default": "./dist/index.d.ts"
-      },
-      "import": "./dist/index.js"
-    },
-    "./build": {
-      "types": {
-        "ganglia-source": "./src/build.ts",
-        "default": "./dist/build.d.ts"
-      },
-      "import": "./dist/build.js"
-    },
-    "./collision": {
-      "types": {
-        "ganglia-source": "./src/collision.ts",
-        "default": "./dist/collision.d.ts"
-      },
-      "import": "./dist/collision.js"
-    },
-    "./solver": {
-      "types": {
-        "ganglia-source": "./src/solver/index.ts",
-        "default": "./dist/solver/index.d.ts"
-      },
-      "import": "./dist/solver/index.js"
-    }
+    ".": "./src/index.ts",
+    "./build": "./src/build.ts",
+    "./collision": "./src/collision.ts",
+    "./solver": "./src/solver/index.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint src bench test",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
-    "test": "node --import tsx --test test/*.test.ts",
-    "benchmark": "pnpm --silent build && node --import tsx bench/cli.ts",
-    "prepack": "pnpm check && pnpm build"
+    "test": "node --test test/*.test.ts",
+    "benchmark": "node bench/cli.ts",
+    "prepack": "pnpm check"
   },
   "dependencies": {
     "@recast-navigation/core": "0.44.0"
@@ -58,16 +33,10 @@
     "@types/node": "24.19.2",
     "oxfmt": "0.78.0",
     "oxlint": "1.93.0",
-    "tsx": "4.23.15",
     "typescript": "7.0.2"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": ">=24.12"
   },
-  "packageManager": "pnpm@10.5.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  }
+  "packageManager": "pnpm@10.5.0"
 }
