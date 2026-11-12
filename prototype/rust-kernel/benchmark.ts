@@ -42,6 +42,12 @@ for (const name of ['extractor', 'formats']) {
 }
 const args = process.argv.slice(2);
 const native = !args.includes('--typescript');
+const features = {
+  GANGLIA_RUST_COLLISION: process.env.GANGLIA_RUST_COLLISION ?? '1',
+  GANGLIA_RUST_LOCOMOTION: process.env.GANGLIA_RUST_LOCOMOTION ?? '1',
+  GANGLIA_RUST_GROUND_TRACE: process.env.GANGLIA_RUST_GROUND_TRACE ?? '1',
+  GANGLIA_RUST_GOALS: process.env.GANGLIA_RUST_GOALS ?? '1',
+};
 const sourceSha256 = await sourceHash(root, ['prototype/rust-kernel']);
 if (native)
   execFileSync(process.execPath, [resolve(root, 'prototype/rust-kernel/build.ts')], {
@@ -70,6 +76,7 @@ const command = [
 ];
 const run = spawnSync(process.execPath, command, {
   cwd: root,
+  env: { ...process.env, ...features },
   stdio: ['inherit', 'pipe', 'inherit'],
   encoding: 'utf8',
   maxBuffer: 32 * 1024 * 1024,
@@ -83,16 +90,13 @@ if (run.status !== 0 && !run.stdout.trim()) process.exit(run.status ?? 1);
 if (args.includes('--json') || args.includes('--markdown')) {
   const report: MarkdownReport = JSON.parse(run.stdout);
   report.prototype = {
-    implementation: native
-      ? process.env.GANGLIA_RUST_COLLISION === '1'
-        ? 'rust-transfers-and-collision'
-        : 'rust-transfers'
-      : 'typescript',
+    implementation: native ? 'rust-kernel' : 'typescript',
     sourceSha256,
-    locomotionLabelLimit: Number(process.env.GANGLIA_LOCOMOTION_LABELS ?? 256),
-    nativeLocomotion: native && process.env.GANGLIA_RUST_LOCOMOTION === '1',
-    nativeGroundTrace: native && process.env.GANGLIA_RUST_GROUND_TRACE === '1',
-    nativeGoals: native && process.env.GANGLIA_RUST_GOALS === '1',
+    locomotionLabelLimit: native ? Number(process.env.GANGLIA_LOCOMOTION_LABELS ?? 256) : 256,
+    nativeCollision: native && features.GANGLIA_RUST_COLLISION === '1',
+    nativeLocomotion: native && features.GANGLIA_RUST_LOCOMOTION === '1',
+    nativeGroundTrace: native && features.GANGLIA_RUST_GROUND_TRACE === '1',
+    nativeGoals: native && features.GANGLIA_RUST_GOALS === '1',
     ...(native ? { binarySha256 } : {}),
   };
   console.log(

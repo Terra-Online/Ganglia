@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { Surface, Vec3 } from '#@/src/geometry.ts';
-import { createGoalProjector, projectGoal } from '#@/src/v1/motion/goals.ts';
+import {
+  type GoalProjectionOptions,
+  createGoalProjector,
+  projectGoal,
+} from '#@/src/v1/motion/goals.ts';
 
 const ground = (id: string, x0: number, x1: number, z0 = 0, z1 = 2, y = 0): Surface => ({
   id,
@@ -276,4 +280,110 @@ test('interaction projection selects triangle interiors, edges and vertices at v
       );
     }
   }
+});
+
+test('closest projection preserves the full query winner across clipping, scales and surface ties', () => {
+  let seed = 0x3127fa;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 2 ** 32;
+  };
+  for (const scale of [1e-4, 1, 1e5]) {
+    for (const offset of [0, 1e9]) {
+      const surfaces: Surface[] = Array.from({ length: 20 }, (_, id) => {
+        const x = offset + (random() - 0.5) * 10 * scale;
+        const z = offset + (random() - 0.5) * 10 * scale;
+        const y = (random() - 0.5) * 3 * scale;
+        const size = (1 + random() * 3) * scale;
+        return {
+          id: `surface/${id}`,
+          vertices: [
+            [x, y, z],
+            [x + size, y + size / 2, z],
+            [x + size, y + size, z + size],
+            [x, y + size / 2, z + size],
+          ],
+        };
+      });
+      surfaces.push({ id: 'tie', vertices: structuredClone(surfaces[0].vertices) });
+      const project = createGoalProjector(surfaces);
+      for (let query = 0; query < 24; query++) {
+        const target: Vec3 = [
+          offset + (random() - 0.5) * 12 * scale,
+          (random() - 0.5) * 5 * scale,
+          offset + (random() - 0.5) * 12 * scale,
+        ];
+        const options: GoalProjectionOptions =
+          query % 4
+            ? {
+                interaction: {
+                  radius: query % 7 ? 15 * scale : 0,
+                  ...(query % 2 ? { maxVertical: query % 3 ? scale / 2 : 0 } : {}),
+                  ...(query % 3
+                    ? { facing: [0.6, 0, 0.8] as Vec3, halfAngle: query % 5 ? 30 : 90 }
+                    : {}),
+                },
+              }
+            : { maxVertical: 2 * scale };
+        const closest = project.closest(target, options);
+        assert.deepEqual(
+          closest,
+          project(target, options)[0],
+          `scale=${scale}, offset=${offset}, query=${query}`,
+        );
+        assert.deepEqual(project.closest(target, options), closest);
+      }
+    }
+  }
+  // The triangle's box is closer than the rectangle's box, while their witnesses
+  // tie. Input order, rather than BVH visitation order, must select the surface.
+  const rectangle = ground('input-first', Math.SQRT1_2, 2, -2, 2);
+  const triangle: Surface = {
+    id: 'box-first',
+    vertices: [
+      [-1, 0, 2],
+      [2, 0, -1],
+      [2, 0, 2],
+    ],
+  };
+  for (const surfaces of [
+    [rectangle, triangle],
+    [triangle, rectangle],
+  ]) {
+    const project = createGoalProjector(surfaces);
+    const options = { interaction: { radius: 3 } };
+    const expected = project([0, 0, 0], options)[0];
+    assert.equal(expected.surface, surfaces[0].id);
+    assert.deepEqual(project.closest([0, 0, 0], options), expected);
+  }
+});
+
+test('closest projection keeps its cache separate, preserves snapshots and validates repeated queries', () => {
+  const surfaces = [ground('first', -1, 1, -1, 1), ground('second', -1, 1, -1, 1)];
+  const project = createGoalProjector(surfaces);
+  const options = { interaction: { radius: 2, maxVertical: 0.5 } };
+  const target: Vec3 = [-0, 0.1, -0];
+  const first = project.closest(target, options)!;
+  assert.equal(first.surface, 'first');
+  first.position[1] = 100;
+  assert.equal(project.closest(target, options)!.position[1], 0);
+  assert.deepEqual(
+    project(target, options).map((hit) => hit.surface),
+    ['first', 'second'],
+  );
+  for (const surface of surfaces) for (const point of surface.vertices) point[1] = 10;
+  assert.equal(project.closest([0, 0.2, 0], options)!.position[1], 0);
+  assert.equal(createGoalProjector(surfaces).closest(target, options), undefined);
+  const foot = project.closest([-0, 0.1, -0], { maxVertical: 0.5 })!;
+  assert.ok(Object.is(foot.position[0], -0));
+  assert.ok(Object.is(foot.position[2], -0));
+  assert.throws(
+    () => project.closest(target, { interaction: { radius: -1 } }),
+    /interaction goal range/,
+  );
+  assert.throws(() => project.closest(target, { maxVertical: -1 }), /projection height/);
+  assert.throws(
+    () => project.closest(target, { interaction: { radius: 2, facing: [0, 0, 1] } }),
+    /facing cone/,
+  );
 });

@@ -480,10 +480,10 @@ function planDirectedRoute(
   const regions = new Set<string | number>(),
     directions = [];
   for (const point of waypoints) {
-    const witness = project(point, {
+    const witness = project.closest(point, {
       maxVertical: base.maxVertical,
       interaction: { radius: base.maxHorizontalDistance, maxVertical: base.profile.height * 2 },
-    })[0];
+    });
     if (!witness) {
       searches.push({ point: [...point], status: 'unmapped', added: 0 });
       continue;

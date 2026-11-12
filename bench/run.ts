@@ -61,6 +61,9 @@ export async function runBenchmark(
       batch: {
         wallMs,
         queriesPerSecond: cases.length / (wallMs / 1000),
+        ...(solver.config.batchConcurrency === 1
+          ? { meanSerialQueryMs: wallMs / cases.length }
+          : {}),
         quality: summarizeQuality(results),
         results,
       },

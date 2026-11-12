@@ -173,6 +173,10 @@ else {
         console.log(
           `Batch: ${report.batch.queriesPerSecond.toFixed(3)} queries/s; ${report.batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${selected.length} outcomes match prewarm`,
         );
+        if (report.batch.meanSerialQueryMs !== undefined)
+          console.log(
+            `Mean serial query wall time: ${report.batch.meanSerialQueryMs.toFixed(3)} ms (batch / queries)`,
+          );
         console.log(
           `Quality: ${report.batch.quality.completed}/${selected.length} complete; total modeled travel time: ${report.batch.quality.totalCostSeconds ?? 'incomplete'} s`,
         );

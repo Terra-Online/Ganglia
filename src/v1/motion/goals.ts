@@ -1,14 +1,18 @@
 import type { Vec3, Surface } from '#@/src/geometry.ts';
 import type { InteractionGoal } from '#@/src/movement.ts';
 import type { Route } from '#@/src/route.ts';
-import { createBoundsIndex } from '#@/src/v1/geo/bounds.ts';
+import { type Bounds, createBoundsIndex } from '#@/src/v1/geo/bounds.ts';
 import { supportSnapshot } from '#@/src/v1/geo/support-snapshot.ts';
 import { projectPoint } from '#@/src/v1/geo/surfaces.ts';
 
 export type GoalProjectionOptions =
   | { maxVertical: number; interaction?: InteractionGoal }
   | { maxVertical?: number; interaction: InteractionGoal };
-export type GoalProjector = (target: Vec3, options: GoalProjectionOptions) => GoalProjection[];
+export interface GoalProjector {
+  (target: Vec3, options: GoalProjectionOptions): GoalProjection[];
+  /** The same witness as the first full projection, without retaining other surfaces. */
+  closest(target: Vec3, options: GoalProjectionOptions): GoalProjection | undefined;
+}
 
 type Plane = (point: Vec3) => number;
 export interface GoalProjection {
@@ -42,6 +46,14 @@ const finitePoint = (point: unknown): point is Vec3 =>
 const distanceSquared = (a: readonly number[], b: readonly number[]) => {
   let squared = 0;
   for (let axis = 0; axis < a.length; axis++) squared += (a[axis] - b[axis]) ** 2;
+  return squared;
+};
+const boundsDistanceSquared = (bounds: Bounds, target: Vec3) => {
+  let squared = 0;
+  for (let axis = 0; axis < 3; axis++) {
+    const distance = Math.max(bounds.min[axis] - target[axis], 0, target[axis] - bounds.max[axis]);
+    squared += distance * distance;
+  }
   return squared;
 };
 // Keep dot-product accumulation in the original coordinate order. Scalar
@@ -185,10 +197,17 @@ export const closestOnSurface = (
 export function createGoalProjector(surfaces: Surface[]): GoalProjector {
   if (!Array.isArray(surfaces)) throw new Error('Invalid goal surfaces');
   const ids = new Set<string>();
+  let coordinateScale = 1;
   const snapshot = surfaces.map((surface, index) => {
     const owned = supportSnapshot(surface);
     if (!owned || ids.has(owned.id)) throw new Error('Invalid goal surface');
     ids.add(owned.id);
+    for (let axis = 0; axis < 3; axis++)
+      coordinateScale = Math.max(
+        coordinateScale,
+        Math.abs(owned.min[axis]),
+        Math.abs(owned.max[axis]),
+      );
     return { id: owned.id, vertices: owned.vertices, index, min: owned.min, max: owned.max };
   });
   const query = createBoundsIndex(snapshot);
@@ -196,17 +215,15 @@ export function createGoalProjector(surfaces: Surface[]): GoalProjector {
   // Repeated action endpoints share only immutable geometric projection proofs.
   // Keep ownership separate from returned witnesses and bound arbitrary query history.
   const projections = new Map<string, GoalProjection[]>();
-  const copy = (values: GoalProjection[]) =>
-    values.map((value) => ({ ...value, position: [...value.position] satisfies Vec3 }));
-  const remember = (key: string, values: GoalProjection[]) => {
-    if (projections.size >= 4096) projections.delete(projections.keys().next().value!);
-    projections.set(key, copy(values));
-    return values;
-  };
-  return (target: Vec3, options: GoalProjectionOptions): GoalProjection[] => {
-    if (!finitePoint(target) || !options) throw new Error('Invalid goal query');
-    const { maxVertical, interaction } = options;
-    const key = JSON.stringify([
+  const closestProjections = new Map<string, GoalProjection | null>();
+  let witnesses = 0;
+  const copyValue = (value: GoalProjection) => ({
+    ...value,
+    position: [...value.position] satisfies Vec3,
+  });
+  const copy = (values: GoalProjection[]) => values.map(copyValue);
+  const projectionKey = (target: Vec3, { maxVertical, interaction }: GoalProjectionOptions) =>
+    JSON.stringify([
       target.map((value) => (Object.is(value, -0) ? '-0' : value)),
       maxVertical,
       interaction?.radius,
@@ -214,6 +231,24 @@ export function createGoalProjector(surfaces: Surface[]): GoalProjector {
       interaction?.facing,
       interaction?.halfAngle,
     ]);
+  const remember = (key: string, values: GoalProjection[]) => {
+    // A broad interaction can return thousands of surfaces. Retaining those
+    // results evicts frequently reused point proofs and makes entry count a
+    // misleading memory bound. Return large results without caching them.
+    if (values.length > 1024) return values;
+    while (projections.size >= 65536 || witnesses + values.length > 65536) {
+      const oldest = projections.keys().next().value!;
+      witnesses -= projections.get(oldest)!.length;
+      projections.delete(oldest);
+    }
+    witnesses += values.length;
+    projections.set(key, copy(values));
+    return values;
+  };
+  const project = (target: Vec3, options: GoalProjectionOptions): GoalProjection[] => {
+    if (!finitePoint(target) || !options) throw new Error('Invalid goal query');
+    const { maxVertical, interaction } = options;
+    const key = projectionKey(target, options);
     const cached = projections.get(key);
     if (interaction === undefined) {
       if (!Number.isFinite(maxVertical) || maxVertical! < 0)
@@ -271,6 +306,58 @@ export function createGoalProjector(surfaces: Surface[]): GoalProjector {
       candidates.map(({ index, ...candidate }) => candidate),
     );
   };
+  project.closest = (target: Vec3, options: GoalProjectionOptions): GoalProjection | undefined => {
+    if (!finitePoint(target) || !options) throw new Error('Invalid goal query');
+    const { interaction } = options;
+    if (interaction === undefined) return project(target, options)[0];
+    const clip = interactionClip(interaction);
+    const key = projectionKey(target, options);
+    const cached = closestProjections.get(key);
+    if (cached !== undefined) return cached ? copyValue(cached) : undefined;
+    const radius = interaction.radius;
+    const bounds = {
+      min: target.map((value) => value - radius),
+      max: target.map((value) => value + radius),
+    };
+    if (interaction.maxVertical !== undefined) {
+      bounds.min[1] = Math.max(bounds.min[1], target[1] - interaction.maxVertical);
+      bounds.max[1] = Math.min(bounds.max[1], target[1] + interaction.maxVertical);
+    }
+    const planes = geometry ? [] : planesFromClip(target, clip);
+    let best: GoalProjection | undefined;
+    let bestIndex = Infinity;
+    // Clipping and triangle projection can round a witness just beyond its box.
+    // Use the entire snapshot's scale so even later boxes with larger coordinates
+    // retain that allowance. This relaxes pruning only, never witness acceptance.
+    const roundoff = 128 * Number.EPSILON * Math.max(coordinateScale, ...target.map(Math.abs));
+    const touches = (candidate: Bounds) =>
+      boundsDistanceSquared(candidate, target) <= radius * radius;
+    for (const surface of query.nearest(bounds, target, touches)) {
+      if (best && Math.sqrt(boundsDistanceSquared(surface, target)) > best.distance + roundoff)
+        break;
+      const candidate = geometry
+        ? geometry.closestSurfaces(target, [surface.index], clip)[0]
+        : closestOnSurface(surface, target, planes);
+      if (!candidate || !(candidate.distance <= radius)) continue;
+      if (
+        !best ||
+        candidate.distance < best.distance ||
+        (candidate.distance === best.distance && surface.index < bestIndex)
+      ) {
+        best = {
+          surface: candidate.surface,
+          position: candidate.position,
+          distance: candidate.distance,
+        };
+        bestIndex = surface.index;
+      }
+    }
+    if (closestProjections.size >= 4096)
+      closestProjections.delete(closestProjections.keys().next().value!);
+    closestProjections.set(key, best ? copyValue(best) : null);
+    return best;
+  };
+  return project;
 }
 /** Project a single goal. Reuse createGoalProjector for repeated queries. */
 export function projectGoal(

@@ -16,6 +16,7 @@ export interface MarkdownReport extends Report {
     binarySha256?: string;
     locomotionLabelLimit?: number;
     nativeLocomotion?: boolean;
+    nativeCollision?: boolean;
     nativeGroundTrace?: boolean;
     nativeGoals?: boolean;
   };
@@ -39,6 +40,11 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
     '| --- | ---: |',
     `| Batch throughput | ${number(batch.queriesPerSecond, 5)} queries/s |`,
     `| Batch wall time | ${number(batch.wallMs / 1000)} s |`,
+    ...(batch.meanSerialQueryMs === undefined
+      ? []
+      : [
+          `| Mean serial query wall time (batch / queries) | ${number(batch.meanSerialQueryMs)} ms |`,
+        ]),
     `| Excluded full-batch prewarm | ${number(report.prewarmMs / 1000)} s |`,
     `| Complete routes | ${batch.quality.completed}/${batch.results.length} |`,
     `| Truncated discovery | ${batch.results.filter((r) => r.truncated).length}/${batch.results.length} |`,
