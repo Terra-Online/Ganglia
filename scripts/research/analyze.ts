@@ -4,8 +4,7 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import type { Episode, CompactDecision } from '#@/scripts/research/collect.ts';
-import type { Model } from '#@/scripts/research/policy.ts';
-import { train, rank, probability, checkSplits } from '#@/scripts/research/policy.ts';
+import { type Model, train, rank, probability, checkSplits } from '#@/scripts/research/policy.ts';
 
 const { values } = parseArgs({
   options: {

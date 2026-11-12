@@ -16,13 +16,13 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 
 | Area | Owning source |
 | --- | --- |
-| Global corridor proposals | [`src/search/candidate-planner.ts`](../../src/search/candidate-planner.ts), [`src/search/candidate-transfers.ts`](../../src/search/candidate-transfers.ts) |
-| Physical support generation | [`src/geo/build.ts`](../../src/geo/build.ts), [`src/geo/support-field.ts`](../../src/geo/support-field.ts) |
-| Ground query and geometry preparation | [`src/route/ground.ts`](../../src/route/ground.ts), [`src/geo/surfaces.ts`](../../src/geo/surfaces.ts), [`src/route/straighten.ts`](../../src/route/straighten.ts), [`src/route/movement-geometry.ts`](../../src/route/movement-geometry.ts) |
-| Movement search | [`src/route/jump-planner.ts`](../../src/route/jump-planner.ts), [`src/search/traversal.ts`](../../src/search/traversal.ts), [`src/search/shortcuts.ts`](../../src/search/shortcuts.ts), [`src/route/route-shortcuts.ts`](../../src/route/route-shortcuts.ts) |
-| Dynamics and pruning | [`src/motion/jumps.ts`](../../src/motion/jumps.ts), [`src/reach/reachability.ts`](../../src/reach/reachability.ts), [`src/reach/motion-bounds.ts`](../../src/reach/motion-bounds.ts), [`src/motion/flight-steering.ts`](../../src/motion/flight-steering.ts), [`src/search/candidate-bounds.ts`](../../src/search/candidate-bounds.ts) |
-| Airborne objectives and boosts | [`src/route/airborne-goal.ts`](../../src/route/airborne-goal.ts), [`src/route/boosted-route.ts`](../../src/route/boosted-route.ts), [`src/motion/goals.ts`](../../src/motion/goals.ts) |
-| Collision and resources | [`src/geo/collision.ts`](../../src/geo/collision.ts), [`src/resource/locomotion.ts`](../../src/resource/locomotion.ts), [`src/resource/resource-search.ts`](../../src/resource/resource-search.ts) |
+| Global corridor proposals | [`src/v1/search/candidate-planner.ts`](../../src/v1/search/candidate-planner.ts), [`src/v1/search/candidate-transfers.ts`](../../src/v1/search/candidate-transfers.ts) |
+| Physical support generation | [`src/v1/geo/build.ts`](../../src/v1/geo/build.ts), [`src/v1/geo/support-field.ts`](../../src/v1/geo/support-field.ts) |
+| Ground query and geometry preparation | [`src/v1/route/ground.ts`](../../src/v1/route/ground.ts), [`src/v1/geo/surfaces.ts`](../../src/v1/geo/surfaces.ts), [`src/v1/route/straighten.ts`](../../src/v1/route/straighten.ts), [`src/v1/route/movement-geometry.ts`](../../src/v1/route/movement-geometry.ts) |
+| Movement search | [`src/v1/route/jump-planner.ts`](../../src/v1/route/jump-planner.ts), [`src/v1/search/traversal.ts`](../../src/v1/search/traversal.ts), [`src/v1/search/shortcuts.ts`](../../src/v1/search/shortcuts.ts), [`src/v1/route/route-shortcuts.ts`](../../src/v1/route/route-shortcuts.ts) |
+| Dynamics and pruning | [`src/v1/motion/jumps.ts`](../../src/v1/motion/jumps.ts), [`src/v1/reach/reachability.ts`](../../src/v1/reach/reachability.ts), [`src/v1/reach/motion-bounds.ts`](../../src/v1/reach/motion-bounds.ts), [`src/v1/motion/flight-steering.ts`](../../src/v1/motion/flight-steering.ts), [`src/v1/search/candidate-bounds.ts`](../../src/v1/search/candidate-bounds.ts) |
+| Airborne objectives and boosts | [`src/v1/route/airborne-goal.ts`](../../src/v1/route/airborne-goal.ts), [`src/v1/route/boosted-route.ts`](../../src/v1/route/boosted-route.ts), [`src/v1/motion/goals.ts`](../../src/v1/motion/goals.ts) |
+| Collision and resources | [`src/v1/geo/collision.ts`](../../src/v1/geo/collision.ts), [`src/v1/resource/locomotion.ts`](../../src/v1/resource/locomotion.ts), [`src/v1/resource/resource-search.ts`](../../src/v1/resource/resource-search.ts) |
 | Atlos ordinary request | [`dev-route-server.ts`](../../../Atlos/talos/apps/world/dev-route-server.ts), [`travel-arrivals.ts`](../../../Atlos/talos/apps/world/travel-arrivals.ts) |
 | Atlos corridor worker | [`candidate-job.ts`](../../../Atlos/talos/apps/world/candidate-job.ts), [`candidate-worker.ts`](../../../Atlos/talos/apps/world/candidate-worker.ts) |
 | Atlos resource scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |
@@ -30,12 +30,12 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 
 The authoritative noclip adaptation lives in Atlos [`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json), including `extractor.patch`, `format.patch`, `renderer.patch`, `documentation.patch` and `gpu-recovery.patch`. `Atlos/talos/.cache/noclip/` is generated source. Changes inspected there must be maintained through the integration patches. The current source manifest binds upstream `b54b1dcb7d01a36910c7ced1b0206e6b0b06249b` and package protocol 102, checked during the terrain/preparation work. Earlier measurements retain their original bindings, including the older `30f73f4`/protocol-98 checkpoint. Navigation/physical export revision 2 is a separate data binding.
 
-## Six source subsystems
+## V1 source subsystems
 
-The 2026-11-11 source reorganization uses these ownership boundaries. The package
-entry points remain `src/index.ts`, `src/build.ts` and `src/collision.ts`, with
-their existing declarations and export names. Internal consumers import the owning
-module directly. Public build and collision entry points forward to `geo`.
+The 2026-11-11 source reorganization uses these ownership boundaries. Public entry points separate playback, solver creation, host integration, build
+and collision. Their shared data contracts live outside `src/v1/`. V1 consumers
+import owning modules directly; public build and collision entries forward to the
+v1 implementations.
 
 | Directory | Responsibility and modules |
 | --- | --- |
@@ -46,7 +46,7 @@ module directly. Public build and collision entry points forward to `geo`.
 | `resource` | Continuation-state search and fixed-route scheduling. `resource-search`, `locomotion` |
 | `route` | Route orchestration, prepared planning context and improvement. `routes`, `ground`, `jump-planner`, `airborne-goal`, `boosted-route`, `route-shortcuts`, `ground-detours`, `straighten`, `movement-geometry` |
 
-These directories describe current responsibilities. Cross-subsystem dependencies
+The directories under `src/v1/` describe the ganglia-v1 implementation. Shared contracts live in the outer geometry, movement, route and solver modules. These directories describe current responsibilities. Cross-subsystem dependencies
 remain explicit. `route/movement-geometry` assembles geometry with ground-planner
 preparation and discovery boundaries. It retains the existing runtime dependency
 cycle with `search/traversal`. `traversal` also owns `standingFoot` and discovery
@@ -115,6 +115,8 @@ regressions cover lazy validation, distance-field updates, cursor continuation,
 bound widening and per-arrival action reuse. They establish their fixture scope.
 
 ## Solver contracts and physical windows
+
+Alpha.84 keeps implementation code under `src/v1/`. The root entry exports only shared types and playback. The solver entry exports the factory/configuration and input/output/resource contracts. Host operations remain explicit in `solver/host`; build and collision retain separate resource-facing entries. No `v1/*` package subpath is exported. Shared contracts contain no implementation imports. Internal code imports its owning modules rather than the root or solver barrels.
 
 The `./solver` entry point separates immutable scene facts from movement/search
 configuration and per-query endpoints. Its prepared solver retains single and
@@ -187,7 +189,7 @@ The support builder deliberately retains local climb/headroom semantics for stai
 
 The current `Surface` export consists of detail triangles. Native coarse polygon ownership has not been retained as a reusable hierarchy. Graph size therefore follows detail density. Adding a small local refinement can rebuild a much larger combined planner.
 
-Local refinement is implemented by `src/solver/ground-refinement.ts`; the patched extractor forwards to it. It selects inclusive collision-AABB candidates from the collision BVH, restores original triangle order and rebuilds bounded support at one third of the coarse cell size. Shared owned surface primitives avoid repeating some preparation, while global portals and graph relations are rebuilt for the combined support. These implemented local/native operations are part of the current pipeline. Persistent regional transfers and a complete coarse/detail ownership asset remain subsequent work.
+Local refinement is implemented by `src/v1/solver/ground-refinement.ts`; the patched extractor forwards to it. It selects inclusive collision-AABB candidates from the collision BVH, restores original triangle order and rebuilds bounded support at one third of the coarse cell size. Shared owned surface primitives avoid repeating some preparation, while global portals and graph relations are rebuilt for the combined support. These implemented local/native operations are part of the current pipeline. Persistent regional transfers and a complete coarse/detail ownership asset remain subsequent work.
 
 Imported directed portal intervals remain authoritative through graph construction, exposed-boundary discovery and straightening. Point contacts, stacked surfaces and ambiguous overlaps do not establish passage. Ground straightening uses supported continuous traces, directed passages and wall checks. Same-height corner contraction and candidate-corridor straightening remove unnecessary tessellation turns under those constraints.
 

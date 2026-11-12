@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '#@/src/collision.ts';
-import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
-import type { GroundArrival, GroundConnection } from '#@/src/route/ground.ts';
-import { createGroundPlanner } from '#@/src/route/ground.ts';
-import type { route } from '#@/src/route/routes.ts';
-import type { ShortcutCache, ShortcutOptions } from '#@/src/search/shortcuts.ts';
-import { findJumpShortcuts, findJumpFrontier } from '#@/src/search/shortcuts.ts';
-import { findJumpConnections } from '#@/src/search/traversal.ts';
+import type { Surface, Vec3 } from '#@/src/geometry.ts';
+import type { GroundArrival, GroundConnection } from '#@/src/route.ts';
+import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
+import type { route } from '#@/src/v1/route/routes.ts';
+import {
+  type ShortcutCache,
+  type ShortcutOptions,
+  findJumpShortcuts,
+  findJumpFrontier,
+} from '#@/src/v1/search/shortcuts.ts';
+import { findJumpConnections } from '#@/src/v1/search/traversal.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0: number, z1: number): Surface => ({
   id,

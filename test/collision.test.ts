@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '#@/src/collision.ts';
-import type { CollisionOptions } from '#@/src/geo/collision.ts';
-import type { Vec3 } from '#@/src/geo/geometry.ts';
+import { createCollisionWorld, type CollisionOptions } from '#@/src/collision.ts';
+import type { Vec3 } from '#@/src/geometry.ts';
 const profile = { radius: 0.35, height: 1.66 };
 const world = (faces: Vec3[][]) =>
   createCollisionWorld({

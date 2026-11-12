@@ -2,13 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '#@/src/collision.ts';
-import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
-import type { Wall } from '#@/src/geo/walls.ts';
-import { planJumpRoute, createGroundPlanner } from '#@/src/index.ts';
-import type { GroundArrival, GroundConnection } from '#@/src/route/ground.ts';
-import type { JumpRouteOptions } from '#@/src/route/jump-planner.ts';
-import type { Route } from '#@/src/route/routes.ts';
-import { findJumpConnections } from '#@/src/search/traversal.ts';
+import type { Surface, Vec3, Wall } from '#@/src/geometry.ts';
+import type { GroundArrival, GroundConnection, Route } from '#@/src/route.ts';
+import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
+import { planJumpRoute, type JumpRouteOptions } from '#@/src/v1/route/jump-planner.ts';
+import { findJumpConnections } from '#@/src/v1/search/traversal.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
   id,

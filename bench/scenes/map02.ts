@@ -1,4 +1,4 @@
-import type { Vec3 } from '#@/src/geo/geometry.ts';
+import type { Vec3 } from '#@/src/geometry.ts';
 import type { RouteQuery } from '#@/src/solver/contract.ts';
 // Use separated ground regions to exercise motion discovery rather than only
 // tracing a continuous walking corridor.

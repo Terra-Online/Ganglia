@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '#@/src/collision.ts';
-import type { Capsule, CollisionWorld } from '#@/src/geo/collision.ts';
-import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
-import type { Wall } from '#@/src/geo/walls.ts';
-import { createGoalProjector } from '#@/src/motion/goals.ts';
-import { jumpConnection } from '#@/src/motion/jumps.ts';
-import type { GroundConnection } from '#@/src/route/ground.ts';
-import { planGroundRoute, createGroundPlanner } from '#@/src/route/ground.ts';
-import type { DiscoveryOptions } from '#@/src/search/traversal.ts';
-import { findJumpConnections, exposedBoundaries, standingFoot } from '#@/src/search/traversal.ts';
+import { createCollisionWorld, type Capsule, type CollisionWorld } from '#@/src/collision.ts';
+import type { Surface, Vec3, Wall } from '#@/src/geometry.ts';
+import type { GroundConnection } from '#@/src/route.ts';
+import { createGoalProjector } from '#@/src/v1/motion/goals.ts';
+import { jumpConnection } from '#@/src/v1/motion/jumps.ts';
+import { planGroundRoute, createGroundPlanner } from '#@/src/v1/route/ground.ts';
+import {
+  type DiscoveryOptions,
+  findJumpConnections,
+  exposedBoundaries,
+  standingFoot,
+} from '#@/src/v1/search/traversal.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
   id,

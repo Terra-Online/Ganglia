@@ -1,16 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import {
-  createWindowRoute,
-  type WindowConfig,
-  type WindowResources,
-  type WindowRequest,
-  type WindowJob,
-} from '@opendfieldmap/ganglia/solver';
-
-import type { Surface } from '#@/src/geo/geometry.ts';
-import type { Route } from '#@/src/route/routes.ts';
+import type { Surface } from '#@/src/geometry.ts';
+import type { Route } from '#@/src/route.ts';
+import type { WindowResources, WindowRequest, WindowJob } from '#@/src/solver/resources.ts';
+import { createWindowRoute, type WindowConfig } from '#@/src/v1/solver/window-route.ts';
 
 type Job = WindowJob & {
   output: string;

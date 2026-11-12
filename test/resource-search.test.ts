@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Surface } from '#@/src/geo/geometry.ts';
-import { planGroundRoute } from '#@/src/route/ground.ts';
-import { route } from '#@/src/route/routes.ts';
-import type { Edge, Graph } from '#@/src/route/routes.ts';
+import type { Surface } from '#@/src/geometry.ts';
+import { planGroundRoute } from '#@/src/v1/route/ground.ts';
+import { route, type Edge, type Graph } from '#@/src/v1/route/routes.ts';
 import { expectStatus } from '#@/test/assertions.ts';
 const locomotion = {
   speed: 1,

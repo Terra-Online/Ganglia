@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '#@/src/collision.ts';
-import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
-import type { Wall } from '#@/src/geo/walls.ts';
-import type { JumpModel } from '#@/src/motion/jumps.ts';
-import { jumpConnection } from '#@/src/motion/jumps.ts';
-import { landingCandidates, createLandingGoalCache } from '#@/src/motion/landings.ts';
+import type { Surface, Vec3, Wall } from '#@/src/geometry.ts';
+import type { JumpModel } from '#@/src/movement.ts';
+import { jumpConnection } from '#@/src/v1/motion/jumps.ts';
+import { landingCandidates, createLandingGoalCache } from '#@/src/v1/motion/landings.ts';
 
 test('finds feasible landing interiors when nearest, goal and centre witnesses fail', () => {
   const surface: Surface = {

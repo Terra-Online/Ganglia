@@ -1345,3 +1345,31 @@ The zero-budget query returns no-verified-route with truncation, while the defau
 policy completes the same jumping query. Its measured outcome and truncation flag
 also match prewarm. Geometry preparation and walking work still run at zero
 discovery budget.
+
+
+## V1 implementation locality and public contracts, 2026-11-12
+
+Alpha.84 moves the existing algorithm subsystems under src/v1 without an extra
+internal directory. Geometry, movement, route and physical/resource contracts
+are owned by the outer modules, not inferred from a v1 implementation. The outer
+factory dispatches to v1 preparation. Root runtime exports are playback only;
+solver runtime exports are the factory and defaults. Resource operations used by
+Atlos's adapters are explicit in solver/host, with build/collision kept separate.
+There is no public v1 subpath. The benchmark adapter uses the same package exports
+as Atlos. Internal runtime imports do not depend on public root/solver barrels.
+
+A structural comparison preserves 283 executable bodies/initializers across the
+move and playback extraction. groundBuildIdentity intentionally resolves the
+package manifest through the package-local import map; checkout and packaged
+identities agree at d5fbc4f1285aa611846e94b7504e20804a9338e7f6b18ed1a2922011aa707b6d.
+Unused imports from type extraction were removed. Ganglia checks pass 331 tests
+and an additional noUnusedLocals type check passes. Atlos's maintained patches
+and source imports are migrated through the host seam; generated cache is rebuilt
+from its owning patch. Validation artifacts use .local/research/v1-layout-*.
+
+The final three-query full-scene batch completes all routes, matches all prewarm
+outcomes/truncation flags, and retains every corresponding alpha.83 outcome hash.
+The adapter loads only public package interfaces. Data loading and full prewarm
+remain outside the measurement; this is not a full 50-query throughput comparison.
+Atlos source-only checks and World production build pass. Final source SHA-256:
+178c4b292358a6ab9dd9f82bd2a6968ff79ae1ddffe5fbfc5a3ff1ed037c4a2d; resolved packaged kernel: 28eccd2b0220bf957d9cf11092f7175179df5870f60a913838672fc23a7d60dc.

@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Portal, Surface, Vec3 } from '#@/src/geo/geometry.ts';
-import type { Wall } from '#@/src/geo/walls.ts';
-import { createGroundPlanner } from '#@/src/index.ts';
-import { planGroundRoute } from '#@/src/route/ground.ts';
-import type { GroundArrival, GroundConnection, GroundOptions } from '#@/src/route/ground.ts';
-import { groundPreparation } from '#@/src/route/ground.ts';
-import { route } from '#@/src/route/routes.ts';
+import type { Portal, Surface, Vec3, Wall } from '#@/src/geometry.ts';
+import type { GroundArrival, GroundConnection, GroundOptions } from '#@/src/route.ts';
+import { createGroundPlanner, planGroundRoute, groundPreparation } from '#@/src/v1/route/ground.ts';
+import { route } from '#@/src/v1/route/routes.ts';
 const surfaces: Surface[] = [
   {
     id: 'a',
@@ -172,7 +169,7 @@ test('prepared action queries preserve explicit support faces across overlapping
 });
 
 test('prepared queries straighten arbitrary endpoints and apply continuous sprint timing', async () => {
-  const { createGroundPlanner } = await import('#@/src/index.ts');
+  const { createGroundPlanner } = await import('#@/src/solver/host.ts');
   const planner = createGroundPlanner(surfaces, {
     ...options,
     locomotion: { speed: 1, sprintSpeed: 2, sprintAcceleration: 4 },
@@ -198,7 +195,7 @@ test('prepared queries straighten arbitrary endpoints and apply continuous sprin
 });
 
 test('interaction queries end on reachable standing ground within an explicit volume', async () => {
-  const { createGroundPlanner } = await import('#@/src/index.ts');
+  const { createGroundPlanner } = await import('#@/src/solver/host.ts');
   const planner = createGroundPlanner(
     [
       {

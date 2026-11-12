@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Surface } from '#@/src/geo/geometry.ts';
-import type { GroundConnection } from '#@/src/route/ground.ts';
+import type { Surface } from '#@/src/geometry.ts';
+import type { GroundConnection } from '#@/src/route.ts';
 import type { RouteQuery } from '#@/src/solver/contract.ts';
 import { prepareRouteSolver, gangliaV1Defaults } from '#@/src/solver/index.ts';
 

@@ -50,33 +50,3 @@ export const gangliaV1Defaults: GangliaV1Config = Object.freeze({
   margin: 8,
   maxTargetError: 3,
 });
-
-/** Copy only supported fields so caller mutation cannot change a prepared policy. */
-export function snapshotGangliaV1Config(config: GangliaV1Config): GangliaV1Config {
-  const fixed: GangliaV1Config = {
-    algorithm: config.algorithm,
-    maxCandidates: config.maxCandidates,
-    maxShortcutCandidates: config.maxShortcutCandidates,
-    sampleSpacing: config.sampleSpacing,
-    maxLinks: config.maxLinks,
-    maxAttempts: config.maxAttempts,
-    batchConcurrency: config.batchConcurrency,
-    tileSpan: config.tileSpan,
-    gridSpan: config.gridSpan,
-    maxTiles: config.maxTiles,
-    margin: config.margin,
-    maxTargetError: config.maxTargetError,
-  };
-  if (fixed.algorithm !== 'ganglia-v1') throw new Error('Unsupported solver algorithm');
-  for (const value of [fixed.maxCandidates, fixed.maxShortcutCandidates])
-    if (!Number.isSafeInteger(value) || value < 0)
-      throw new Error('Invalid ganglia-v1 search budget');
-  for (const value of [fixed.maxAttempts, fixed.batchConcurrency, fixed.maxTiles, fixed.maxLinks])
-    if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid ganglia-v1 work limit');
-  if (fixed.maxTiles > 512) throw new Error('Invalid ganglia-v1 tile limit');
-  for (const value of [fixed.sampleSpacing, fixed.tileSpan, fixed.gridSpan, fixed.margin])
-    if (!Number.isFinite(value) || value <= 0) throw new Error('Invalid ganglia-v1 distance');
-  if (!Number.isFinite(fixed.maxTargetError) || fixed.maxTargetError < 0)
-    throw new Error('Invalid ganglia-v1 target tolerance');
-  return Object.freeze(fixed);
-}

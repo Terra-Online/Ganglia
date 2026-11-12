@@ -1,14 +1,10 @@
-import type { CollisionOptions } from '#@/src/geo/collision.ts';
-import type { Vec3, Surface, CollisionGeometry } from '#@/src/geo/geometry.ts';
-import type { Portal } from '#@/src/geo/geometry.ts';
-import type { Wall } from '#@/src/geo/walls.ts';
-import type { InteractionGoal } from '#@/src/motion/goals.ts';
-import type { JumpModel } from '#@/src/motion/jumps.ts';
-import type { LocomotionOptions } from '#@/src/resource/locomotion.ts';
-import type { SpeedBoost } from '#@/src/route/boosted-route.ts';
-import type { GroundArrival, GroundConnection } from '#@/src/route/ground.ts';
-import type { Route } from '#@/src/route/routes.ts';
+import type { CollisionOptions } from '#@/src/collision.ts';
+import type { Vec3, Surface, CollisionGeometry, Portal, Wall } from '#@/src/geometry.ts';
+import type { InteractionGoal, JumpModel, LocomotionOptions, SpeedBoost } from '#@/src/movement.ts';
+import type { GroundArrival, GroundConnection, Route } from '#@/src/route.ts';
 import type { GangliaV1Config } from '#@/src/solver/ganglia-v1.ts';
+import type { PhysicalInput } from '#@/src/solver/physical.ts';
+import type { WindowJob, SceneResources } from '#@/src/solver/resources.ts';
 
 /** One immutable physical snapshot. Keep inputs unchanged until close(). */
 export interface SceneInput {
@@ -89,3 +85,13 @@ export interface PreparedRouteSolver {
   /** Await submitted work before closing. Idempotent; later solves reject. */
   close(): Promise<void>;
 }
+
+export type SolverInput<Source, Job extends WindowJob> =
+  | { kind: 'surfaces'; input: SceneInput }
+  | { kind: 'physical'; input: PhysicalInput }
+  | {
+      kind: 'scene';
+      scene: { scene: string; source: Source; walls: Wall[] };
+      resources: SceneResources<Source, Job>;
+      locomotion: LocomotionOptions;
+    };

@@ -1,8 +1,20 @@
-import type { Model } from '#@/scripts/research/policy.ts';
-import type { CollisionWorld } from '#@/src/geo/collision.ts';
-import type { Vec3, Surface, CollisionGeometry } from '#@/src/geo/geometry.ts';
-import type { JumpModel, Arc } from '#@/src/motion/jumps.ts';
-import type { GroundOptions } from '#@/src/route/ground.ts';
+import {
+  type Model,
+  random,
+  rank,
+  crossEntropy,
+  withFallback,
+} from '#@/scripts/research/policy.ts';
+import { type CollisionWorld, createCollisionWorld } from '#@/src/collision.ts';
+import type { Vec3, Surface, CollisionGeometry } from '#@/src/geometry.ts';
+import type { JumpModel } from '#@/src/movement.ts';
+import type { GroundOptions } from '#@/src/route.ts';
+import {
+  type Arc,
+  jumpDuration,
+  jumpConnection,
+  runOffConnection,
+} from '#@/src/v1/motion/jumps.ts';
 type Source = { buildGuid?: string; contentHash?: string };
 type Binding = {
   scene: string;
@@ -79,13 +91,10 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, isDeepStrictEqual } from 'node:util';
 
-import { random, rank, crossEntropy, withFallback } from '#@/scripts/research/policy.ts';
-import { createCollisionWorld } from '#@/src/collision.ts';
-import { createWallChecker } from '#@/src/geo/walls.ts';
-import { createGoalProjector } from '#@/src/motion/goals.ts';
-import { jumpDuration, jumpConnection, runOffConnection } from '#@/src/motion/jumps.ts';
-import { createGroundStraightener } from '#@/src/route/straighten.ts';
-import { standingFoot } from '#@/src/search/traversal.ts';
+import { createWallChecker } from '#@/src/v1/geo/walls.ts';
+import { createGoalProjector } from '#@/src/v1/motion/goals.ts';
+import { createGroundStraightener } from '#@/src/v1/route/straighten.ts';
+import { standingFoot } from '#@/src/v1/search/traversal.ts';
 
 const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const horizontal = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[2] - b[2]);

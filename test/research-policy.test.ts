@@ -11,7 +11,7 @@ import {
   featureNames,
   checkSplits,
 } from '#@/scripts/research/policy.ts';
-import type { Surface } from '#@/src/geo/geometry.ts';
+import type { Surface } from '#@/src/geometry.ts';
 
 test('sampling stays inside supported triangles and follows projected area instead of triangle count', () => {
   const floor = (id: string, x: number, length: number): Surface => ({

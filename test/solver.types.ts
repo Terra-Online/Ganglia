@@ -1,5 +1,10 @@
-import type { RouteQuery, RouteResult, SceneInput } from '@opendfieldmap/ganglia/solver';
-import { prepareRouteSolver, gangliaV1Defaults } from '@opendfieldmap/ganglia/solver';
+import {
+  type RouteQuery,
+  type RouteResult,
+  type SceneInput,
+  prepareRouteSolver,
+  gangliaV1Defaults,
+} from '@opendfieldmap/ganglia/solver';
 
 async function checkSolverContract(input: SceneInput, query: RouteQuery) {
   const solver = await prepareRouteSolver(gangliaV1Defaults, { kind: 'surfaces', input });

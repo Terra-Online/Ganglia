@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createBoundsIndex } from '#@/src/geo/bounds.ts';
-import type { JumpModel } from '#@/src/motion/jumps.ts';
-import { jumpDuration, jumpTravel } from '#@/src/motion/jumps.ts';
-import type { EnvelopeOptions } from '#@/src/reach/reachability.ts';
-import { createJumpEnvelope, createJumpPredecessor } from '#@/src/reach/reachability.ts';
+import type { JumpModel } from '#@/src/movement.ts';
+import { createBoundsIndex } from '#@/src/v1/geo/bounds.ts';
+import { jumpDuration, jumpTravel } from '#@/src/v1/motion/jumps.ts';
+import {
+  type EnvelopeOptions,
+  createJumpEnvelope,
+  createJumpPredecessor,
+} from '#@/src/v1/reach/reachability.ts';
 
 const model: JumpModel = {
   gravity: 10,

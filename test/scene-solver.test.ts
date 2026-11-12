@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Route } from '#@/src/route/routes.ts';
+import type { Route } from '#@/src/route.ts';
 import type { RouteEvent } from '#@/src/solver/contract.ts';
 import { prepareRouteSolver, gangliaV1Defaults, type SceneResources } from '#@/src/solver/index.ts';
 

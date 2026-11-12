@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '#@/src/collision.ts';
-import type { Capsule } from '#@/src/geo/collision.ts';
-import type { Vec3 } from '#@/src/geo/geometry.ts';
-import type { Wall } from '#@/src/geo/walls.ts';
-import type { JumpOptions, RunOffOptions } from '#@/src/motion/jumps.ts';
-import { jumpConnection, jumpDuration, runOffConnection } from '#@/src/motion/jumps.ts';
+import { createCollisionWorld, type Capsule } from '#@/src/collision.ts';
+import type { Vec3, Wall } from '#@/src/geometry.ts';
+import {
+  type JumpOptions,
+  type RunOffOptions,
+  jumpConnection,
+  jumpDuration,
+  runOffConnection,
+} from '#@/src/v1/motion/jumps.ts';
 
 const profile = { radius: 0.35, height: 1.66 };
 const options: JumpOptions = {

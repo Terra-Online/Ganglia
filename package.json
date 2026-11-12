@@ -1,6 +1,6 @@
 {
   "name": "@opendfieldmap/ganglia",
-  "version": "0.1.0-alpha.83",
+  "version": "0.1.0-alpha.84",
   "private": true,
   "description": "Conservative ground-route planning for Open Endfield Map",
   "license": "SEE LICENSE IN LICENSE",
@@ -18,7 +18,7 @@
     "./build": "./src/build.ts",
     "./collision": "./src/collision.ts",
     "./solver": "./src/solver/index.ts",
-    "./solver/host": "./src/solver/physical/host.ts"
+    "./solver/host": "./src/solver/host.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

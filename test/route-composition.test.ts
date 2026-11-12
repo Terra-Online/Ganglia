@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { composeRoutes } from '@opendfieldmap/ganglia/solver';
-
-import type { Route } from '#@/src/route/routes.ts';
+import type { Route } from '#@/src/route.ts';
+import { composeRoutes } from '#@/src/v1/solver/route-result.ts';
 
 test('composition preserves the selected arrival and retimes continuous ground motion', () => {
   const prefix: Extract<Route, { status: 'complete' }> = {

@@ -1,21 +1,10 @@
-export { surfaceGraph, projectPoint } from '#@/src/geo/surfaces.ts';
-export { createWallChecker } from '#@/src/geo/walls.ts';
-export { createGoalProjector } from '#@/src/motion/goals.ts';
-export { jumpConnection, jumpDuration } from '#@/src/motion/jumps.ts';
-export { sampleJourney } from '#@/src/motion/motion.ts';
-export { retimeGroundRoute } from '#@/src/resource/locomotion.ts';
-export { pruneGroundDetours } from '#@/src/route/ground-detours.ts';
-export { createGroundPlanner } from '#@/src/route/ground.ts';
-export { planJumpRoute } from '#@/src/route/jump-planner.ts';
-export { routeFrom, sampleRoute } from '#@/src/route/routes.ts';
-export { createCandidatePlanner } from '#@/src/search/candidate-planner.ts';
-export type { Vec3, Surface, Portal } from '#@/src/geo/geometry.ts';
-export type { Wall } from '#@/src/geo/walls.ts';
-export type { Route } from '#@/src/route/routes.ts';
-export type { Segment } from '#@/src/motion/motion.ts';
-export type { SpeedBoost } from '#@/src/route/boosted-route.ts';
-export type { GroundArrival, GroundConnection, GroundOptions } from '#@/src/route/ground.ts';
-export type { LocomotionOptions } from '#@/src/resource/locomotion.ts';
-export type { InteractionGoal } from '#@/src/motion/goals.ts';
-export type { JumpModel } from '#@/src/motion/jumps.ts';
-export type { JumpRouteOptions } from '#@/src/route/jump-planner.ts';
+export { sampleJourney, sampleRoute } from '#@/src/playback.ts';
+export type { Vec3, Surface, Portal, Wall } from '#@/src/geometry.ts';
+export type { Route, GroundArrival, GroundConnection, GroundOptions } from '#@/src/route.ts';
+export type {
+  Segment,
+  SpeedBoost,
+  LocomotionOptions,
+  InteractionGoal,
+  JumpModel,
+} from '#@/src/movement.ts';

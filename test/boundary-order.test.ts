@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { boundaryOrder, boundaryTree } from '#@/src/search/boundary-order.ts';
+import { boundaryOrder, boundaryTree } from '#@/src/v1/search/boundary-order.ts';
 
 test('bounded discovery covers separate regions before exhausting nearby entries', () => {
   const entries = [

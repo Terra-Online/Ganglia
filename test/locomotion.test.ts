@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Vec3 } from '#@/src/geo/geometry.ts';
-import type { Segment } from '#@/src/motion/motion.ts';
-import { sampleJourney } from '#@/src/motion/motion.ts';
-import { retimeGroundRoute } from '#@/src/resource/locomotion.ts';
-import type { Route } from '#@/src/route/routes.ts';
+import type { Vec3 } from '#@/src/geometry.ts';
+import type { Segment } from '#@/src/movement.ts';
+import { sampleJourney } from '#@/src/playback.ts';
+import type { Route } from '#@/src/route.ts';
+import { retimeGroundRoute } from '#@/src/v1/resource/locomotion.ts';
 
 const options = { speed: 5, sprintSpeed: 7, sprintAcceleration: 2 };
 const stamina = {

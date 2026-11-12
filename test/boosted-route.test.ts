@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '#@/src/collision.ts';
-import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
-import { planJumpRoute, createGroundPlanner, retimeGroundRoute } from '#@/src/index.ts';
-import type { SpeedBoost } from '#@/src/route/boosted-route.ts';
-import type { GroundArrival } from '#@/src/route/ground.ts';
-import type { Route } from '#@/src/route/routes.ts';
+import type { Surface, Vec3 } from '#@/src/geometry.ts';
+import type { SpeedBoost } from '#@/src/movement.ts';
+import type { GroundArrival, Route } from '#@/src/route.ts';
+import { retimeGroundRoute } from '#@/src/v1/resource/locomotion.ts';
+import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
+import { planJumpRoute } from '#@/src/v1/route/jump-planner.ts';
 import { expectStatus } from '#@/test/assertions.ts';
 
 const floor = (id: string, left: number, right: number): Surface => ({

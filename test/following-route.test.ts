@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createCollisionWorld } from '#@/src/collision.ts';
-import type { GroundArrival, JumpRouteOptions, Surface, Vec3 } from '#@/src/index.ts';
-import { planFollowingRoute } from '#@/src/solver/physical/following-route.ts';
-import type { FollowingSupport } from '#@/src/solver/physical/supports.ts';
+import type { GroundArrival, Surface, Vec3 } from '#@/src/index.ts';
+import type { FollowingSupport } from '#@/src/solver/physical.ts';
+import type { JumpRouteOptions } from '#@/src/v1/route/jump-planner.ts';
+import { planFollowingRoute } from '#@/src/v1/solver/physical/following-route.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -6, z1 = 6): Surface => ({
   id,
