@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   compareQuality,
   readReference,
+  qualityGate,
   summarizeQuality,
   type QualityRow,
 } from '#@/bench/quality.ts';
@@ -13,6 +14,26 @@ const row = (id: string, cost: number, partial = false): QualityRow => ({
   cost,
   partial,
   status: 'complete',
+});
+
+test('quality gates reject lost routes, excessive individual cost and unstable warm results', () => {
+  const stable = { sameOutcomeAsPrewarm: true, sameTruncationAsPrewarm: true };
+  const check = (rows: QualityRow[], before: QualityRow[]) =>
+    qualityGate(
+      rows.map((r) => ({ ...r, ...stable })),
+      compareQuality(rows, before),
+    );
+  const before = [row('short', 1), row('long', 100)];
+  assert.equal(check([row('short', 1.02), row('long', 98)], before).passed, true);
+  assert.equal(check([row('short', 1.06), row('long', 90)], before).passed, false);
+  assert.equal(check([row('short', 1.02), row('long', 102)], before).passed, false);
+  assert.equal(check([row('short', 1), row('long', 0, true)], before).passed, false);
+  assert.equal(check([row('short', 1)], [row('short', 0)]).passed, false);
+  assert.equal(
+    qualityGate([{ ...row('one', 1), ...stable, sameTruncationAsPrewarm: false }], undefined)
+      .passed,
+    false,
+  );
 });
 test('modeled time distinguishes quality without favoring missing or partial solutions', () => {
   const rows = [row('short', 2), row('long', 20)];

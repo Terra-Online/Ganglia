@@ -1,4 +1,4 @@
-import type { compareQuality } from '#@/bench/quality.ts';
+import type { compareQuality, qualityGate } from '#@/bench/quality.ts';
 import type { runBenchmark } from '#@/bench/run.ts';
 
 type Report = Awaited<ReturnType<typeof runBenchmark>>;
@@ -16,8 +16,11 @@ export interface MarkdownReport extends Report {
     binarySha256?: string;
     locomotionLabelLimit?: number;
     nativeLocomotion?: boolean;
+    nativeGroundTrace?: boolean;
+    nativeGoals?: boolean;
   };
   workingTreeDirty?: boolean;
+  qualityGate?: ReturnType<typeof qualityGate>;
 }
 const number = (value: number | null, digits = 3) =>
   value === null ? 'n/a' : value.toFixed(digits);
@@ -50,6 +53,10 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
         ? []
         : [`| Throughput speedup vs reference | ${number(comparison.speedup)}× |`]),
     );
+  if (report.qualityGate)
+    rows.push(
+      `| Quality gate | ${report.qualityGate.passed ? 'PASS' : `FAIL: ${cell(report.qualityGate.failures.join('; '))}`} |`,
+    );
   rows.push(
     '',
     'Input loading and solver preparation are excluded. The measured batch recomputes queries after one full-batch prewarm; no completed-route cache is used. Speedup describes this workload on this machine, not a cross-scene guarantee.',
@@ -58,7 +65,7 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
     '',
     ...(report.prototype
       ? [
-          `Local prototype: \`${report.prototype.implementation}\`; native scheduler: ${report.prototype.nativeLocomotion ?? false}; locomotion label limit: ${report.prototype.locomotionLabelLimit ?? 256}; prototype source SHA-256: \`${report.prototype.sourceSha256}\`.`,
+          `Local prototype: \`${report.prototype.implementation}\`; native scheduler: ${report.prototype.nativeLocomotion ?? false}; native ground tracing: ${report.prototype.nativeGroundTrace ?? false}; native goal geometry: ${report.prototype.nativeGoals ?? false}; locomotion label limit: ${report.prototype.locomotionLabelLimit ?? 256}; prototype source SHA-256: \`${report.prototype.sourceSha256}\`.`,
           '',
         ]
       : []),

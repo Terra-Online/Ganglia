@@ -28,3 +28,14 @@ if (process.env.GANGLIA_RUST_LOCOMOTION === '1')
   installSchedulePrototype(
     createRustScheduleChooser(Number(process.env.GANGLIA_LOCOMOTION_LABELS ?? 256)),
   );
+
+import { createRustGroundTracer } from '#@/prototype/rust-kernel/ground-trace-binding.ts';
+import { installGroundTracePrototype } from '#@/src/v1/route/straighten.ts';
+
+if (process.env.GANGLIA_RUST_GROUND_TRACE === '1')
+  installGroundTracePrototype(createRustGroundTracer);
+
+import { createRustGoalGeometry } from '#@/prototype/rust-kernel/goal-binding.ts';
+import { installGoalGeometryPrototype } from '#@/src/v1/motion/goals.ts';
+
+if (process.env.GANGLIA_RUST_GOALS === '1') installGoalGeometryPrototype(createRustGoalGeometry);

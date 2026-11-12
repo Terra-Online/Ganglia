@@ -120,6 +120,7 @@ test('finds a shorter drop across a gap even when a long ground ramp connects bo
   );
   const result = findJumpShortcuts(surfaces, world, { ...options, from, to, baseline });
   assert.ok(result.connections.length > 0);
+  assert.deepEqual(findJumpShortcuts(surfaces, world, { ...options, from, to, baseline }), result);
   const route = createGroundPlanner(surfaces, { ...options, connections: result.connections }).plan(
     arrivals,
     to,
@@ -214,6 +215,85 @@ test('continues a blocked frontier queue with a larger budget without regenerati
   assert.equal(second.diagnostics.neighbourChecks, 0);
   assert.ok(second.diagnostics.cursor!.pending < first.diagnostics.cursor!.pending);
   assert.equal(second.diagnostics.truncated, true);
+});
+
+test('prepared portal ownership avoids repeated serialization and restarts discovery for a new graph', () => {
+  const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
+  const world = createCollisionWorld(geometry(surfaces));
+  let serializations = 0;
+  const portals = Object.assign([], {
+    toJSON() {
+      serializations++;
+      return [];
+    },
+  });
+  const settings: ShortcutOptions = {
+    ...options,
+    portals,
+    maxCandidates: 4,
+    from: [2, 0, 0],
+    to: [9, 0, 0],
+    walls: [{ min: [4.5, -1, -20], max: [6, 20, 20], state: 'active' }],
+  };
+  const planner = createGroundPlanner(surfaces, settings);
+  const cache: ShortcutCache = {};
+  const cold = findJumpFrontier(surfaces, world, { ...settings, groundPlanner: planner }, cache);
+  const continued = findJumpFrontier(
+    surfaces,
+    world,
+    { ...settings, groundPlanner: planner },
+    cache,
+  );
+  assert.equal(continued.diagnostics.cursor!.resumed, true);
+  assert.equal(serializations, 0);
+  const rebuiltPortals = [...portals];
+  const rebuilt = createGroundPlanner(surfaces, { ...settings, portals: rebuiltPortals });
+  const restarted = findJumpFrontier(
+    surfaces,
+    world,
+    { ...settings, portals: rebuiltPortals, groundPlanner: rebuilt },
+    cache,
+  );
+  assert.equal(restarted.diagnostics.cursor!.resumed, false);
+  assert.deepEqual(restarted, cold);
+  assert.deepEqual(
+    findJumpFrontier(surfaces, world, { ...settings, groundPlanner: planner }, {}),
+    cold,
+  );
+});
+
+test('standalone discovery detects in-place portal changes before reusing its frontier', () => {
+  const surfaces = [
+    floor('start', 0, 4, 0, -2, 2),
+    floor('step', 4, 4.3, 0.2, -2, 2),
+    floor('goal', 7, 11, 0, -2, 2),
+  ];
+  const world = createCollisionWorld(geometry(surfaces));
+  const settings: ShortcutOptions = {
+    ...options,
+    portals: [],
+    maxCandidates: 4,
+    from: [2, 0, 0],
+    to: [9, 0, 0],
+    walls: [{ min: [4.5, -1, -20], max: [6, 20, 20], state: 'active' }],
+  };
+  const cache: ShortcutCache = {};
+  findJumpFrontier(surfaces, world, settings, cache);
+  assert.equal(
+    findJumpFrontier(surfaces, world, settings, cache).diagnostics.cursor!.resumed,
+    true,
+  );
+  settings.portals!.push({
+    from: 'start',
+    to: 'step',
+    points: [
+      [4, 0, 0],
+      [4, 0.2, 0],
+    ],
+  });
+  const changed = findJumpFrontier(surfaces, world, settings, cache);
+  assert.equal(changed.diagnostics.cursor!.resumed, false);
+  assert.deepEqual(changed, findJumpFrontier(surfaces, world, settings, {}));
 });
 
 test('a wider cost bound retries frontier candidates excluded by the earlier bound', () => {

@@ -154,6 +154,15 @@ export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
               const tail = await window.advanceTail();
               if ('diagnostics' in tail) truncated ||= tail.diagnostics.truncated;
               if (tail.status === 'partial') {
+                if (tail.coversStart) {
+                  const route = {
+                    ...tail.route,
+                    start: arrival.id,
+                    arrivalCost: arrival.cost,
+                    cost: tail.route.cost - tail.route.arrivalCost + arrival.cost,
+                  };
+                  return publish(route, tail.evidence, false);
+                }
                 partial = publish(tail.route, tail.evidence, true);
                 break;
               }

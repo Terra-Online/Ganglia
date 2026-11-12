@@ -3,12 +3,15 @@ import { test } from 'node:test';
 
 import { createCollisionWorld, type Capsule } from '#@/src/collision.ts';
 import type { Vec3, Wall } from '#@/src/geometry.ts';
+import { motionEvidence } from '#@/src/v1/motion/evidence.ts';
 import {
+  type ApproachCache,
   type JumpOptions,
   type RunOffOptions,
   jumpConnection,
   jumpDuration,
   runOffConnection,
+  createMotionVariants,
 } from '#@/src/v1/motion/jumps.ts';
 
 const profile = { radius: 0.35, height: 1.66 };
@@ -300,6 +303,95 @@ test('walk-off drops preserve support before free fall under low headroom', () =
       }),
       null,
     );
+  }
+});
+
+test('shared ledge proofs replay query-local approaches without changing steering variants', () => {
+  const rectangle = (left: number, right: number, height: number): Vec3[][] => [
+    [
+      [left, height, -3],
+      [right, height, 3],
+      [right, height, -3],
+    ],
+    [
+      [left, height, -3],
+      [left, height, 3],
+      [right, height, 3],
+    ],
+  ];
+  const collision = world([...rectangle(0, 4, 5), ...rectangle(4.5, 10, 0)]);
+  let supports = 0;
+  const counted = {
+    sweepCapsule: collision.sweepCapsule,
+    groundAt: (...args: Parameters<typeof collision.groundAt>) => {
+      supports++;
+      return collision.groundAt(...args);
+    },
+  };
+  const start: Vec3 = [3.5, 5.005, 0],
+    end: Vec3 = [6, 0.005, 0];
+  for (const blocked of [false, true]) {
+    const settings: RunOffOptions = {
+      ...options,
+      gravity: 40,
+      fallingGravity: 38,
+      maxJumpHeight: 2.1,
+      maxFallingSpeed: 80,
+      apexTime: 0.1,
+      maxHorizontalSpeed: 6.5,
+      airAcceleration: 60,
+      airDeceleration: 10,
+      sweep: counted.sweepCapsule,
+      world: counted,
+      maxSlope: 46,
+      exit: [4.5, 0],
+      speedFraction: 0.5,
+      terminal: 'balanced',
+      walls: blocked ? [{ min: [3.8, 4, -1], max: [3.9, 8, 1], state: 'active' }] : [],
+    };
+    const evidence = motionEvidence(counted, [], JSON.stringify(settings.walls));
+    const coldCache: ApproachCache = new Map();
+    const cold = runOffConnection(start, end, settings, coldCache, evidence.approach);
+    assert.ok(supports > 0);
+    assert.equal(cold !== null, !blocked);
+    supports = 0;
+    const warmCache: ApproachCache = new Map();
+    assert.equal(warmCache.size, 0);
+    const warm = runOffConnection(start, end, settings, warmCache, evidence.approach);
+    assert.equal(supports, 0);
+    assert.deepEqual(warm, cold);
+    assert.deepEqual(warmCache, coldCache);
+    assert.deepEqual(
+      [
+        ...createMotionVariants(
+          settings,
+          counted,
+          profile,
+          new Map(),
+          warmCache,
+        )(start, end, settings.exit),
+      ],
+      [
+        ...createMotionVariants(
+          settings,
+          counted,
+          profile,
+          new Map(),
+          coldCache,
+        )(start, end, settings.exit),
+      ],
+    );
+    const prefix = warmCache.values().next().value;
+    if (prefix) {
+      prefix.launch[0] = 999;
+      prefix.points[0][0] = 999;
+      prefix.distances[0] = 999;
+      warm!.points[0][0] = 999;
+    } else assert.equal(warmCache.values().next().value, null);
+    const againCache: ApproachCache = new Map();
+    assert.deepEqual(runOffConnection(start, end, settings, againCache, evidence.approach), cold);
+    assert.deepEqual(againCache, coldCache);
+    supports = 0;
   }
 });
 

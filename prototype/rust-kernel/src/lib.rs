@@ -1,4 +1,6 @@
 mod collision;
+mod goals;
+mod ground_trace;
 mod locomotion;
 
 use napi::bindgen_prelude::{Float64Array, Uint32Array};

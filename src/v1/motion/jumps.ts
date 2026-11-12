@@ -56,6 +56,7 @@ export interface Approach {
   distances: number[];
 }
 export type ApproachCache = Map<string, Approach | null>;
+export type ApproachProof = (key: string, compute: () => Approach | null) => Approach | null;
 export type ExitCache = Map<string, [number, number] | null>;
 
 export type RunOffOptions = Omit<JumpOptions, 'mode'> &
@@ -618,6 +619,7 @@ export function runOffConnection(
   end: Vec3,
   options: RunOffOptions,
   cache?: ApproachCache,
+  proof?: ApproachProof,
 ): Arc | null {
   const { world, maxSlope, profile, walls } = options;
   const wallCheck = options.wallCheck ?? createWallChecker(walls, profile);
@@ -628,8 +630,6 @@ export function runOffConnection(
   if (exitDistance === 0) return null;
   const direction = [(exit[0] - start[0]) / exitDistance, (exit[1] - start[2]) / exitDistance];
   const limit = options.exit ? exitDistance + profile.radius : span;
-  const spacing = profile.radius / 4;
-  const slope = Math.tan((maxSlope * Math.PI) / 180);
   const cacheKey = options.exit ? JSON.stringify([start, options.exit]) : null;
   if (cacheKey && cache?.has(cacheKey)) {
     const prefix = cache.get(cacheKey);
@@ -641,6 +641,50 @@ export function runOffConnection(
       : null;
   }
   if (cacheKey) cache?.set(cacheKey, null);
+  const compute = () =>
+    marchToLedge(start, direction, limit, { world, maxSlope, profile, wallCheck });
+  const prefix = proof ? proof(JSON.stringify([start, exit, limit]), compute) : compute();
+  if (!prefix) return null;
+  if (options.exit) {
+    // Publish the proof only when this logical attempt reaches the supported
+    // approach. Preloading it would change the motion generator's control flow.
+    if (cacheKey) cache?.set(cacheKey, prefix);
+    return steerDrop(prefix.launch, end, direction, prefix.points, prefix.distances, {
+      ...options,
+      wallCheck,
+    });
+  }
+  const arc = jumpConnection(prefix.launch, end, { ...options, mode: 'drop' });
+  if (!arc) return null;
+  const low = prefix.distances.at(-1)!;
+  const airSpeed = (span - low) / arc.times.at(-1)!;
+  if (airSpeed <= 0 || airSpeed > options.maxHorizontalSpeed) return null;
+  const approachTime = low / airSpeed;
+  return {
+    ...arc,
+    points: [...prefix.points, ...arc.points.slice(1)],
+    times: [
+      ...prefix.distances.map((distance) => distance / airSpeed),
+      ...arc.times.slice(1).map((time) => approachTime + time),
+    ],
+  };
+}
+
+function marchToLedge(
+  start: Vec3,
+  direction: number[],
+  limit: number,
+  {
+    world,
+    maxSlope,
+    profile,
+    wallCheck,
+  }: Pick<RunOffOptions, 'world' | 'maxSlope' | 'profile'> & {
+    wallCheck: NonNullable<JumpOptions['wallCheck']>;
+  },
+): Approach | null {
+  const spacing = profile.radius / 4;
+  const slope = Math.tan((maxSlope * Math.PI) / 180);
   const points: Vec3[] = [[...start]],
     distances = [0];
   let travelled = 0;
@@ -702,23 +746,7 @@ export function runOffConnection(
         } else high = middle;
       }
       if (low > travelled && !appendSupport(low, launch)) return null;
-      if (options.exit) {
-        if (cacheKey) cache?.set(cacheKey, { launch, points, distances });
-        return steerDrop(launch, end, direction, points, distances, { ...options, wallCheck });
-      }
-      const arc = jumpConnection(launch, end, { ...options, mode: 'drop' });
-      if (!arc) return null;
-      const airSpeed = (span - low) / arc.times.at(-1)!;
-      if (airSpeed <= 0 || airSpeed > options.maxHorizontalSpeed) return null;
-      const approachTime = low / airSpeed;
-      return {
-        ...arc,
-        points: [...points, ...arc.points.slice(1)],
-        times: [
-          ...distances.map((distance) => distance / airSpeed),
-          ...arc.times.slice(1).map((time) => approachTime + time),
-        ],
-      };
+      return { launch, points, distances };
     }
     if (!appendSupport(nextDistance, next)) return null;
     travelled = nextDistance;

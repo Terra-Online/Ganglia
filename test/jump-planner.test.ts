@@ -5,7 +5,11 @@ import { createCollisionWorld } from '#@/src/collision.ts';
 import type { Surface, Vec3, Wall } from '#@/src/geometry.ts';
 import type { GroundArrival, GroundConnection, Route } from '#@/src/route.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
-import { planJumpRoute, type JumpRouteOptions } from '#@/src/v1/route/jump-planner.ts';
+import {
+  planJumpRoute,
+  type InitialGroundProof,
+  type JumpRouteOptions,
+} from '#@/src/v1/route/jump-planner.ts';
 import { findJumpConnections } from '#@/src/v1/search/traversal.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
@@ -72,6 +76,53 @@ test('a complete initial goal probe is handed to the next phase without a second
   assert.ok(result.route.status === 'complete');
   assert.equal(calls, 1);
   assert.deepEqual(result.route, createGroundPlanner(surfaces, options).plan(starts, goal));
+});
+
+test('a carried ground proof cannot hide newly available actions or a changed goal region', () => {
+  const surfaces = [floor('flat', 0, 20, 0)],
+    starts = arrival([2, 0, 0]),
+    goal: Vec3 = [18, 0, 0];
+  const planner = createGroundPlanner(surfaces, options);
+  const proof: InitialGroundProof = {
+    planner,
+    surfaces,
+    arrival: starts[0],
+    goal,
+    connections: [],
+    route: planner.plan(starts, goal),
+  };
+  const world = createCollisionWorld(geometry(surfaces));
+  for (const change of [
+    { interaction: { radius: 1 } },
+    {
+      connections: [
+        {
+          id: 'launch',
+          state: 'open' as const,
+          mode: 'launch' as const,
+          points: [starts[0].position, goal],
+          times: [0, 0.1],
+        },
+      ],
+    },
+  ]) {
+    const settings = { ...options, ...change, groundPlanner: planner, maxShortcutCandidates: 0 };
+    const target: Vec3 = change.interaction ? [17, 0, 0] : goal;
+    const expected = planJumpRoute(surfaces, world, starts, target, settings);
+    const actual = planJumpRoute(surfaces, world, starts, target, settings, proof);
+    assert.equal(actual.route.status, 'complete');
+    assert.notDeepEqual(actual.route, proof.route);
+    assert.deepEqual(actual, expected);
+  }
+  const replacement = [floor('flat', 0, 10, 0)];
+  const settings = {
+    ...options,
+    groundPlanner: createGroundPlanner(replacement, options),
+    maxShortcutCandidates: 0,
+  };
+  const changed = planJumpRoute(replacement, world, starts, goal, settings, proof);
+  assert.equal(changed.route.status, 'unmapped');
+  assert.deepEqual(changed, planJumpRoute(replacement, world, starts, goal, settings));
 });
 
 test('jointly selects multiple jumps through surfaces missing from the ground-only route', () => {

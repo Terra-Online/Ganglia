@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync } from 'node:fs';
+import { copyFileSync, renameSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -19,4 +19,7 @@ const library =
     : process.platform === 'win32'
       ? 'ganglia_transfer_prototype.dll'
       : 'libganglia_transfer_prototype.so';
-copyFileSync(`${target}/release/${library}`, `${target}/transfer.node`);
+// Renaming preserves any library inode already mapped by another Node isolate.
+const staged = `${target}/transfer-${process.pid}.node`;
+copyFileSync(`${target}/release/${library}`, staged);
+renameSync(staged, `${target}/transfer.node`);

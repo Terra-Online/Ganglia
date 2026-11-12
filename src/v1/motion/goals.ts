@@ -17,6 +17,26 @@ export interface GoalProjection {
   distance: number;
 }
 
+export interface GoalClip {
+  maxVertical?: number;
+  facing?: { forwardX: number; forwardZ: number; sine: number; cosine: number };
+}
+export interface GoalGeometry {
+  projectPoint(target: Vec3, maxVertical: number, candidates: number[]): GoalProjection | null;
+  closestSurfaces(
+    target: Vec3,
+    candidates: number[],
+    clip: GoalClip,
+  ): (GoalProjection & { index: number })[];
+}
+export type GoalGeometryFactory = (
+  surfaces: readonly Pick<Surface, 'id' | 'vertices'>[],
+) => GoalGeometry;
+let prototypeGeometry: GoalGeometryFactory | undefined;
+export function installGoalGeometryPrototype(factory: GoalGeometryFactory) {
+  prototypeGeometry = factory;
+}
+
 const finitePoint = (point: unknown): point is Vec3 =>
   Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
 const distanceSquared = (a: readonly number[], b: readonly number[]) => {
@@ -172,26 +192,57 @@ export function createGoalProjector(surfaces: Surface[]): GoalProjector {
     return { id: owned.id, vertices: owned.vertices, index, min: owned.min, max: owned.max };
   });
   const query = createBoundsIndex(snapshot);
+  const geometry = prototypeGeometry?.(snapshot);
+  // Repeated action endpoints share only immutable geometric projection proofs.
+  // Keep ownership separate from returned witnesses and bound arbitrary query history.
+  const projections = new Map<string, GoalProjection[]>();
+  const copy = (values: GoalProjection[]) =>
+    values.map((value) => ({ ...value, position: [...value.position] satisfies Vec3 }));
+  const remember = (key: string, values: GoalProjection[]) => {
+    if (projections.size >= 4096) projections.delete(projections.keys().next().value!);
+    projections.set(key, copy(values));
+    return values;
+  };
   return (target: Vec3, options: GoalProjectionOptions): GoalProjection[] => {
     if (!finitePoint(target) || !options) throw new Error('Invalid goal query');
     const { maxVertical, interaction } = options;
+    const key = JSON.stringify([
+      target.map((value) => (Object.is(value, -0) ? '-0' : value)),
+      maxVertical,
+      interaction?.radius,
+      interaction?.maxVertical,
+      interaction?.facing,
+      interaction?.halfAngle,
+    ]);
+    const cached = projections.get(key);
     if (interaction === undefined) {
       if (!Number.isFinite(maxVertical) || maxVertical! < 0)
         throw new Error('Invalid goal projection height');
+      if (cached) return copy(cached);
       const bounds = {
         min: [target[0], target[1] - maxVertical!, target[2]],
         max: [target[0], target[1] + maxVertical!, target[2]],
       };
+      const candidates = [...query(bounds)].sort((a, b) => a.index - b.index);
+      if (geometry) {
+        const best = geometry.projectPoint(
+          target,
+          maxVertical!,
+          candidates.map((surface) => surface.index),
+        );
+        return remember(key, best ? [best] : []);
+      }
       let best: GoalProjection | null = null;
-      for (const surface of [...query(bounds)].sort((a, b) => a.index - b.index)) {
+      for (const surface of candidates) {
         const projected = projectPoint([surface], target, { maxVertical: maxVertical! });
         if (!projected) continue;
         const distance = Math.abs(projected.position[1] - target[1]);
         if (!best || distance < best.distance) best = { ...projected, distance };
       }
-      return best ? [best] : [];
+      return remember(key, best ? [best] : []);
     }
-    const planes = interactionPlanes(target, interaction);
+    const clip = interactionClip(interaction);
+    if (cached) return copy(cached);
     const radius = interaction.radius;
     const bounds = {
       min: target.map((value) => value - radius),
@@ -201,14 +252,24 @@ export function createGoalProjector(surfaces: Surface[]): GoalProjector {
       bounds.min[1] = Math.max(bounds.min[1], target[1] - interaction.maxVertical);
       bounds.max[1] = Math.min(bounds.max[1], target[1] + interaction.maxVertical);
     }
-    const candidates = [];
-    for (const surface of query(bounds, target, radius)) {
-      const candidate = closestOnSurface(surface, target, planes);
-      if (candidate && candidate.distance <= radius)
-        candidates.push({ ...candidate, index: surface.index });
+    const candidates: (GoalProjection & { index: number })[] = [];
+    if (geometry) {
+      const indices = Array.from(query(bounds, target, radius), (surface) => surface.index);
+      for (const candidate of geometry.closestSurfaces(target, indices, clip))
+        if (candidate.distance <= radius) candidates.push(candidate);
+    } else {
+      const planes = planesFromClip(target, clip);
+      for (const surface of query(bounds, target, radius)) {
+        const candidate = closestOnSurface(surface, target, planes);
+        if (candidate && candidate.distance <= radius)
+          candidates.push({ ...candidate, index: surface.index });
+      }
     }
     candidates.sort((a, b) => a.distance - b.distance || a.index - b.index);
-    return candidates.map(({ index, ...candidate }) => candidate);
+    return remember(
+      key,
+      candidates.map(({ index, ...candidate }) => candidate),
+    );
   };
 }
 /** Project a single goal. Reuse createGoalProjector for repeated queries. */
@@ -220,6 +281,9 @@ export function projectGoal(
   return createGoalProjector(surfaces)(target, options);
 }
 function interactionPlanes(target: Vec3, interaction: InteractionGoal): Plane[] {
+  return planesFromClip(target, interactionClip(interaction));
+}
+function interactionClip(interaction: InteractionGoal): GoalClip {
   if (
     !interaction ||
     !Number.isFinite(interaction.radius) ||
@@ -229,13 +293,7 @@ function interactionPlanes(target: Vec3, interaction: InteractionGoal): Plane[] 
   ) {
     throw new Error('Invalid interaction goal range');
   }
-  const planes: Plane[] = [];
-  if (interaction.maxVertical !== undefined) {
-    planes.push(
-      (point: Vec3) => point[1] - target[1] + interaction.maxVertical!,
-      (point: Vec3) => target[1] + interaction.maxVertical! - point[1],
-    );
-  }
+  const clip: GoalClip = { maxVertical: interaction.maxVertical };
   if (interaction.facing !== undefined || interaction.halfAngle !== undefined) {
     if (
       !finitePoint(interaction.facing) ||
@@ -252,6 +310,20 @@ function interactionPlanes(target: Vec3, interaction: InteractionGoal): Plane[] 
     const angle = (interaction.halfAngle! * Math.PI) / 180;
     const sine = Math.sin(angle),
       cosine = interaction.halfAngle === 90 ? 0 : Math.cos(angle);
+    clip.facing = { forwardX, forwardZ, sine, cosine };
+  }
+  return clip;
+}
+function planesFromClip(target: Vec3, clip: GoalClip): Plane[] {
+  const planes: Plane[] = [];
+  if (clip.maxVertical !== undefined) {
+    planes.push(
+      (point: Vec3) => point[1] - target[1] + clip.maxVertical!,
+      (point: Vec3) => target[1] + clip.maxVertical! - point[1],
+    );
+  }
+  if (clip.facing) {
+    const { forwardX, forwardZ, sine, cosine } = clip.facing;
     const forward = (point: Vec3) =>
       (point[0] - target[0]) * forwardX + (point[2] - target[2]) * forwardZ;
     const side = (point: Vec3) =>

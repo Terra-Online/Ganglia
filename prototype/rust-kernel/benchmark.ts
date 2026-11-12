@@ -1,10 +1,11 @@
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, readdir, realpath, rm, symlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { benchmarkMarkdown, type MarkdownReport } from '#@/bench/markdown.ts';
+import { sourceHash } from '#@/bench/source.ts';
 
 // Isolate game-adapter dependency resolution from Atlos's packaged kernel.
 // Both runs use the same copied adapter and the same live Ganglia source.
@@ -41,6 +42,17 @@ for (const name of ['extractor', 'formats']) {
 }
 const args = process.argv.slice(2);
 const native = !args.includes('--typescript');
+const sourceSha256 = await sourceHash(root, ['prototype/rust-kernel']);
+if (native)
+  execFileSync(process.execPath, [resolve(root, 'prototype/rust-kernel/build.ts')], {
+    cwd: root,
+    stdio: ['inherit', 'inherit', 'inherit'],
+  });
+const binaryHash = async () =>
+  createHash('sha256')
+    .update(await readFile(resolve(root, '.local/cache/rust-transfers/transfer.node')))
+    .digest('hex');
+const binarySha256 = native ? await binaryHash() : undefined;
 const workerOption = args.indexOf('--workers');
 if (process.env.GANGLIA_PROFILE && workerOption >= 0 && args[workerOption + 1] !== '1')
   throw new Error('Profile only the inline solver with --workers 1');
@@ -63,22 +75,12 @@ const run = spawnSync(process.execPath, command, {
   maxBuffer: 32 * 1024 * 1024,
 });
 if (run.error) throw run.error;
-if (run.status !== 0) process.exit(run.status ?? 1);
+if ((await sourceHash(root, ['prototype/rust-kernel'])) !== sourceSha256)
+  throw new Error('Prototype source changed during measurement; discard this run');
+if (native && (await binaryHash()) !== binarySha256)
+  throw new Error('Native binary changed during measurement; discard this run');
+if (run.status !== 0 && !run.stdout.trim()) process.exit(run.status ?? 1);
 if (args.includes('--json') || args.includes('--markdown')) {
-  const hash = createHash('sha256');
-  for (const name of [
-    'Cargo.toml',
-    'Cargo.lock',
-    'src/lib.rs',
-    'src/collision.rs',
-    'src/locomotion.rs',
-    'locomotion-binding.ts',
-    'binding.ts',
-    'register.ts',
-    'collision-world.ts',
-    'collision-binding.ts',
-  ])
-    hash.update(name + '\0').update(await readFile(resolve(root, 'prototype/rust-kernel', name)));
   const report: MarkdownReport = JSON.parse(run.stdout);
   report.prototype = {
     implementation: native
@@ -86,18 +88,15 @@ if (args.includes('--json') || args.includes('--markdown')) {
         ? 'rust-transfers-and-collision'
         : 'rust-transfers'
       : 'typescript',
-    sourceSha256: hash.digest('hex'),
+    sourceSha256,
     locomotionLabelLimit: Number(process.env.GANGLIA_LOCOMOTION_LABELS ?? 256),
     nativeLocomotion: native && process.env.GANGLIA_RUST_LOCOMOTION === '1',
-    ...(native
-      ? {
-          binarySha256: createHash('sha256')
-            .update(await readFile(resolve(root, '.local/cache/rust-transfers/transfer.node')))
-            .digest('hex'),
-        }
-      : {}),
+    nativeGroundTrace: native && process.env.GANGLIA_RUST_GROUND_TRACE === '1',
+    nativeGoals: native && process.env.GANGLIA_RUST_GOALS === '1',
+    ...(native ? { binarySha256 } : {}),
   };
   console.log(
     args.includes('--markdown') ? benchmarkMarkdown(report) : JSON.stringify(report, null, 2),
   );
 } else process.stdout.write(run.stdout);
+if (run.status !== 0) process.exitCode = run.status ?? 1;

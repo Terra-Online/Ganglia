@@ -171,6 +171,7 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
     },
   });
   let tail: ReturnType<typeof createWindowRoute<Request, Job>> | undefined;
+  let tailCoversStart = false;
   return {
     async advanceTail(): Promise<
       | ReturnType<typeof progress>
@@ -182,6 +183,7 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
           end: Vec3;
           evidence: unknown[];
           diagnostics: { truncated: boolean };
+          coversStart: boolean;
         }
     > {
       if (!tail) {
@@ -200,6 +202,13 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
         }
         if (first === candidates.length - 1)
           return { status: 'incomplete' as const, reason: 'tail-coverage-budget' };
+        // A later visit to the same coordinates does not cover the omitted prefix.
+        // Explicit support ranges require the original arrival's own projection proof.
+        tailCoversStart =
+          first === 0 &&
+          request.arrival.state === 'available' &&
+          request.arrival.groundRange === undefined &&
+          candidates[first].every((value, axis) => value === request.arrival.position[axis]);
         tail = createWindowRoute(
           builder,
           {
@@ -225,6 +234,11 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
             end: result.route.points.at(-1)!,
             evidence: result.evidence,
             diagnostics: result.diagnostics,
+            coversStart:
+              tailCoversStart &&
+              result.route.points[0].every(
+                (value, axis) => value === request.arrival.position[axis],
+              ),
           }
         : result;
     },

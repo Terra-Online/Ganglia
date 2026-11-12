@@ -27,6 +27,7 @@ import {
 } from '#@/src/v1/reach/distance-field.ts';
 import { createMotionBounds } from '#@/src/v1/reach/motion-bounds.ts';
 import { createJumpEnvelope, createJumpPredecessor } from '#@/src/v1/reach/reachability.ts';
+import { groundPreparation } from '#@/src/v1/route/ground.ts';
 import { movementGeometry } from '#@/src/v1/route/movement-geometry.ts';
 import type { Edge } from '#@/src/v1/route/routes.ts';
 import { type GroundStraightener, createGroundStraightener } from '#@/src/v1/route/straighten.ts';
@@ -169,7 +170,12 @@ interface Cursor {
   landingQueries?: LandingQuery[];
 }
 export interface ShortcutCache {
-  binding?: { surfaces: Surface[]; world: CollisionWorld; signature: string };
+  binding?: {
+    surfaces: Surface[];
+    world: CollisionWorld;
+    signature: string;
+    portalBinding: object | string | undefined;
+  };
   query?: string;
   geometry?: PreparedGeometry;
   visibility?: GroundStraightener;
@@ -298,10 +304,17 @@ function findConnections(
   reverse = false,
 ): { connections: GroundConnection[]; diagnostics: Diagnostics } {
   validateDiscovery(world, options);
+  const ground = groundPreparation(options.groundPlanner);
+  // A prepared graph owns immutable imported portals. Use its identity instead
+  // of serializing a potentially scene-sized portal array on every search batch.
+  // Standalone queries retain content checks for caller-mutated portal arrays.
+  const portalBinding =
+    ground?.surfaces === surfaces && ground.importedPortals === options.portals
+      ? ground
+      : JSON.stringify(options.portals);
   const signature = JSON.stringify([
     options.profile,
     options.walls,
-    options.portals,
     options.model,
     options.maxVertical,
     options.maxSlope,
@@ -310,16 +323,19 @@ function findConnections(
     options.sampleSpacing,
     options.activeBoost,
   ]);
-  const evidence = motionEvidence(world, surfaces, signature);
+  const evidence = motionEvidence(world, surfaces, signature, portalBinding);
   if (cache) {
     const binding = cache.binding;
     if (
       binding &&
-      (binding.surfaces !== surfaces || binding.world !== world || binding.signature !== signature)
+      (binding.surfaces !== surfaces ||
+        binding.world !== world ||
+        binding.signature !== signature ||
+        binding.portalBinding !== portalBinding)
     ) {
       for (const key of Object.keys(cache) as (keyof ShortcutCache)[]) delete cache[key];
     }
-    cache.binding = { surfaces, world, signature };
+    cache.binding = { surfaces, world, signature, portalBinding };
     const query = JSON.stringify([
       options.from,
       options.to,
@@ -1375,6 +1391,7 @@ function findConnections(
                 end.position,
                 { ...motion, world, maxSlope },
                 approaches,
+                evidence.approach,
               )
             : evidence.arc(motionKey, () => jumpConnection(start.position, end.position, motion));
         motions.set(motionKey, arc);

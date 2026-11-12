@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -8,10 +8,11 @@ import { parseArgs } from 'node:util';
 import { prepareRouteSolver, gangliaV1Defaults, type SolverConfig } from '@opendfieldmap/ganglia';
 
 import { benchmarkMarkdown } from '#@/bench/markdown.ts';
-import { compareQuality, readReference } from '#@/bench/quality.ts';
+import { compareQuality, qualityGate, readReference } from '#@/bench/quality.ts';
 import { runBenchmark } from '#@/bench/run.ts';
 import { loadScene } from '#@/bench/scene.ts';
 import { cases } from '#@/bench/scenes/map02.ts';
+import { sourceHash } from '#@/bench/source.ts';
 import { resetTimings } from '#@/bench/timings.ts';
 import { prepareWorkerSolver } from '#@/bench/workers.ts';
 
@@ -30,15 +31,33 @@ const { values } = parseArgs({
     limit: { type: 'string' },
     offset: { type: 'string', default: '0' },
     workload: { type: 'string' },
+    'max-mean-cost-ratio': { type: 'string', default: '1.01' },
+    'max-worst-cost-ratio': { type: 'string', default: '1.05' },
   },
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>]',
+    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
   );
 else {
   try {
     if (values.json && values.markdown) throw new Error('Choose --json or --markdown');
+    const limits = {
+      geometricMeanCostRatio: Number(values['max-mean-cost-ratio']),
+      worstCostRatio: Number(values['max-worst-cost-ratio']),
+    };
+    qualityGate([], undefined, limits);
+    const sourceSha256 = await sourceHash(root, ['src', 'bench']);
+    const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      cwd: root,
+    }).trim();
+    const workingTreeDirty = Boolean(
+      execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+        encoding: 'utf8',
+        cwd: root,
+      }).trim(),
+    );
     const workload: typeof cases = values.workload
       ? JSON.parse(await readFile(values.workload, 'utf8'))
       : cases;
@@ -108,30 +127,16 @@ else {
         console.error(JSON.stringify({ phase, queries: selected.length }));
         if (phase === 'batch') resetTimings(timings);
       });
-      const hash = createHash('sha256');
-      for (const directory of ['src', 'bench'])
-        for (const name of (await readdir(resolve(root, directory), { recursive: true })).sort()) {
-          if (name.endsWith('.ts'))
-            hash
-              .update(`${directory}/${name}\0`)
-              .update(await readFile(resolve(root, directory, name)));
-        }
+      if ((await sourceHash(root, ['src', 'bench'])) !== sourceSha256)
+        throw new Error('Benchmark source changed during measurement; discard this run');
       const output = {
         schemaVersion: 6,
         adapter: 'scene-files',
         node: process.version,
         execArgv: process.execArgv,
-        revision: execFileSync('git', ['rev-parse', 'HEAD'], {
-          encoding: 'utf8',
-          cwd: root,
-        }).trim(),
-        sourceSha256: hash.digest('hex'),
-        workingTreeDirty: Boolean(
-          execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
-            encoding: 'utf8',
-            cwd: root,
-          }).trim(),
-        ),
+        revision,
+        sourceSha256,
+        workingTreeDirty,
         ...metadata,
         concurrency,
         cases: selected,
@@ -155,8 +160,10 @@ else {
             }
           : {}),
       };
-      if (values.json) console.log(JSON.stringify(output, null, 2));
-      else if (values.markdown) console.log(benchmarkMarkdown(output));
+      const gate = qualityGate(report.batch.results, output.comparison, limits);
+      const validated = { ...output, qualityGate: gate };
+      if (values.json) console.log(JSON.stringify(validated, null, 2));
+      else if (values.markdown) console.log(benchmarkMarkdown(validated));
       else {
         console.log(
           `${metadata.scene}: ${selected.length} full-scene queries; local files, no Atlos server`,
@@ -176,6 +183,10 @@ else {
           console.table(output.comparison.pairs);
         }
         console.log(output.policy);
+      }
+      if (!gate.passed) {
+        console.error(`Benchmark quality gate failed: ${gate.failures.join('; ')}`);
+        process.exitCode = 1;
       }
     } finally {
       await solver.close();

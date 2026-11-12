@@ -7,6 +7,8 @@ export interface QualityRow {
   status: string;
   partial: boolean;
   cost: number | null;
+  outcomeSha256?: string;
+  truncated?: boolean;
 }
 
 const complete = (row: QualityRow) => row.status === 'complete' && !row.partial;
@@ -73,6 +75,13 @@ export function compareQuality(rows: readonly QualityRow[], reference: readonly 
         : Math.exp(ratios.reduce((sum, ratio) => sum + Math.log(ratio), 0) / ratios.length);
   return {
     pairedCompleted: pairs.length,
+    ...(rows.every((row) => row.outcomeSha256 && previous.get(row.id)?.outcomeSha256)
+      ? {
+          identicalOutcomes: rows.filter(
+            (row) => row.outcomeSha256 === previous.get(row.id)!.outcomeSha256,
+          ).length,
+        }
+      : {}),
     lostSolutions,
     gainedSolutions,
     geometricMeanCostRatio,
@@ -80,6 +89,33 @@ export function compareQuality(rows: readonly QualityRow[], reference: readonly 
     unboundedCostRegressions,
     pairs,
   };
+}
+
+export function qualityGate(
+  rows: readonly (QualityRow & {
+    sameOutcomeAsPrewarm: boolean;
+    sameTruncationAsPrewarm: boolean;
+  })[],
+  comparison: ReturnType<typeof compareQuality> | undefined,
+  limits = { geometricMeanCostRatio: 1.01, worstCostRatio: 1.05 },
+) {
+  if (Object.values(limits).some((value) => !Number.isFinite(value) || value < 1))
+    throw new Error('Invalid benchmark quality limits');
+  const failures: string[] = [];
+  if (rows.some((row) => !row.sameOutcomeAsPrewarm || !row.sameTruncationAsPrewarm))
+    failures.push('Measured results differ from prewarm');
+  if (comparison) {
+    if (comparison.lostSolutions.length) failures.push('Lost complete routes');
+    if (comparison.unboundedCostRegressions) failures.push('A zero-cost route became more costly');
+    if (
+      comparison.geometricMeanCostRatio !== null &&
+      comparison.geometricMeanCostRatio > limits.geometricMeanCostRatio
+    )
+      failures.push('Geometric mean route cost exceeds limit');
+    if (comparison.worstCostRatio !== null && comparison.worstCostRatio > limits.worstCostRatio)
+      failures.push('Worst route cost exceeds limit');
+  }
+  return { passed: !failures.length, failures, ...(comparison ? { limits } : {}) };
 }
 
 type Binding = {
@@ -120,7 +156,14 @@ export function readReference(value: unknown, binding: Binding): QualityRow[] {
     )
       throw new Error('Invalid reference result');
     if (row.id !== binding.cases[index]?.id) throw new Error('Reference result/query mismatch');
-    return { id: row.id, status: row.status, partial: row.partial, cost: row.cost };
+    return {
+      id: row.id,
+      status: row.status,
+      partial: row.partial,
+      cost: row.cost,
+      ...(typeof row.outcomeSha256 === 'string' ? { outcomeSha256: row.outcomeSha256 } : {}),
+      ...(typeof row.truncated === 'boolean' ? { truncated: row.truncated } : {}),
+    };
   });
   if (rows.length !== binding.cases.length) throw new Error('Reference result/query mismatch');
   costs(rows);

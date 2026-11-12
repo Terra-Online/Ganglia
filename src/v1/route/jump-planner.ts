@@ -113,6 +113,16 @@ export interface JumpResult {
   connections: GroundConnection[];
   diagnostics: JumpDiagnostics & { knownActionChains?: JumpDiagnostics };
 }
+/** A raw ground solve retained only while assembling this physical query. */
+export interface InitialGroundProof {
+  planner: GroundPlanner;
+  surfaces: Surface[];
+  arrival: GroundArrival;
+  goal: Vec3;
+  interaction?: InteractionGoal;
+  connections: GroundConnection[];
+  route: Route;
+}
 type Stage = 'direction' | 'relations' | 'entry' | 'final';
 
 /** Solve directed ground/jump/drop action combinations for arbitrary arrivals.
@@ -435,15 +445,17 @@ function planDirectedRoute(
   options: PlannerOptions,
   shared: ShortcutCache,
   stage: Stage,
+  initial?: Route,
 ): JumpResult {
   const { waypoints, onProgress, ...base } = options;
   validateWaypoints(waypoints);
   if (onProgress !== undefined && typeof onProgress !== 'function')
     throw new Error('Invalid route progress callback');
-  if (!waypoints?.length) return solveJumpRoute(surfaces, world, starts, goal, base, shared, stage);
+  if (!waypoints?.length)
+    return solveJumpRoute(surfaces, world, starts, goal, base, shared, stage, initial);
   const planner = base.groundPlanner ?? createGroundPlanner(surfaces, base);
   const initialConnections = base.connections ?? [];
-  const initial = planner.plan(starts, goal, {
+  initial ??= planner.plan(starts, goal, {
     interaction: base.interaction,
     endpointTolerance: base.endpointTolerance,
     connections: initialConnections,
@@ -573,6 +585,7 @@ function planBaseRoute(
   starts: GroundArrival[],
   goal: Vec3,
   options: PlannerOptions,
+  initial?: Route,
 ): JumpResult {
   const shared: ShortcutCache = {};
   const goalPlanner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
@@ -605,6 +618,7 @@ function planBaseRoute(
         { ...options, groundPlanner: goalPlanner },
         shared,
         'final',
+        initial,
       );
   if (options.interaction?.airborne && result.route.status !== 'complete') {
     const planner = goalPlanner;
@@ -829,8 +843,27 @@ export function planJumpRoute(
   starts: GroundArrival[],
   goal: Vec3,
   options: JumpRouteOptions,
+  initial?: InitialGroundProof,
 ): JumpResult {
-  const result = planBaseRoute(surfaces, world, starts, goal, options);
+  const connections = options.connections ?? [];
+  const unchanged =
+    initial !== undefined &&
+    initial.planner === options.groundPlanner &&
+    initial.surfaces === surfaces &&
+    starts.length === 1 &&
+    initial.arrival === starts[0] &&
+    initial.goal === goal &&
+    initial.interaction === options.interaction &&
+    initial.connections.length === connections.length &&
+    initial.connections.every((connection, index) => connection === connections[index]);
+  const result = planBaseRoute(
+    surfaces,
+    world,
+    starts,
+    goal,
+    options,
+    unchanged ? initial.route : undefined,
+  );
   const best = options.boosts?.length
     ? planBoostedRoute(surfaces, world, starts, goal, options, result, planBaseRoute)
     : result;

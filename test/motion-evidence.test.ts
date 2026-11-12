@@ -35,6 +35,11 @@ test('trace evidence owns its arrays and follows immutable world, surfaces and c
   const changed = motionEvidence(world, surfaces, 'changed walls');
   assert.notEqual(changed, evidence);
   assert.notEqual(motionEvidence(world, surfaces, 'constraints'), evidence);
+  const owner = {};
+  const prepared = motionEvidence(world, surfaces, 'constraints', owner);
+  assert.equal(motionEvidence(world, surfaces, 'constraints', owner), prepared);
+  assert.notEqual(motionEvidence(world, surfaces, 'constraints', {}), prepared);
+  assert.notEqual(motionEvidence(world, surfaces, 'constraints', '[]'), prepared);
 
   // Null proofs also consume capacity. FIFO eviction permits later computation
   // without retaining an unbounded history of traversed coordinates.

@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { prepareRouteSolver, gangliaV1Defaults, type PhysicalInput } from '#@/src/solver/index.ts';
+import type { GroundPlanner } from '#@/src/v1/route/ground.ts';
+import { createPhysicalCache } from '#@/src/v1/solver/physical/preparation.ts';
+import { preparePhysicalSolver } from '#@/src/v1/solver/physical/prepared.ts';
+import type { PhysicalCache } from '#@/src/v1/solver/physical/solve.ts';
 
 const input: PhysicalInput = {
   ground: {
@@ -39,6 +43,58 @@ const input: PhysicalInput = {
   },
   locomotion: { speed: 1, sprintSpeed: 2, sprintAcceleration: 1 },
 };
+test('physical jump planning continues its raw ground solve without repeating the same query', async () => {
+  const cache = createPhysicalCache();
+  let calls = 0;
+  const observed: PhysicalCache = {
+    release: cache.release,
+    async memo(slot, key, create) {
+      const prepared = await cache.memo(slot, key, create);
+      if (slot === 'ground' && !prepared.reused) {
+        const planner = prepared.value as GroundPlanner,
+          plan = planner.plan;
+        planner.plan = (...args) => {
+          calls++;
+          return plan(...args);
+        };
+      }
+      return prepared;
+    },
+  };
+  const solver = await preparePhysicalSolver(
+    input,
+    { ...gangliaV1Defaults, maxCandidates: 1, maxShortcutCandidates: 0 },
+    { cache: observed },
+  );
+  const query = {
+    starts: [
+      {
+        id: 'start',
+        state: 'available' as const,
+        cost: 3,
+        position: [1, 0, 1] as [number, number, number],
+      },
+    ],
+    goal: [9, 0, 1] as [number, number, number],
+    waypoints: [[5, 0, 1] as [number, number, number]],
+  };
+  try {
+    const first = await solver.solve(query);
+    assert.equal(first.route.status, 'complete');
+    if (first.route.status === 'complete') {
+      assert.equal(first.route.arrivalCost, 3);
+      assert.deepEqual(first.route.points[0], [1, 0, 1]);
+      assert.deepEqual(first.route.points.at(-1), [9, 0, 1]);
+      assert.ok(first.route.cost > 3);
+    }
+    assert.equal(calls, 1);
+    assert.deepEqual(await solver.solve(query), first);
+    assert.equal(calls, 2);
+  } finally {
+    await solver.close();
+  }
+});
+
 test('physical solver returns fresh single and batch routes through the prepared seam', async () => {
   const solver = await prepareRouteSolver(gangliaV1Defaults, { kind: 'physical', input: input });
   const query = {

@@ -8,7 +8,7 @@ import { projectPoint } from '#@/src/v1/geo/surfaces.ts';
 import { jumpDuration } from '#@/src/v1/motion/jumps.ts';
 import { pruneGroundDetours } from '#@/src/v1/route/ground-detours.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
-import { planJumpRoute } from '#@/src/v1/route/jump-planner.ts';
+import { planJumpRoute, type InitialGroundProof } from '#@/src/v1/route/jump-planner.ts';
 import { refineGoalGround } from '#@/src/v1/solver/ground-refinement.ts';
 import { createDeviceConnections as deviceConnections } from '#@/src/v1/solver/physical/devices.ts';
 import { planFollowingRoute } from '#@/src/v1/solver/physical/following-route.ts';
@@ -240,6 +240,15 @@ export const solvePhysicalRoute = async (
       diagnostics.roundOccupancy = { refined: true, groundStatus: walking.status };
     }
   }
+  let initialGround: InitialGroundProof = {
+    planner: groundPlanner,
+    surfaces: ground.surfaces,
+    arrival,
+    goal,
+    interaction: request.interaction,
+    connections: [...(options.connections ?? [])],
+    route: walking,
+  };
   timing.ground = performance.now() - groundStart;
   // Interactive optimization starts from an existing supported route. Bound its
   // optional shortcut comparison separately from unresolved reachability work.
@@ -464,6 +473,18 @@ export const solvePhysicalRoute = async (
           connections: options.connections,
         })
       : walking;
+    // Preserve the raw search baseline before detour pruning changes its cost
+    // and therefore the optional jump-discovery comparison and sampling budget.
+    if (options.connections.length)
+      initialGround = {
+        planner: groundPlanner!,
+        surfaces,
+        arrival,
+        goal,
+        interaction: request.interaction,
+        connections: [...options.connections],
+        route: connected,
+      };
     if (connected.status === 'complete' && groundPlanner) {
       const comparison = pruneGroundDetours(connected, groundPlanner, input.locomotion);
       connected = comparison.route;
@@ -638,21 +659,28 @@ export const solvePhysicalRoute = async (
   }
   progress({ phase: 'jump-discovery', goalFaces: candidates.length });
   const searchStart = performance.now();
-  const result = planJumpRoute(surfaces, world, [arrival], goal, {
-    ...options,
-    boosts,
-    groundPlanner,
-    interaction: request.interaction,
-    runAirSpeed,
-    maxSlope,
-    maxDrop,
-    maxHorizontalDistance,
-    ...limits,
-    maxShortcutCandidates: policy.maxShortcutCandidates,
-    waypoints: request.waypoints,
-    onProgress: progress,
-    model,
-  });
+  const result = planJumpRoute(
+    surfaces,
+    world,
+    [arrival],
+    goal,
+    {
+      ...options,
+      boosts,
+      groundPlanner,
+      interaction: request.interaction,
+      runAirSpeed,
+      maxSlope,
+      maxDrop,
+      maxHorizontalDistance,
+      ...limits,
+      maxShortcutCandidates: policy.maxShortcutCandidates,
+      waypoints: request.waypoints,
+      onProgress: progress,
+      model,
+    },
+    initialGround,
+  );
   timing.search = performance.now() - searchStart;
   Object.assign(diagnostics, result.diagnostics);
   let { route, connections } = result;
