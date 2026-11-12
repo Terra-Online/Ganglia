@@ -279,3 +279,94 @@ test('walking can replace an unnecessary device excursion across two solved wind
     assert.ok(Math.abs(result.route.cost - 24) < 1e-8);
   }
 });
+
+const floor = (id: string, from: number, to: number, height = 0): Surface => ({
+  id,
+  vertices: [
+    [from, height, -1],
+    [to, height, -1],
+    [to, height, 1],
+    [from, height, 1],
+  ],
+});
+
+for (const scenario of [
+  {
+    name: 'a replacement mesh projects onto its own floor',
+    surfaces: [floor('raised', 0, 201, 1)],
+    height: 1,
+    interaction: undefined,
+  },
+  {
+    name: 'a replacement mesh cannot prune a transfer across its gap',
+    surfaces: [floor('left', 0, 90), floor('right', 100, 201)],
+    height: 0,
+    interaction: undefined,
+  },
+  {
+    name: 'a final interaction cannot reuse an earlier window mesh for pruning',
+    surfaces: [floor('left', 0, 90), floor('right', 100, 201)],
+    height: 0,
+    interaction: { radius: 1 },
+  },
+]) {
+  test(scenario.name, async () => {
+    const builder = resources({
+      query: async (_scene, _source, start) => ({
+        status: 'ready',
+        output: start[0] === 0 ? 'first' : 'second',
+        collision: 'collision',
+      }),
+      solve: async (ground, local, _start, work) => {
+        if (work.step === 0) return { ...ground, result: { reason: 'requires-launch' } };
+        const start = local.arrival.position,
+          exit = local.target;
+        const from: [number, number, number] = [start[0] + 1, start[1], 0];
+        const to: [number, number, number] = [exit[0] - 1, exit[1], 0];
+        return {
+          ...ground,
+          result: {
+            route: {
+              status: 'complete',
+              start: local.arrival.id,
+              arrivalCost: 0,
+              cost: 102,
+              length: 120,
+              points: [start, from, to, exit],
+              segments: [
+                { mode: 'walk', points: [start, from], times: [0, 1] },
+                { mode: 'launch', points: [from, to], times: [0, 100], connection: 'launcher' },
+                { mode: 'walk', points: [to, exit], times: [0, 1] },
+              ],
+              ...(local.interaction ? { goalHit: { segment: 2, time: 1, position: exit } } : {}),
+            },
+          },
+        };
+      },
+    });
+    builder.ground = async (job) => ({
+      surfaces: job.output === 'first' ? surfaces : scenario.surfaces,
+      options: { speed: 5, maxVertical: 0.1, walls: [], profile: { radius: 0.1, height: 1.8 } },
+    });
+    const search = createWindowRoute(
+      builder,
+      { ...request, target: [120, 0, 0], interaction: scenario.interaction },
+      [
+        [80, 0, 0],
+        [120, 0, 0],
+      ],
+      settings,
+    );
+    let result = await search.advance();
+    for (let attempt = 0; attempt < 12 && result.status === 'pending'; attempt++)
+      result = await search.advance();
+    assert.equal(result.status, 'complete');
+    if (result.status === 'complete') {
+      assert.equal(result.evidence.length, 2);
+      assert.deepEqual(result.route.points.at(-1), [120, scenario.height, 0]);
+      assert.ok(result.route.segments.some((segment) => segment.mode === 'launch'));
+      assert.ok(result.route.cost > 24);
+      if (scenario.interaction) assert.deepEqual(result.route.goalHit?.position, [120, 0, 0]);
+    }
+  });
+}

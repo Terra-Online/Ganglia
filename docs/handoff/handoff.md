@@ -158,6 +158,41 @@ measured inclusive resource-adapter phase timers may overlap across concurrent l
 outcomes and truncation flags are compared per input. The resolved game-adapter kernel
 must match the benchmark checkout. Missing coverage requires offline preparation.
 
+### Prepared execution and retained physical graphs
+
+Alpha.88 retains one coarse ground planner alongside the one refined planner in
+physical preparation. A goal-refinement patch no longer discards the coarse graph;
+subsequent requests reuse it under the same generation/wall binding. Changed
+bindings still invalidate dependants and moving preparation is released as before.
+This is a bounded memory-for-preparation tradeoff, not completed-route caching.
+Window routing also retains one resource-keyed projector and lazy ground planner.
+A changed key replaces the slot. Final interaction handling only uses ground loaded
+for that window, rather than borrowing a preceding window's preparation.
+
+The Node-only benchmark worker adapter in `bench/workers.ts` implements the same
+PreparedRouteSolver contract. Each worker loads and verifies an immutable scene,
+then calls the root prepareRouteSolver; the complete query, global planner,
+windows and physical preparation stay within that isolate. Only queries, requested
+events and final results cross the worker seam. `--workers 1` retains inline
+execution; larger values create persistent workers. An explicit config/concurrency
+caps active queries. Otherwise worker count supplies the default concurrency.
+Startup/loading/preparation and one complete prewarm batch remain outside timing.
+The measured batch includes dispatch, queueing, IPC and remaining lazy work. Dynamic
+assignment can change a query's worker between passes. Atomic cancellation flags
+are checked cooperatively at solver events; close drains accepted work. Memory
+fields are sampled RSS/heap peaks, not exact simultaneous or transient peaks.
+
+The completed 20-query phase compares the original serial implementation against
+two complete-query workers plus retained coarse/refined preparation. Measured
+throughput increases from 0.059811 to 0.100077 queries/s (+67.32%), while every
+ordered route outcome hash, modeled cost and truncation flag remains unchanged.
+The experiment satisfies this phase's 50% throughput target on the selected map02
+snapshot. It does not establish cross-map scaling or a stable percentage over
+repeated runs. RSS sampled peak is about 10.10 GB for the final two-worker run.
+Earlier physical-only and three-worker experiments did not reach that target;
+Rust/native bindings were not introduced. Exact bindings and failed/inconclusive
+strategies remain in the companion history.
+
 ## Current scene and movement assumptions
 
 The working snapshot assumes completed tasks, enabled and powered facilities, and open doors. Geometry, body clearance, collision and applicable hazards still constrain passage. Factory region centres can serve as teleport arrivals under the fully traversable factory assumption. The fixed map02 snapshot uses daytime. Preserve these assumptions in result interpretation and source selection.

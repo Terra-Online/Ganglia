@@ -597,10 +597,10 @@ export const solvePhysicalRoute = async (
         });
         if (refined.surfaces.length) {
           const combined = [...surfaces, ...refined.surfaces];
-          // Release superseded preparation before allocating the replacement
-          // graph to limit peak memory during local refinement.
+          // Keep the coarse graph beside the single refined graph so subsequent
+          // queries do not rebuild it. Binding/wall changes still replace both;
+          // this trades one retained graph for repeated preparation work.
           groundPlanner = undefined;
-          context.cache?.release('ground');
           context.cache?.release('moving');
           return {
             refined,

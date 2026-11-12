@@ -11,6 +11,8 @@ import { compareQuality, readReference } from '#@/bench/quality.ts';
 import { runBenchmark } from '#@/bench/run.ts';
 import { loadScene } from '#@/bench/scene.ts';
 import { cases } from '#@/bench/scenes/map02.ts';
+import { resetTimings } from '#@/bench/timings.ts';
+import { prepareWorkerSolver } from '#@/bench/workers.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { values } = parseArgs({
@@ -20,6 +22,7 @@ const { values } = parseArgs({
     'data-root': { type: 'string', default: resolve(root, '.local/data') },
     extractor: { type: 'string', default: resolve(root, '.local/repos/Atlos/talos/.cache/noclip') },
     concurrency: { type: 'string' },
+    workers: { type: 'string', default: '1' },
     config: { type: 'string' },
     reference: { type: 'string' },
     limit: { type: 'string', default: '50' },
@@ -27,7 +30,7 @@ const { values } = parseArgs({
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <lanes>] [--config <json-file>] [--reference <benchmark-json>]',
+    'Usage: pnpm benchmark:full [--json] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>]',
   );
 else {
   try {
@@ -37,83 +40,112 @@ else {
     const config: SolverConfig = values.config
       ? JSON.parse(await readFile(values.config, 'utf8'))
       : { ...gangliaV1Defaults };
+    const workers = Number(values.workers);
+    if (!Number.isSafeInteger(workers) || workers < 1) throw new Error('Invalid worker count');
     const concurrency =
-      values.concurrency === undefined ? config.batchConcurrency : Number(values.concurrency);
+      values.concurrency === undefined
+        ? values.config
+          ? config.batchConcurrency
+          : Math.max(config.batchConcurrency, workers)
+        : Number(values.concurrency);
     if (!Number.isSafeInteger(concurrency) || concurrency < 1)
       throw new Error('Invalid concurrency');
+    const fixed = { ...config, batchConcurrency: concurrency };
     const started = performance.now();
-    const { input, inputLoadMs, timings, metadata } = await loadScene(
-      values['data-root'],
-      values.extractor,
-      concurrency,
-    );
-    const selected = cases.slice(0, count);
-    const referenceBytes = values.reference ? await readFile(values.reference) : undefined;
-    const reference = referenceBytes
-      ? readReference(JSON.parse(referenceBytes.toString()), { ...metadata, cases: selected })
-      : undefined;
-    // Reject incompatible references before spending time on prewarm and search.
-    const solver = await prepareRouteSolver({ ...config, batchConcurrency: concurrency }, input);
-    const setupMs = performance.now() - started;
-    const report = await runBenchmark(solver, selected, (phase) => {
-      console.error(JSON.stringify({ phase, queries: selected.length }));
-      if (phase === 'batch') {
-        timings.normalizationMs = timings.localSolveMs = 0;
+    let prepared;
+    if (workers > 1) {
+      prepared = await prepareWorkerSolver({
+        count: workers,
+        config: fixed,
+        dataRoot: values['data-root'],
+        extractor: values.extractor,
+      });
+    } else {
+      const scene = await loadScene(values['data-root'], values.extractor, concurrency);
+      try {
+        prepared = {
+          solver: await prepareRouteSolver(fixed, scene.input),
+          inputLoadMs: scene.inputLoadMs,
+          timings: scene.timings,
+          metadata: scene.metadata,
+        };
+      } catch (error) {
+        await scene.input.resources.close?.();
+        throw error;
       }
-    });
-    const hash = createHash('sha256');
-    for (const directory of ['src', 'bench'])
-      for (const name of (await readdir(resolve(root, directory), { recursive: true })).sort()) {
-        if (name.endsWith('.ts'))
-          hash
-            .update(`${directory}/${name}\0`)
-            .update(await readFile(resolve(root, directory, name)));
-      }
-    const output = {
-      schemaVersion: 5,
-      adapter: 'scene-files',
-      node: process.version,
-      execArgv: process.execArgv,
-      revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', cwd: root }).trim(),
-      sourceSha256: hash.digest('hex'),
-      ...metadata,
-      concurrency,
-      cases: selected,
-      inputLoadMs,
-      setupMs,
-      timings,
-      policy:
-        'All dataset file reads, JSON decoding, source verification and hashing finish before preparation. One full unmeasured batch prewarms the same prepared solver and lane-local physical caches. The measured batch recomputes queries without completed-route caching and reads inputs from memory only. It includes normalization, remaining lazy computation, candidate search, target approach, physical windows and retries. Inclusive phase timers describe measured work only and may overlap across lanes. OS scheduling/JIT/GC uncontrolled.',
-      ...report,
-      ...(reference && referenceBytes
-        ? {
-            comparison: {
-              referenceSha256: createHash('sha256').update(referenceBytes).digest('hex'),
-              ...compareQuality(report.batch.results, reference),
-            },
-          }
-        : {}),
-    };
-    if (values.json) console.log(JSON.stringify(output, null, 2));
-    else {
-      console.log(
-        `${metadata.scene}: ${selected.length} full-scene queries; local files, no Atlos server`,
-      );
-      console.table(report.batch.results);
-      console.log(`Prewarm: ${(report.prewarmMs / 1000).toFixed(2)} s; excluded`);
-      console.log(
-        `Batch: ${report.batch.queriesPerSecond.toFixed(3)} queries/s; ${report.batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${selected.length} outcomes match prewarm`,
-      );
-      console.log(
-        `Quality: ${report.batch.quality.completed}/${selected.length} complete; total modeled travel time: ${report.batch.quality.totalCostSeconds ?? 'incomplete'} s`,
-      );
-      if (output.comparison) {
+    }
+    const { solver, inputLoadMs, timings, metadata } = prepared;
+    try {
+      const selected = cases.slice(0, count);
+      const referenceBytes = values.reference ? await readFile(values.reference) : undefined;
+      const reference = referenceBytes
+        ? readReference(JSON.parse(referenceBytes.toString()), { ...metadata, cases: selected })
+        : undefined;
+      // Reject incompatible references before spending time on prewarm and search.
+      const setupMs = performance.now() - started;
+      const report = await runBenchmark(solver, selected, (phase) => {
+        console.error(JSON.stringify({ phase, queries: selected.length }));
+        if (phase === 'batch') resetTimings(timings);
+      });
+      const hash = createHash('sha256');
+      for (const directory of ['src', 'bench'])
+        for (const name of (await readdir(resolve(root, directory), { recursive: true })).sort()) {
+          if (name.endsWith('.ts'))
+            hash
+              .update(`${directory}/${name}\0`)
+              .update(await readFile(resolve(root, directory, name)));
+        }
+      const output = {
+        schemaVersion: 6,
+        adapter: 'scene-files',
+        node: process.version,
+        execArgv: process.execArgv,
+        revision: execFileSync('git', ['rev-parse', 'HEAD'], {
+          encoding: 'utf8',
+          cwd: root,
+        }).trim(),
+        sourceSha256: hash.digest('hex'),
+        ...metadata,
+        concurrency,
+        cases: selected,
+        inputLoadMs,
+        setupMs,
+        timings,
+        policy:
+          'All dataset file reads, JSON decoding, source verification, hashing, scene-worker startup and solver preparation finish before prewarm. One full unmeasured batch prewarms the same prepared solver and worker-local scene and physical caches. The measured batch recomputes queries without completed-route caching and reads inputs from memory only. It includes scene-worker dispatch/queueing/IPC, normalization, remaining lazy computation, candidate search, target approach, physical windows and retries. Inclusive phase timers describe measured work only and may overlap across scene workers. OS scheduling/JIT/GC uncontrolled.',
+        ...report,
+        ...(reference && referenceBytes
+          ? {
+              comparison: {
+                referenceSha256: createHash('sha256').update(referenceBytes).digest('hex'),
+                ...compareQuality(report.batch.results, reference),
+              },
+            }
+          : {}),
+      };
+      if (values.json) console.log(JSON.stringify(output, null, 2));
+      else {
         console.log(
-          `Reference: ${output.comparison.pairedCompleted} paired completions; lost ${output.comparison.lostSolutions.length}; gained ${output.comparison.gainedSolutions.length}; geometric mean cost ratio ${output.comparison.geometricMeanCostRatio ?? 'unavailable'}; worst ${output.comparison.worstCostRatio ?? 'unavailable'} (lower is better)`,
+          `${metadata.scene}: ${selected.length} full-scene queries; local files, no Atlos server`,
         );
-        console.table(output.comparison.pairs);
+        console.table(report.batch.results);
+        console.log(`Prewarm: ${(report.prewarmMs / 1000).toFixed(2)} s; excluded`);
+        console.log(
+          `Batch: ${report.batch.queriesPerSecond.toFixed(3)} queries/s; ${report.batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${selected.length} outcomes match prewarm`,
+        );
+        console.log(
+          `Quality: ${report.batch.quality.completed}/${selected.length} complete; total modeled travel time: ${report.batch.quality.totalCostSeconds ?? 'incomplete'} s`,
+        );
+        if (output.comparison) {
+          console.log(
+            `Reference: ${output.comparison.pairedCompleted} paired completions; lost ${output.comparison.lostSolutions.length}; gained ${output.comparison.gainedSolutions.length}; geometric mean cost ratio ${output.comparison.geometricMeanCostRatio ?? 'unavailable'}; worst ${output.comparison.worstCostRatio ?? 'unavailable'} (lower is better)`,
+          );
+          console.table(output.comparison.pairs);
+        }
+        console.log(output.policy);
       }
-      console.log(output.policy);
+    } finally {
+      await solver.close();
     }
   } catch (error) {
     console.error(error);

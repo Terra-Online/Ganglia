@@ -1486,3 +1486,85 @@ This harness-only change makes no algorithm speedup claim. The kernel SHA-256 st
 The new source/benchmark SHA-256 is
 ba0e84cff9f59f52ccafb52e7340cdb67775671ddc9891815c621a9821460cff.
 No packaged solver source or Atlos dependency changes are needed.
+
+
+## Prepared graph reuse and complete-query parallelism, 2026-11-13
+
+This phase targets at least 50% more full-scene batch throughput while retaining
+complete solutions and the existing per-query modeled-cost acceptance. The user
+allowed expanding beyond the 10-query iteration set. Inputs, movement, source and
+search budgets are fixed; only execution concurrency differs between comparisons.
+No work is removed by weakening discovery/validation budgets, and no complete-route
+cache is introduced. The larger 20-query comparison includes ten additional queries.
+
+A control snapshot of source and adapter is preserved under
+.local/research/throughput-control. A sampled cold-plus-warm one-query profile
+shows candidate-transfer expansion concentrated in prewarm. A separate measured-only
+profile identifies physical search/collision and window ground preparation; cold
+transfer cost is not presented as a steady-state bottleneck. Profiles are under
+.local/research/throughput-profile; profiling runs are not throughput controls.
+
+The retained window change uses one immutable resource-keyed projector and lazy
+planner across stages/windows. Its initial serial 10-query replay is inconclusive:
+187565.545334 ms control versus 192265.306875 ms after reuse. Costs and outcomes
+match. A physical-job-only two-worker prototype measures 140777.069083 ms on the
+same ten queries (+33.24% throughput), leaving scene/window work on the main thread.
+That prototype was replaced and is not a supported execution mode.
+
+Complete-query workers keep root factory, global planner, windows, physical
+normalization and caches inside each isolate. The main thread owns ordered task
+scheduling and event/result transport. Ready means inputs are loaded, decoded,
+hashed and source-verified and the root solver is prepared. Early failures clean
+up all workers; close drains accepted work. Shared atomic flags carry cooperative
+abort through synchronous CPU phases. Schema 6 adds execution settings, sampled
+memory peaks and final-report-only physical stage/cache statistics; inclusive worker
+timers may overlap. All such reporting and quality scoring remain outside the
+batch wall timer. Worker startup is reported separately from query work.
+
+The original 20-query serial control takes 334387.401791 ms, or
+0.059810865759 queries/s. Three complete-query workers with the window change take
+249229.376334 ms, or 0.080247362065 queries/s (+34.17%). Their cumulative physical
+solve time grows from the control's 223880.981744 ms to 468215.388122 ms, so adding
+workers alone does not produce linear scaling on this machine. Twenty coarse-ground
+misses remain. This result does not establish whether CPU frequency, GC or memory
+contention causes each part of that slowdown.
+
+The retained physical change keeps one coarse graph beside the single refinement
+graph instead of releasing it when goal refinement adds supports. It retains the
+existing generation/wall keys, dependent invalidation and moving-slot release. This
+revisits an earlier memory-saving release under a different measured batch/memory
+tradeoff; it does not restore rejected cross-prefix action/witness caches. Tests
+exercise actual added support faces and changed goals, walls and collision bindings.
+
+With two complete-query workers and that bounded retention, the same 20-query batch
+takes 199846.969209 ms and delivers 0.100076573986 queries/s: +67.32% throughput and
+40.23% less batch wall time than the serial control. This is one paired unprofiled
+comparison, not a stable cross-machine percentage. All 20 routes complete. Every
+ordered outcome hash, modeled cost and truncation flag matches the control and
+prewarm; total modeled time stays 188.3246181141014 s. All 20 discovery-truncated
+flags remain, so no exhaustive-search claim is made. The measured physical calls
+report 120 coarse hits and zero misses, 24 refinement hits and 16 misses. Coarse
+stage work is 17.58 ms, refinement 17643.43 ms, search 133931.98 ms and detours
+68967.84 ms, inclusive across workers. The sampled process RSS peak is
+10098655232 bytes; isolate heap-used sampled peaks are 4913394176/4945439376 bytes.
+Those sampled maxima are not simultaneous heap sums or exact transient peaks.
+
+Evidence: .local/research/throughput-{control-20,query-workers-20,coarse-workers-20}.json.
+The cancelled first 20-query attempt has no completed report and is excluded.
+Control source/kernel SHA-256:
+ba0e84cff9f59f52ccafb52e7340cdb67775671ddc9891815c621a9821460cff /
+79ab2d3a6964a11555e33a41a46594ec2d3b3e8f556a82b45ed111d0eb453978.
+Final source/kernel SHA-256:
+1ecc88acac23b279fa4176df9d1e2d958fa1f8848d731c6e27b92c65ca622c8e /
+89180d0b99e2ec19b0ba3db6ea18b25fc78602df86725e1d7657de1523d2feed.
+All use adapter SHA-256
+2c932f2ca8e668f8f4ee6937633d9c77e240986241e2a530f908fbb2cc88c623,
+Node v26.13.0 and the existing 6144 MB old-space setting. Detailed per-file input
+hashes and fixed config are in each report. Alpha.86/87 controls are retained locally;
+Atlos pins final alpha.88. The sampled profiles do not enter these wall comparisons.
+
+Ganglia format/lint/type checks and 343 tests pass. Atlos World/worker type checks,
+56 UI/behavior tests, 8 HTTP/worker/network tests and source-only production build
+pass; its existing large-chunk warning remains. No browser acceptance or cross-map
+replay is claimed. Rust/native bindings remain deferred because this phase reaches
+the throughput target using preparation reuse and Node workers.

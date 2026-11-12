@@ -13,6 +13,8 @@ import {
 } from '@opendfieldmap/ganglia/solver';
 import { createPhysicalPreparation, type PhysicalWork } from '@opendfieldmap/ganglia/solver/host';
 
+import { createTimings } from '#@/bench/timings.ts';
+
 type Source = { buildGuid: string; contentHash: string };
 type Ground = {
   scene: string;
@@ -36,6 +38,12 @@ type GameAdapter = {
     context: { cache: unknown },
   ): Promise<{ solve(options: { work: PhysicalWork }): Promise<Report> }>;
 };
+
+export const sceneIdentity = (metadata: {
+  hashes: Record<string, string>;
+  gameAdapterSha256: string;
+  kernelSha256: string;
+}) => JSON.stringify([metadata.hashes, metadata.gameAdapterSha256, metadata.kernelSha256]);
 
 export async function loadScene(dataRoot: string, extractor: string, concurrency: number) {
   const loadingStarted = performance.now();
@@ -105,6 +113,13 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
   const gameAdapterSha256 = adapterHash.digest('hex');
   const locomotion = movement.sustainedSprint;
   const inputLoadMs = performance.now() - loadingStarted;
+  let processRssSampledPeakBytes = process.memoryUsage().rss;
+  let mainHeapUsedSampledPeakBytes = process.memoryUsage().heapUsed;
+  const sampleMemory = () => {
+    const memory = process.memoryUsage();
+    processRssSampledPeakBytes = Math.max(processRssSampledPeakBytes, memory.rss);
+    mainHeapUsedSampledPeakBytes = Math.max(mainHeapUsedSampledPeakBytes, memory.heapUsed);
+  };
   const preparationStarted = performance.now();
   const binding = JSON.stringify(hashes);
   // Lane-local caches keep mutable preparation isolated across concurrent solves.
@@ -126,10 +141,32 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
       ? Promise.resolve(cache)
       : new Promise<(typeof caches)[number]>((resolve) => waiting.push(resolve));
   };
-  const timings = {
-    preparationMs: performance.now() - preparationStarted,
-    normalizationMs: 0,
-    localSolveMs: 0,
+  const timings = createTimings(performance.now() - preparationStarted);
+  const observe = (report: Report) => {
+    timings.physical.calls++;
+    const diagnostics = report.diagnostics;
+    if (!diagnostics || typeof diagnostics !== 'object') return;
+    // Count final physical reports once; provisional candidate emissions share
+    // the same mutable diagnostics and would otherwise multiply these totals.
+    if (
+      'timingMs' in diagnostics &&
+      diagnostics.timingMs &&
+      typeof diagnostics.timingMs === 'object'
+    )
+      for (const [stage, milliseconds] of Object.entries(diagnostics.timingMs))
+        if (typeof milliseconds === 'number')
+          timings.physical.stagesMs[stage] = (timings.physical.stagesMs[stage] ?? 0) + milliseconds;
+    if (
+      'prepareReuse' in diagnostics &&
+      diagnostics.prepareReuse &&
+      typeof diagnostics.prepareReuse === 'object'
+    )
+      for (const [slot, reused] of Object.entries(diagnostics.prepareReuse)) {
+        if (typeof reused !== 'boolean') continue;
+        const count = (timings.physical.preparation[slot] ??= { hits: 0, misses: 0 });
+        if (reused) count.hits++;
+        else count.misses++;
+      }
   };
   const resources: SceneResources<Source, Job> = {
     query: async (_scene, _source, _start, _target, options) => {
@@ -155,8 +192,10 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
         started = performance.now();
         const result = await prepared.solve({ work });
         timings.localSolveMs += performance.now() - started;
+        observe(result);
         return { status: 'ready', result };
       } finally {
+        sampleMemory();
         const next = waiting.shift();
         if (next) next(cache);
         else idle.push(cache);
@@ -187,6 +226,17 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
       kernelSha256,
       resolvedKernel,
       inputBytes,
+      execution: {
+        mode: 'inline',
+        workers: 0,
+        lanes: concurrency,
+        get memory() {
+          sampleMemory();
+          return { processRssSampledPeakBytes, mainHeapUsedSampledPeakBytes };
+        },
+      },
     },
   };
 }
+
+export type SceneMetadata = Awaited<ReturnType<typeof loadScene>>['metadata'];

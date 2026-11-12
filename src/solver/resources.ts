@@ -39,6 +39,7 @@ export interface WindowResources<Request extends WindowRequest, Job extends Wind
     options: { startBuild: boolean; margin: number; corridor: Corridor },
   ): Promise<Job | null>;
   solve(job: Job, request: Request, start: boolean, work: PhysicalWork): Promise<Job | null>;
+  /** Identifies one immutable ground snapshot for this prepared solver's lifetime. */
   key(job: Job): string;
   ground(job: Job): Promise<{ surfaces: Surface[]; options: GroundOptions }>;
   route(job: Job): { route?: Route; reason?: string; diagnostics?: unknown };

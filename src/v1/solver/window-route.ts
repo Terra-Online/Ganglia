@@ -99,7 +99,15 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
   const evidence: unknown[] = [];
   const failures = new Map<string, string>();
   let truncated = false;
-  let projectionData: { key: string; surfaces: Surface[]; options: GroundOptions } | undefined;
+  let preparation:
+    | {
+        key: string;
+        surfaces: Surface[];
+        options: GroundOptions;
+        project: ReturnType<typeof createGoalProjector>;
+        planner?: ReturnType<typeof createGroundPlanner>;
+      }
+    | undefined;
   let cursor = 0,
     end = -1,
     stage = 0,
@@ -285,17 +293,26 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
         if (ground.status !== 'ready') return progress('pending');
         const final = end === candidates.length - 1;
         let supportedTarget = target;
+        // Final interactions carry their own approach proof; an earlier window's
+        // cached ground must not authorize replacements in that approach.
+        let windowGround: typeof preparation;
         if (!final || !request.interaction) {
-          if (projectionData?.key !== builder.key(ground)) {
+          const groundKey = builder.key(ground);
+          if (preparation?.key !== groundKey) {
+            // Keep one immutable resource snapshot. A different resource replaces
+            // its indices; advancing within the same resource needs no rebuild.
+            preparation = undefined;
             const data = await builder.ground(ground);
-            projectionData = {
-              key: builder.key(ground),
+            preparation = {
+              key: groundKey,
               surfaces: data.surfaces,
               options: data.options,
+              project: createGoalProjector(data.surfaces),
             };
           }
+          windowGround = preparation;
           const vertical = settings.maxTargetError ?? 3;
-          const supports = createGoalProjector(projectionData.surfaces)(target, {
+          const supports = windowGround.project(target, {
             maxVertical: vertical,
             interaction: { radius: Math.hypot(vertical, 0.5), maxVertical: vertical },
           });
@@ -361,9 +378,9 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
             const length = (previous?.length ?? 0) + route.length;
             const direct = distance(previous?.points[0] ?? route.points[0], exit);
             if (
-              projectionData?.options &&
+              windowGround &&
               (segments.some((s) => s.mode !== 'walk') ||
-                length > direct + 2 * projectionData.options.profile.radius)
+                length > direct + 2 * windowGround.options.profile.radius)
             ) {
               const joined: Complete = {
                 ...route,
@@ -383,11 +400,11 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
                     }
                   : {}),
               };
-              const planner = createGroundPlanner(projectionData.surfaces, {
-                ...projectionData.options,
-                walls: [...projectionData.options.walls, ...request.walls],
+              const planner = (windowGround.planner ??= createGroundPlanner(windowGround.surfaces, {
+                ...windowGround.options,
+                walls: [...windowGround.options.walls, ...request.walls],
                 locomotion: settings.locomotion,
-              });
+              }));
               const pruned = pruneGroundDetours(joined, planner, settings.locomotion);
               detours = { replacements: pruned.replacements, queries: pruned.queries };
               if (pruned.replacements && pruned.route.status === 'complete') {
@@ -397,7 +414,6 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
             }
             pieces.push(accepted);
             evidence.push({ ...result, ...(detours ? { detours } : {}) });
-            projectionData = undefined;
             position = exit;
             cursor = end + 1;
             end = -1;

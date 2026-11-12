@@ -1,0 +1,117 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import { gangliaV1Defaults, type RouteQuery } from '@opendfieldmap/ganglia';
+
+import { resetTimings } from '#@/bench/timings.ts';
+import { prepareWorkerSolver } from '#@/bench/workers.ts';
+
+const query = (id: string, delay = 5, mode = 0): RouteQuery => ({
+  starts: [{ id, position: [0, 0, 0], state: 'available', cost: 0 }],
+  goal: [delay, mode, 0],
+});
+const prepare = (count = 2, concurrency = count, dataRoot = '') =>
+  prepareWorkerSolver({
+    count,
+    config: { ...gangliaV1Defaults, batchConcurrency: concurrency },
+    dataRoot,
+    extractor: '',
+    entry: new URL('./fixtures/scene-worker.ts', import.meta.url),
+  });
+
+test('whole-query workers return ordered batches, aggregate measured work and drain accepted queries on close', async () => {
+  const { solver, timings, metadata } = await prepare();
+  const warm = await solver.solveBatch([query('warm'), query('warm-2')]);
+  assert.notEqual(warm[0].reason, warm[1].reason);
+  resetTimings(timings);
+  const batch = solver.solveBatch([query('first', 35), query('second'), query('third')]);
+  const closing = solver.close();
+  assert.equal(solver.close(), closing);
+  await assert.rejects(solver.solve(query('late')), /closed/);
+  const reports = await batch;
+  assert.deepEqual(
+    reports.map((value) => (value.route.status === 'complete' ? value.route.start : null)),
+    ['first', 'second', 'third'],
+  );
+  assert.notEqual(reports[0].reason, reports[1].reason);
+  assert.equal(timings.physical.calls, 3);
+  assert.equal(timings.normalizationMs, 6);
+  assert.equal(timings.physical.stagesMs.ground, 9);
+  assert.deepEqual(timings.physical.preparation.ground, { hits: 3, misses: 0 });
+  assert.equal(metadata.execution.workers, 2);
+  await closing;
+});
+
+test('query errors preserve worker reuse while worker death rejects active/queued work and future calls', async () => {
+  const { solver } = await prepare(1);
+  try {
+    await assert.rejects(solver.solve(query('rejected', 0, 2)), /fixture failure/);
+    assert.equal((await solver.solve(query('recovered'))).route.status, 'complete');
+    const crashed = solver.solve(query('crashed', 0, 1));
+    const queued = solver.solve(query('queued'));
+    await Promise.all([
+      assert.rejects(crashed, /exited unexpectedly/),
+      assert.rejects(queued, /exited unexpectedly/),
+    ]);
+    await assert.rejects(solver.solve(query('later')), /exited unexpectedly/);
+  } finally {
+    await solver.close();
+  }
+});
+
+test('single-query events and abort flags cross the worker seam without killing prepared workers', async () => {
+  const { solver } = await prepare(1);
+  const controller = new AbortController();
+  let events = 0;
+  try {
+    const aborted = await solver.solve(query('cancel', 25, 3), {
+      signal: controller.signal,
+      onEvent: () => {
+        events++;
+        controller.abort();
+      },
+    });
+    assert.equal(events, 1);
+    assert.equal(aborted.reason, 'aborted');
+    assert.equal((await solver.solve(query('next'))).route.status, 'complete');
+    await assert.rejects(
+      solver.solve(query('observer'), {
+        onEvent: () => {
+          throw new Error('observer failed');
+        },
+      }),
+      /observer failed/,
+    );
+    const alreadyAborted = await solver.solveBatch([query('cancelled-1'), query('cancelled-2')], {
+      signal: controller.signal,
+    });
+    assert.ok(alreadyAborted.every((result) => result.reason === 'aborted'));
+  } finally {
+    await solver.close();
+  }
+});
+
+test('worker snapshots must match, and an explicit lower concurrency limits active query execution', async () => {
+  await assert.rejects(prepare(2, 2, 'mismatch'), /identity mismatch/);
+  const { solver, metadata } = await prepare(2, 1);
+  try {
+    assert.equal(metadata.execution.lanes, 1);
+    const order: string[] = [];
+    const first = solver
+      .solve(query('one', 20), { onEvent: () => order.push('start-one') })
+      .then((result) => {
+        order.push('end-one');
+        return result;
+      });
+    const second = solver
+      .solve(query('two'), { onEvent: () => order.push('start-two') })
+      .then((result) => {
+        order.push('end-two');
+        return result;
+      });
+    await Promise.all([first, second]);
+    assert.deepEqual(order, ['start-one', 'end-one', 'start-two', 'end-two']);
+  } finally {
+    await solver.close();
+  }
+});
