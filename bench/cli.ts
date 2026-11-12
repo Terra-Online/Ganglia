@@ -15,6 +15,7 @@ import { cases } from '#@/bench/scenes/map02.ts';
 import { sourceHash } from '#@/bench/source.ts';
 import { resetTimings } from '#@/bench/timings.ts';
 import { prepareWorkerSolver } from '#@/bench/workers.ts';
+import { setActionCatalogPhase, actionCatalogStats } from '#@/src/v1/route/action-catalog.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { values } = parseArgs({
@@ -29,7 +30,8 @@ const { values } = parseArgs({
     config: { type: 'string' },
     reference: { type: 'string' },
     limit: { type: 'string' },
-    offset: { type: 'string', default: '0' },
+    offset: { type: 'string' },
+    'catalog-train': { type: 'string' },
     workload: { type: 'string' },
     'max-mean-cost-ratio': { type: 'string', default: '1.01' },
     'max-worst-cost-ratio': { type: 'string', default: '1.05' },
@@ -37,7 +39,7 @@ const { values } = parseArgs({
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
+    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--catalog-train <count; opt-in approximate static-action algorithm>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
   );
 else {
   try {
@@ -61,7 +63,7 @@ else {
     const workload: typeof cases = values.workload
       ? JSON.parse(await readFile(values.workload, 'utf8'))
       : cases;
-    const offset = Number(values.offset),
+    const offset = Number(values.offset ?? 0),
       count = Number(values.limit ?? workload.length);
     if (
       !Array.isArray(workload) ||
@@ -72,7 +74,32 @@ else {
       offset + count > workload.length
     )
       throw new Error('Invalid workload, offset or query limit');
+    const trainingCount =
+      values['catalog-train'] === undefined ? 0 : Number(values['catalog-train']);
+    if (
+      !Number.isSafeInteger(trainingCount) ||
+      trainingCount < 0 ||
+      (values['catalog-train'] !== undefined &&
+        (trainingCount === 0 || values.offset === undefined || offset < trainingCount))
+    )
+      throw new Error(
+        'Catalog training requires a positive count and explicit holdout offset at least that count',
+      );
+    const training = workload.slice(0, trainingCount);
     const selected = workload.slice(offset, offset + count);
+    if (trainingCount) {
+      const trainingStarts = new Set(
+        training.flatMap((item) =>
+          item.query.starts.map((start) => JSON.stringify(start.position)),
+        ),
+      );
+      if (
+        selected.some((item) =>
+          item.query.starts.some((start) => trainingStarts.has(JSON.stringify(start.position))),
+        )
+      )
+        throw new Error('Catalog holdout starts must be absent from training');
+    }
     if (new Set(selected.map((item) => item.id)).size !== selected.length)
       throw new Error('Duplicate workload query id');
     const config: SolverConfig = values.config
@@ -88,6 +115,8 @@ else {
         : Number(values.concurrency);
     if (!Number.isSafeInteger(concurrency) || concurrency < 1)
       throw new Error('Invalid concurrency');
+    if (trainingCount && (workers !== 1 || concurrency !== 1))
+      throw new Error('Catalog experiment requires workers=1 and concurrency=1');
     const fixed = { ...config, batchConcurrency: concurrency };
     const started = performance.now();
     let prepared;
@@ -123,10 +152,27 @@ else {
         : undefined;
       // Reject incompatible references before spending time on prewarm and search.
       const setupMs = performance.now() - started;
+      let catalogTraining;
+      if (trainingCount) {
+        console.error(JSON.stringify({ phase: 'catalog-training', queries: training.length }));
+        setActionCatalogPhase('training');
+        const trainingStarted = performance.now();
+        const results = await solver.solveBatch(training.map((item) => item.query));
+        setActionCatalogPhase('frozen');
+        catalogTraining = {
+          algorithm: 'approximate-static-actions' as const,
+          ids: training.map((item) => item.id),
+          wallMs: performance.now() - trainingStarted,
+          completed: results.filter((result) => result.route.status === 'complete').length,
+          stats: actionCatalogStats(),
+        };
+      }
       const report = await runBenchmark(solver, selected, (phase) => {
         console.error(JSON.stringify({ phase, queries: selected.length }));
         if (phase === 'batch') resetTimings(timings);
       });
+      if (catalogTraining && actionCatalogStats().added !== catalogTraining.stats.added)
+        throw new Error('Frozen catalog changed during holdout');
       if ((await sourceHash(root, ['src', 'bench'])) !== sourceSha256)
         throw new Error('Benchmark source changed during measurement; discard this run');
       const output = {
@@ -143,7 +189,11 @@ else {
         inputLoadMs,
         setupMs,
         timings,
+        ...(catalogTraining ? { catalogTraining, catalogAfterHoldout: actionCatalogStats() } : {}),
         policy:
+          (catalogTraining
+            ? 'Approximate static-action algorithm: the reported training queries record nonterminal static ordinary motion proofs using original discovery. Training time is excluded from measured holdout and reported separately. The catalog freezes before fresh-start holdout prewarm. Up to eight travel-time-ranked candidate chains, with at most sixteen unique actions, are jointly checked by the real planner and may return a feasible route without broad improvement. Failed candidates retain original discovery budgets. '
+            : '') +
           'All dataset file reads, JSON decoding, source verification, hashing, scene-worker startup and solver preparation finish before prewarm. One full unmeasured batch prewarms the same prepared solver and worker-local scene and physical caches. The measured batch recomputes queries without completed-route caching and reads inputs from memory only. It includes scene-worker dispatch/queueing/IPC, normalization, remaining lazy computation, candidate search, target approach, physical windows and retries. Inclusive phase timers describe measured work only and may overlap across scene workers. OS scheduling/JIT/GC uncontrolled.',
         ...report,
         ...(reference && referenceBytes
@@ -169,6 +219,10 @@ else {
           `${metadata.scene}: ${selected.length} full-scene queries; local files, no Atlos server`,
         );
         console.table(report.batch.results);
+        if (catalogTraining)
+          console.log(
+            `Approximate static-action training: ${catalogTraining.ids.length} queries, ${(catalogTraining.wallMs / 1000).toFixed(2)} s excluded, ${catalogTraining.stats.added} actions`,
+          );
         console.log(`Prewarm: ${(report.prewarmMs / 1000).toFixed(2)} s; excluded`);
         console.log(
           `Batch: ${report.batch.queriesPerSecond.toFixed(3)} queries/s; ${report.batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${selected.length} outcomes match prewarm`,

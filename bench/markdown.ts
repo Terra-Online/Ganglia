@@ -20,6 +20,13 @@ export interface MarkdownReport extends Report {
     nativeGroundTrace?: boolean;
     nativeGoals?: boolean;
   };
+  catalogTraining?: {
+    algorithm: 'approximate-static-actions';
+    ids: string[];
+    wallMs: number;
+    completed: number;
+    stats: { added: number; scopes: number };
+  };
   workingTreeDirty?: boolean;
   qualityGate?: ReturnType<typeof qualityGate>;
 }
@@ -51,6 +58,14 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
     `| Total modeled travel time | ${number(batch.quality.totalCostSeconds, 6)} s |`,
     `| Results matching prewarm | ${batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${batch.results.length} |`,
   ];
+  if (report.catalogTraining) {
+    const training = report.catalogTraining;
+    rows.push(
+      '| Algorithm | Approximate static-action catalog |',
+      `| Excluded catalog training | ${number(training.wallMs / 1000)} s; ${training.ids.length} queries (${training.completed} complete) |`,
+      `| Catalog preparation | ${training.stats.added} validated actions; ${training.stats.scopes} scopes |`,
+    );
+  }
   if (comparison)
     rows.push(
       `| Lost / gained solutions | ${comparison.lostSolutions.length} / ${comparison.gainedSolutions.length} |`,
@@ -65,6 +80,12 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
     );
   rows.push(
     '',
+    ...(report.catalogTraining
+      ? [
+          'Approximate algorithm: the catalog is trained before holdout prewarm and then frozen. Training time is additional preparation cost excluded from measured throughput. New queries still run physical ground/resource planning over selected actions; completed routes are not cached.',
+          '',
+        ]
+      : []),
     'Input loading and solver preparation are excluded. The measured batch recomputes queries after one full-batch prewarm; no completed-route cache is used. Speedup describes this workload on this machine, not a cross-scene guarantee.',
     '',
     `Revision: \`${report.revision}\`; source SHA-256: \`${report.sourceSha256}\`; Node: \`${report.node}\`.`,

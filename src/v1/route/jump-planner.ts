@@ -3,6 +3,11 @@ import type { Vec3, Surface } from '#@/src/geometry.ts';
 import type { InteractionGoal, JumpModel, SpeedBoost } from '#@/src/movement.ts';
 import type { GroundOptions, GroundArrival, GroundConnection, Route } from '#@/src/route.ts';
 import { createGoalProjector, findGoalHit, markTerminalGoal } from '#@/src/v1/motion/goals.ts';
+import {
+  rememberCatalogAction,
+  selectCatalogActions,
+  noteActionCatalogResult,
+} from '#@/src/v1/route/action-catalog.ts';
 import { planAirborneGoal } from '#@/src/v1/route/airborne-goal.ts';
 import { planBoostedRoute } from '#@/src/v1/route/boosted-route.ts';
 import {
@@ -213,6 +218,7 @@ function solveJumpRoute(
       if (actions.has(key)) continue;
       const action = { id, ...motion };
       actions.set(key, action);
+      rememberCatalogAction(world, surfaces, options, action);
       additions.push(action);
     }
     return additions;
@@ -845,6 +851,28 @@ export function planJumpRoute(
   options: JumpRouteOptions,
   initial?: InitialGroundProof,
 ): JumpResult {
+  const selected = selectCatalogActions(world, surfaces, starts, goal, options);
+  if (selected.length) {
+    const connections = [...(options.connections ?? []), ...selected];
+    const route = options.groundPlanner!.plan(starts, goal, {
+      interaction: options.interaction,
+      connections,
+    });
+    noteActionCatalogResult(route.status === 'complete');
+    if (route.status === 'complete')
+      return {
+        route,
+        connections,
+        diagnostics: {
+          strategy: 'surface-action-graph',
+          groundStatus: route.status,
+          baselineCost: route.cost,
+          selectedCost: route.cost,
+          truncated: Boolean(route.search?.truncated || route.locomotion?.search?.truncated),
+          searches: [],
+        },
+      };
+  }
   const connections = options.connections ?? [];
   const unchanged =
     initial !== undefined &&
