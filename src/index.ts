@@ -8,3 +8,20 @@ export type {
   InteractionGoal,
   JumpModel,
 } from '#@/src/movement.ts';
+
+export { prepareRouteSolver, gangliaV1Defaults } from '#@/src/solver/index.ts';
+export type {
+  PreparedRouteSolver,
+  SolverConfig,
+  GangliaV1Config,
+  SolverInput,
+  SceneInput,
+  PhysicalInput,
+  RouteQuery,
+  RouteResult,
+  SolveOptions,
+  RouteEvent,
+  SceneResources,
+  SceneProposal,
+  SceneTerminal,
+} from '#@/src/solver/index.ts';

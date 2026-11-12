@@ -116,7 +116,7 @@ bound widening and per-arrival action reuse. They establish their fixture scope.
 
 ## Solver contracts and physical windows
 
-Alpha.84 keeps implementation code under `src/v1/`. The root entry exports only shared types and playback. The solver entry exports the factory/configuration and input/output/resource contracts. Host operations remain explicit in `solver/host`; build and collision retain separate resource-facing entries. No `v1/*` package subpath is exported. Shared contracts contain no implementation imports. Internal code imports its owning modules rather than the root or solver barrels.
+Alpha.84 keeps implementation code under `src/v1/`. The root entry exports the primary solver factory/configuration, shared contracts and playback. The solver entry exports the factory/configuration and input/output/resource contracts. Host operations remain explicit in `solver/host`; build and collision retain separate resource-facing entries. No `v1/*` package subpath is exported. Shared contracts contain no implementation imports. Internal code imports its owning modules rather than the root or solver barrels.
 
 The `./solver` entry point separates immutable scene facts from movement/search
 configuration and per-query endpoints. Its prepared solver retains single and
@@ -144,7 +144,7 @@ work; another request is not needed to advance the algorithm. Closing the scene 
 drains accepted single/batch work, and repeated close calls share the same completion.
 Partial results carry an explicit marker and retain local discovery truncation.
 
-Ganglia's only maintained benchmark entry is `benchmark:full`. It submits the whole
+Ganglia's only maintained benchmark entry is `benchmark:full`. Its CLI loads a scene input, calls the root-exported `prepareRouteSolver` directly, then passes the prepared solver to the batch timer. It submits the whole
 scene-query batch once for unmeasured prewarming and again for measurement on the
 same prepared solver. The file adapter reads/decodes all dataset inputs before either
 pass and serves a fixed in-memory snapshot to lane-local physical preparation caches.

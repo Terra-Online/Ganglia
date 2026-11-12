@@ -1373,3 +1373,31 @@ The adapter loads only public package interfaces. Data loading and full prewarm
 remain outside the measurement; this is not a full 50-query throughput comparison.
 Atlos source-only checks and World production build pass. Final source SHA-256:
 178c4b292358a6ab9dd9f82bd2a6968ff79ae1ddffe5fbfc5a3ff1ed037c4a2d; resolved packaged kernel: 28eccd2b0220bf957d9cf11092f7175179df5870f60a913838672fc23a7d60dc.
+
+
+## Root solver entry and direct benchmark setup, 2026-11-12
+
+Alpha.85 exposes prepareRouteSolver, gangliaV1Defaults and their caller contracts
+from the package root. The solver-focused subpath remains supported for adapters
+and existing consumers. The public type-contract check imports the root entry.
+
+The benchmark CLI calls loadScene, prepareRouteSolver and runBenchmark directly.
+loadScene in bench/scene.ts returns scene input/resources and metadata; it does
+not return a solver-creation callback. The batch timer receives a prepared solver
+and owns its closure even on failure. The single-solver timing record is an object
+rather than a one-element array. JSON schema 3 records inputLoadMs and total
+setupMs separately from unmeasured whole-batch prewarm and measured solve work.
+The in-memory dataset snapshot, lane-local preparation, source verification and
+whole-batch submission are retained.
+
+Ganglia checks pass 331 tests. Atlos World/worker type checks, all 56 World tests
+and 10 HTTP/worker tests pass. World production build passes with the existing
+large-chunk warning. Validation artifacts use .local/research/bench-setup-*.
+
+The final three-query full-scene replay completes all routes, matches prewarm
+outcomes/truncation flags, and retains the corresponding alpha.84 outcome hashes.
+The CLI uses the root factory directly and schema 3 contains the effective policy,
+setup timing and a single timing object. This validates setup/integration and
+correctness; no full 50-query throughput comparison is claimed. Source SHA-256:
+d837cfe58abbc37c76835a265ff0e3a23d98d62c0421bd783f302975ceb34d30; resolved kernel SHA-256:
+4e055a26ddd595ea8354a96a3ad5de1f3c20b885c04339baecec44f35f47a6f0.

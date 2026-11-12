@@ -7,9 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import type { Surface, GroundOptions, Route } from '@opendfieldmap/ganglia';
 import {
-  prepareRouteSolver,
   type SceneResources,
-  type SolverConfig,
   type RouteResult,
   type WindowRequest,
 } from '@opendfieldmap/ganglia/solver';
@@ -43,7 +41,8 @@ type GameAdapter = {
   ): Promise<{ solve(options: { work: PhysicalWork }): Promise<Report> }>;
 };
 
-export async function loadFileScene(dataRoot: string, extractor: string, config: SolverConfig) {
+export async function loadScene(dataRoot: string, extractor: string, concurrency: number) {
+  const loadingStarted = performance.now();
   const files: { ground: string; collision: string; movement: string; devices?: string } = {
     ground: resolve(dataRoot, 'scene-map02/ground.json'),
     collision: resolve(dataRoot, 'scene-map02/collision.json'),
@@ -79,7 +78,7 @@ export async function loadFileScene(dataRoot: string, extractor: string, config:
   const entry = resolve(extractor, 'packages/extractor/src/game/physical-input.ts');
   const resolvedKernel = createRequire(entry).resolve('@opendfieldmap/ganglia/solver');
   const kernelRoot = resolve(dirname(resolvedKernel), '../..');
-  const sourceRoot = fileURLToPath(new URL('../../', import.meta.url));
+  const sourceRoot = fileURLToPath(new URL('../', import.meta.url));
   const kernelDigest = async (base: string) => {
     const hash = createHash('sha256');
     for (const name of (await readdir(resolve(base, 'src'), { recursive: true })).sort()) {
@@ -109,98 +108,90 @@ export async function loadFileScene(dataRoot: string, extractor: string, config:
   }
   const gameAdapterSha256 = adapterHash.digest('hex');
   const locomotion = movement.sustainedSprint;
-  const timings: {
-    preparationMs: number;
-    normalizationMs: number;
-    candidateMs: number;
-    localSolveMs: number;
-  }[] = [];
-  const prepare = async () => {
-    const started = performance.now();
-    const binding = JSON.stringify(hashes);
-    // Input bytes and decoding are owned by loadFileScene. Physical preparation
-    // remains lane-local, while timed queries read only this immutable memory snapshot.
-    const caches = Array.from({ length: config.batchConcurrency }, () => {
-      const preparation = createPhysicalPreparation();
-      return {
-        begin: async () => binding,
-        read: async (_slot: string, path: string) => inputs.get(path),
-        preparation,
-        clear: preparation.clear,
-      };
-    });
-    const idle = [...caches];
-    const waiting: ((cache: (typeof caches)[number]) => void)[] = [];
-    const acquire = () => {
-      const cache = idle.pop();
-      return cache
-        ? Promise.resolve(cache)
-        : new Promise<(typeof caches)[number]>((resolve) => waiting.push(resolve));
+  const inputLoadMs = performance.now() - loadingStarted;
+  const preparationStarted = performance.now();
+  const binding = JSON.stringify(hashes);
+  // Lane-local caches keep mutable preparation isolated across concurrent solves.
+  // Timed input reads are served from the preloaded snapshot.
+  const caches = Array.from({ length: concurrency }, () => {
+    const preparation = createPhysicalPreparation();
+    return {
+      begin: async () => binding,
+      read: async (_slot: string, path: string) => inputs.get(path),
+      preparation,
+      clear: preparation.clear,
     };
-    const planner = createCandidatePlanner(navigation);
-    const timing = {
-      preparationMs: performance.now() - started,
-      normalizationMs: 0,
-      candidateMs: 0,
-      localSolveMs: 0,
-    };
-    timings.push(timing);
-    const resources: SceneResources<Source, Job> = {
-      plan: async (starts, goal, excludedEdges) => {
-        const started = performance.now();
-        try {
-          return planner.plan(starts, goal, { excludedEdges });
-        } finally {
-          timing.candidateMs += performance.now() - started;
-        }
-      },
-      query: async (_scene, _source, _start, _target, options) => {
-        const bounds = options.corridor.bounds;
-        if (
-          [0, 1].some(
-            (axis) =>
-              bounds.min[axis] < ground.build.bounds.min[axis] ||
-              bounds.max[axis] > ground.build.bounds.max[axis],
-          )
+  });
+  const idle = [...caches];
+  const waiting: ((cache: (typeof caches)[number]) => void)[] = [];
+  const acquire = () => {
+    const cache = idle.pop();
+    return cache
+      ? Promise.resolve(cache)
+      : new Promise<(typeof caches)[number]>((resolve) => waiting.push(resolve));
+  };
+  const planner = createCandidatePlanner(navigation);
+  const timings = {
+    preparationMs: performance.now() - preparationStarted,
+    normalizationMs: 0,
+    candidateMs: 0,
+    localSolveMs: 0,
+  };
+  const resources: SceneResources<Source, Job> = {
+    plan: async (starts, goal, excludedEdges) => {
+      const started = performance.now();
+      try {
+        return planner.plan(starts, goal, { excludedEdges });
+      } finally {
+        timings.candidateMs += performance.now() - started;
+      }
+    },
+    query: async (_scene, _source, _start, _target, options) => {
+      const bounds = options.corridor.bounds;
+      if (
+        [0, 1].some(
+          (axis) =>
+            bounds.min[axis] < ground.build.bounds.min[axis] ||
+            bounds.max[axis] > ground.build.bounds.max[axis],
         )
-          throw new Error(
-            `Missing physical coverage ${JSON.stringify(bounds)}; dataset ${JSON.stringify(ground.build.bounds)}`,
-          );
-        return { status: 'ready' };
-      },
-      solve: async (_job, request, _start, work) => {
-        const cache = await acquire();
-        try {
-          let started = performance.now();
-          const prepared = await preparePhysicalRoute(files, request, { cache });
-          timing.normalizationMs += performance.now() - started;
-          started = performance.now();
-          const result = await prepared.solve({ work });
-          timing.localSolveMs += performance.now() - started;
-          return { status: 'ready', result };
-        } finally {
-          const next = waiting.shift();
-          if (next) next(cache);
-          else idle.push(cache);
-        }
-      },
-      key: () => files.ground,
-      ground: async () => ground,
-      route: (job) => job.result ?? {},
-      wait: async () => {},
-      close: async () => {
-        for (const cache of caches) cache.clear();
-      },
-    };
-    return prepareRouteSolver(config, {
-      kind: 'scene',
+      )
+        throw new Error(
+          `Missing physical coverage ${JSON.stringify(bounds)}; dataset ${JSON.stringify(ground.build.bounds)}`,
+        );
+      return { status: 'ready' };
+    },
+    solve: async (_job, request, _start, work) => {
+      const cache = await acquire();
+      try {
+        let started = performance.now();
+        const prepared = await preparePhysicalRoute(files, request, { cache });
+        timings.normalizationMs += performance.now() - started;
+        started = performance.now();
+        const result = await prepared.solve({ work });
+        timings.localSolveMs += performance.now() - started;
+        return { status: 'ready', result };
+      } finally {
+        const next = waiting.shift();
+        if (next) next(cache);
+        else idle.push(cache);
+      }
+    },
+    key: () => files.ground,
+    ground: async () => ground,
+    route: (job) => job.result ?? {},
+    wait: async () => {},
+    close: async () => {
+      for (const cache of caches) cache.clear();
+    },
+  };
+  return {
+    input: {
+      kind: 'scene' as const,
       scene: { scene: ground.scene, source: ground.source, walls: [] },
       resources,
       locomotion,
-    });
-  };
-  return {
-    prepare,
+    },
+    inputLoadMs,
     timings,
     metadata: {
       scene: ground.scene,

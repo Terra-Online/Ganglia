@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { PreparedRouteSolver, RouteQuery, RouteResult } from '#@/src/solver/contract.ts';
+import type { PreparedRouteSolver, RouteQuery, RouteResult } from '@opendfieldmap/ganglia';
 
 const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -26,13 +26,13 @@ const summarize = (result: RouteResult) => {
   };
 };
 
+// Takes ownership of the prepared solver and closes it even if a batch fails.
 // Warm and measured passes submit the whole workload; neither pass drives solve().
 export async function runBenchmark(
-  prepare: () => Promise<PreparedRouteSolver>,
+  solver: PreparedRouteSolver,
   cases: readonly { id: string; query: RouteQuery }[],
   onPhase?: (phase: 'prewarm' | 'batch') => void,
 ) {
-  const solver = await prepare();
   const queries = cases.map((item) => item.query);
   try {
     onPhase?.('prewarm');

@@ -19,7 +19,7 @@ starts, a goal and optional interaction conditions or discovery waypoints.
 import {
   gangliaV1Defaults,
   prepareRouteSolver,
-} from '@opendfieldmap/ganglia/solver';
+} from '@opendfieldmap/ganglia';
 
 const solver = await prepareRouteSolver(
   { ...gangliaV1Defaults, maxCandidates: 4000 },
@@ -40,8 +40,8 @@ exists or that a returned route is optimal.
 
 Package entry points separate callers by responsibility:
 
-- `@opendfieldmap/ganglia`: geometry/movement/route types and trajectory playback.
-- `@opendfieldmap/ganglia/solver`: solver factory, fixed configuration and contracts.
+- `@opendfieldmap/ganglia`: primary solver factory, configuration, contracts and playback.
+- `@opendfieldmap/ganglia/solver`: solver-focused entry for the same factory and contracts.
 - `@opendfieldmap/ganglia/solver/host`: resource-adapter operations and serialized work.
 - `@opendfieldmap/ganglia/build`: physical ground generation.
 - `@opendfieldmap/ganglia/collision`: collision queries.

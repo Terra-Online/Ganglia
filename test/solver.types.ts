@@ -4,7 +4,7 @@ import {
   type SceneInput,
   prepareRouteSolver,
   gangliaV1Defaults,
-} from '@opendfieldmap/ganglia/solver';
+} from '@opendfieldmap/ganglia';
 
 async function checkSolverContract(input: SceneInput, query: RouteQuery) {
   const solver = await prepareRouteSolver(gangliaV1Defaults, { kind: 'surfaces', input });

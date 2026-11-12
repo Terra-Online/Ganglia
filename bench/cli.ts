@@ -5,10 +5,11 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { loadFileScene } from '#@/bench/adapters/files.ts';
+import { prepareRouteSolver, gangliaV1Defaults, type SolverConfig } from '@opendfieldmap/ganglia';
+
 import { runBenchmark } from '#@/bench/run.ts';
+import { loadScene } from '#@/bench/scene.ts';
 import { cases } from '#@/bench/scenes/map02.ts';
-import { gangliaV1Defaults, type SolverConfig } from '#@/src/solver/index.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { values } = parseArgs({
@@ -39,18 +40,18 @@ else {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1)
       throw new Error('Invalid concurrency');
     const started = performance.now();
-    const { prepare, timings, metadata } = await loadFileScene(
+    const { input, inputLoadMs, timings, metadata } = await loadScene(
       values['data-root'],
       values.extractor,
-      { ...config, batchConcurrency: concurrency },
+      concurrency,
     );
-    const inputLoadMs = performance.now() - started;
+    const solver = await prepareRouteSolver({ ...config, batchConcurrency: concurrency }, input);
+    const setupMs = performance.now() - started;
     const selected = cases.slice(0, count);
-    const report = await runBenchmark(prepare, selected, (phase) => {
+    const report = await runBenchmark(solver, selected, (phase) => {
       console.error(JSON.stringify({ phase, queries: selected.length }));
       if (phase === 'batch') {
-        const timing = timings[0];
-        timing.normalizationMs = timing.candidateMs = timing.localSolveMs = 0;
+        timings.normalizationMs = timings.candidateMs = timings.localSolveMs = 0;
       }
     });
     const hash = createHash('sha256');
@@ -62,7 +63,7 @@ else {
             .update(await readFile(resolve(root, directory, name)));
       }
     const output = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       adapter: 'scene-files',
       node: process.version,
       execArgv: process.execArgv,
@@ -72,6 +73,7 @@ else {
       concurrency,
       cases: selected,
       inputLoadMs,
+      setupMs,
       timings,
       policy:
         'All dataset file reads, JSON decoding, source verification and hashing finish before preparation. One full unmeasured batch prewarms the same prepared solver and lane-local physical caches. The measured batch recomputes queries without completed-route caching and reads inputs from memory only. It includes normalization, remaining lazy computation, candidate search, target approach, physical windows and retries. Inclusive phase timers describe measured work only and may overlap across lanes. OS scheduling/JIT/GC uncontrolled.',
