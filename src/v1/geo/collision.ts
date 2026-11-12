@@ -163,7 +163,7 @@ const sphereSupport = (
  * Optional XZ bounds retain all intersecting triangles at every height. Queries
  * outside that scope throw rather than treating unindexed space as clear.
  */
-export function createCollisionWorld(
+export function createTypeScriptCollisionWorld(
   geometry: CollisionGeometry,
   options?: CollisionOptions,
 ): CollisionWorld {
@@ -558,3 +558,12 @@ export function createCollisionWorld(
     },
   };
 }
+
+// Native loading stays in the optional prototype preloader, outside browser code.
+export type CollisionWorldFactory = typeof createTypeScriptCollisionWorld;
+let prototypeFactory: CollisionWorldFactory | undefined;
+export function installCollisionPrototype(factory: CollisionWorldFactory) {
+  prototypeFactory = factory;
+}
+export const createCollisionWorld: CollisionWorldFactory = (...args) =>
+  (prototypeFactory ?? createTypeScriptCollisionWorld)(...args);

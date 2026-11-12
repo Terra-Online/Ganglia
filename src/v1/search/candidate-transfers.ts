@@ -17,7 +17,7 @@ interface Group {
   retained: Vertex[];
   positions?: Map<string, Vertex>;
 }
-interface Proposal {
+export interface Proposal {
   key: string;
   rank: number[];
   first: number[];
@@ -35,7 +35,7 @@ const compare = (a: readonly number[], b: readonly number[]) =>
  * A bucket still chooses the same shortest proposal as the eager input-order pass.
  * Both sides of an encounter are indexed because its later vertex owns the bucket.
  */
-export function createTransferQuery(
+export function createTypeScriptTransferQuery(
   surfaces: Surface[],
   topology: GroundTopology,
   radius: number,
@@ -150,3 +150,13 @@ export function createTransferQuery(
     return [...proposals.values()].sort((a, b) => compare(a.first, b.first));
   };
 }
+
+// Prototype-only injection keeps Node loading out of the browser-compatible kernel.
+// Register before preparing a solver; an existing index keeps its implementation.
+export type TransferQueryFactory = typeof createTypeScriptTransferQuery;
+let prototypeFactory: TransferQueryFactory | undefined;
+export function installTransferPrototype(factory: TransferQueryFactory) {
+  prototypeFactory = factory;
+}
+export const createTransferQuery: TransferQueryFactory = (...args) =>
+  (prototypeFactory ?? createTypeScriptTransferQuery)(...args);

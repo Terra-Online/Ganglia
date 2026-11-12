@@ -7,6 +7,7 @@ import { parseArgs } from 'node:util';
 
 import { prepareRouteSolver, gangliaV1Defaults, type SolverConfig } from '@opendfieldmap/ganglia';
 
+import { benchmarkMarkdown } from '#@/bench/markdown.ts';
 import { compareQuality, readReference } from '#@/bench/quality.ts';
 import { runBenchmark } from '#@/bench/run.ts';
 import { loadScene } from '#@/bench/scene.ts';
@@ -18,6 +19,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const { values } = parseArgs({
   options: {
     json: { type: 'boolean' },
+    markdown: { type: 'boolean' },
     help: { type: 'boolean' },
     'data-root': { type: 'string', default: resolve(root, '.local/data') },
     extractor: { type: 'string', default: resolve(root, '.local/repos/Atlos/talos/.cache/noclip') },
@@ -30,10 +32,11 @@ const { values } = parseArgs({
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>]',
+    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>]',
   );
 else {
   try {
+    if (values.json && values.markdown) throw new Error('Choose --json or --markdown');
     const count = Number(values.limit);
     if (!Number.isInteger(count) || count < 1 || count > cases.length)
       throw new Error('Invalid query limit');
@@ -78,6 +81,9 @@ else {
     try {
       const selected = cases.slice(0, count);
       const referenceBytes = values.reference ? await readFile(values.reference) : undefined;
+      const referenceReport: { batch: { wallMs: number } } | undefined = referenceBytes
+        ? JSON.parse(referenceBytes.toString())
+        : undefined;
       const reference = referenceBytes
         ? readReference(JSON.parse(referenceBytes.toString()), { ...metadata, cases: selected })
         : undefined;
@@ -105,6 +111,12 @@ else {
           cwd: root,
         }).trim(),
         sourceSha256: hash.digest('hex'),
+        workingTreeDirty: Boolean(
+          execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+            encoding: 'utf8',
+            cwd: root,
+          }).trim(),
+        ),
         ...metadata,
         concurrency,
         cases: selected,
@@ -118,12 +130,18 @@ else {
           ? {
               comparison: {
                 referenceSha256: createHash('sha256').update(referenceBytes).digest('hex'),
+                ...(referenceReport &&
+                Number.isFinite(referenceReport.batch.wallMs) &&
+                referenceReport.batch.wallMs > 0
+                  ? { speedup: referenceReport.batch.wallMs / report.batch.wallMs }
+                  : {}),
                 ...compareQuality(report.batch.results, reference),
               },
             }
           : {}),
       };
       if (values.json) console.log(JSON.stringify(output, null, 2));
+      else if (values.markdown) console.log(benchmarkMarkdown(output));
       else {
         console.log(
           `${metadata.scene}: ${selected.length} full-scene queries; local files, no Atlos server`,

@@ -17,7 +17,7 @@ import type {
 import { validateWaypoints } from '#@/src/v1/route/jump-planner.ts';
 import { createCandidatePlanner } from '#@/src/v1/search/candidate-planner.ts';
 import { composeRoutes } from '#@/src/v1/solver/route-result.ts';
-import { createWindowRoute } from '#@/src/v1/solver/window-route.ts';
+import { createWindowGroundCache, createWindowRoute } from '#@/src/v1/solver/window-route.ts';
 
 type Complete = Extract<Route, { status: 'complete' }>;
 
@@ -58,6 +58,7 @@ export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
 ): PreparedRouteSolver {
   const { navigation, ...scene } = input;
   const planner = createCandidatePlanner(navigation);
+  const groundCache = createWindowGroundCache();
   const maxAttempts = config.maxAttempts,
     concurrency = config.batchConcurrency;
   let closed = false;
@@ -126,6 +127,7 @@ export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
             locomotion,
             transfers: proposal.path?.filter((edge) => edge.unresolved).map((edge) => edge.points),
           },
+          groundCache,
         );
         const publish = (route: Complete, evidence: unknown[], isPartial: boolean): RouteResult => {
           const result: RouteResult = {
@@ -248,6 +250,7 @@ export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
         closed = true;
         await Promise.allSettled(batches);
         await Promise.allSettled(active);
+        groundCache.clear();
         await resources.close?.();
       })();
       return closing;

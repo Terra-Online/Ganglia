@@ -13,6 +13,39 @@ import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
 import { physicalWork } from '#@/src/v1/solver/physical/work.ts';
 import { composeRoutes } from '#@/src/v1/solver/route-result.ts';
 type Complete = Extract<Route, { status: 'complete' }>;
+type PreparedGround = {
+  surfaces: Surface[];
+  options: GroundOptions;
+  project: ReturnType<typeof createGoalProjector>;
+  planner?: ReturnType<typeof createGroundPlanner>;
+};
+
+/** One immutable resource snapshot, owned by a solver with fixed walls and locomotion.
+ * Ground planning is synchronous, so concurrent queries can reuse its preparation.
+ * A resource key change replaces the slot while existing queries finish their work.
+ */
+export function createWindowGroundCache() {
+  let current: { key: string; value: Promise<PreparedGround> } | undefined;
+  return {
+    get(key: string, load: () => Promise<{ surfaces: Surface[]; options: GroundOptions }>) {
+      if (current?.key !== key) {
+        const value = load().then((data) => ({
+          ...data,
+          project: createGoalProjector(data.surfaces),
+        }));
+        current = { key, value };
+        void value.catch(() => {
+          if (current?.value === value) current = undefined;
+        });
+      }
+      return current.value;
+    },
+    clear() {
+      current = undefined;
+    },
+  };
+}
+
 export type WindowConfig = {
   tileSpan: number;
   gridSpan: number;
@@ -38,6 +71,7 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
   request: Request,
   points: Vec3[],
   settings: WindowConfig,
+  groundCache = createWindowGroundCache(),
 ) {
   const physicalTileSpan = settings.tileSpan;
   const gridSpan = settings.gridSpan;
@@ -99,15 +133,6 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
   const evidence: unknown[] = [];
   const failures = new Map<string, string>();
   let truncated = false;
-  let preparation:
-    | {
-        key: string;
-        surfaces: Surface[];
-        options: GroundOptions;
-        project: ReturnType<typeof createGoalProjector>;
-        planner?: ReturnType<typeof createGroundPlanner>;
-      }
-    | undefined;
   let cursor = 0,
     end = -1,
     stage = 0,
@@ -188,6 +213,7 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
           },
           candidates.slice(first + 1),
           settings,
+          groundCache,
         );
       }
       const result = await tail.advance();
@@ -295,22 +321,10 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
         let supportedTarget = target;
         // Final interactions carry their own approach proof; an earlier window's
         // cached ground must not authorize replacements in that approach.
-        let windowGround: typeof preparation;
+        let windowGround: PreparedGround | undefined;
         if (!final || !request.interaction) {
           const groundKey = builder.key(ground);
-          if (preparation?.key !== groundKey) {
-            // Keep one immutable resource snapshot. A different resource replaces
-            // its indices; advancing within the same resource needs no rebuild.
-            preparation = undefined;
-            const data = await builder.ground(ground);
-            preparation = {
-              key: groundKey,
-              surfaces: data.surfaces,
-              options: data.options,
-              project: createGoalProjector(data.surfaces),
-            };
-          }
-          windowGround = preparation;
+          windowGround = await groundCache.get(groundKey, () => builder.ground(ground));
           const vertical = settings.maxTargetError ?? 3;
           const supports = windowGround.project(target, {
             maxVertical: vertical,

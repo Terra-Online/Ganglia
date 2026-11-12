@@ -4,7 +4,11 @@ import { test } from 'node:test';
 import type { Surface } from '#@/src/geometry.ts';
 import type { Route } from '#@/src/route.ts';
 import type { WindowResources, WindowRequest, WindowJob } from '#@/src/solver/resources.ts';
-import { createWindowRoute, type WindowConfig } from '#@/src/v1/solver/window-route.ts';
+import {
+  createWindowGroundCache,
+  createWindowRoute,
+  type WindowConfig,
+} from '#@/src/v1/solver/window-route.ts';
 
 type Job = WindowJob & {
   output: string;
@@ -47,6 +51,74 @@ const settings: WindowConfig = {
   margin: 4,
   locomotion: { speed: 5, sprintSpeed: 5, sprintAcceleration: 1 },
 };
+
+test('shared ground preparation supports concurrent queries and target-side validation', async () => {
+  let loads = 0;
+  const builder = resources({
+    query: async () => ({ status: 'ready', output: groundPath, collision: 'collision' }),
+    solve: async (ground, local) => {
+      const start = local.arrival.position,
+        end = local.target;
+      const from: [number, number, number] = [start[0] + 1, 0, 0],
+        to: [number, number, number] = [end[0] - 1, 0, 0];
+      return {
+        ...ground,
+        result: {
+          route: {
+            status: 'complete',
+            start: local.arrival.id,
+            arrivalCost: 0,
+            cost: 102,
+            length: end[0] - start[0],
+            points: [start, from, to, end],
+            segments: [
+              { mode: 'walk', points: [start, from], times: [0, 1] },
+              { mode: 'launch', points: [from, to], times: [0, 100], connection: 'launcher' },
+              { mode: 'walk', points: [to, end], times: [0, 1] },
+            ],
+          },
+        },
+      };
+    },
+  });
+  const load = builder.ground;
+  builder.ground = async (job) => {
+    loads++;
+    return load(job);
+  };
+  const cache = createWindowGroundCache();
+  const search = (x: number) =>
+    createWindowRoute(
+      builder,
+      { ...request, target: [x, 0, 0] },
+      [
+        [0, 0, 0],
+        [x, 0, 0],
+      ],
+      settings,
+      cache,
+    );
+  const finish = async (window: ReturnType<typeof search>) => {
+    let result = await window.advance();
+    for (let attempt = 0; attempt < 12 && result.status === 'pending'; attempt++)
+      result = await window.advance();
+    assert.equal(result.status, 'complete');
+    if (result.status === 'complete') {
+      assert.ok(result.route.segments.every((segment) => segment.mode === 'walk'));
+      assert.ok(Math.abs(result.route.cost - result.route.length / 5) < 1e-8);
+    }
+    return result;
+  };
+  await Promise.all([finish(search(20)), finish(search(30))]);
+  const tail = search(40);
+  let result = await tail.advanceTail();
+  for (let attempt = 0; attempt < 12 && result.status === 'pending'; attempt++)
+    result = await tail.advanceTail();
+  assert.equal(result.status, 'partial');
+  await finish(tail);
+  assert.equal(loads, 1);
+});
+
 test('windows retain true exits, enforce tile budget and retime the whole trajectory', async () => {
   const starts: number[][] = [];
   const builder: Omit<Resources, 'key' | 'ground' | 'route'> = {
