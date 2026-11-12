@@ -1,13 +1,13 @@
-import { createBoundsIndex } from '../geo/bounds.ts';
-import type { Surface, Vec3 } from '../geo/geometry.ts';
-import { surfaceGraph, surfacePortals } from '../geo/surfaces.ts';
-import type { GoalProjection } from '../motion/goals.ts';
-import { closestOnSurface } from '../motion/goals.ts';
-import { groundComponents } from '../reach/connectivity.ts';
-import type { GroundArrival, GroundOptions } from '../route/ground.ts';
-import { createGroundStraightener } from '../route/straighten.ts';
-import { createTransferQuery } from './candidate-transfers.ts';
-import { createMinHeap } from './heap.ts';
+import { createBoundsIndex } from '#@/src/geo/bounds.ts';
+import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
+import { surfaceGraph, surfacePortals } from '#@/src/geo/surfaces.ts';
+import type { GoalProjection } from '#@/src/motion/goals.ts';
+import { closestOnSurface } from '#@/src/motion/goals.ts';
+import { groundComponents } from '#@/src/reach/connectivity.ts';
+import type { GroundArrival, GroundOptions } from '#@/src/route/ground.ts';
+import { createGroundStraightener } from '#@/src/route/straighten.ts';
+import { createTransferQuery } from '#@/src/search/candidate-transfers.ts';
+import { createMinHeap } from '#@/src/search/heap.ts';
 
 export interface CandidateEdge {
   mode?: string;

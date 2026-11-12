@@ -1,8 +1,8 @@
-import { buildGroundSurfaces, type BuildOptions } from '../geo/build.ts';
-import type { CollisionGeometry, Surface, Vec3 } from '../geo/geometry.ts';
-import { surfaceGraph } from '../geo/surfaces.ts';
-import { createGoalProjector, type InteractionGoal } from '../motion/goals.ts';
-import { jumpDuration, type JumpModel } from '../motion/jumps.ts';
+import { buildGroundSurfaces, type BuildOptions } from '#@/src/geo/build.ts';
+import type { CollisionGeometry, Surface, Vec3 } from '#@/src/geo/geometry.ts';
+import { surfaceGraph } from '#@/src/geo/surfaces.ts';
+import { createGoalProjector, type InteractionGoal } from '#@/src/motion/goals.ts';
+import { jumpDuration, type JumpModel } from '#@/src/motion/jumps.ts';
 type Options = {
   build: BuildOptions;
   goal: Vec3;

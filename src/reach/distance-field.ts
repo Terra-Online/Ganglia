@@ -1,4 +1,4 @@
-import { createMinHeap } from '../search/heap.ts';
+import { createMinHeap } from '#@/src/search/heap.ts';
 
 export interface WeightedEdge {
   from: string;

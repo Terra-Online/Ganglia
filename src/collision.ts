@@ -1,2 +1,2 @@
-export { createCollisionWorld } from './geo/collision.ts';
-export type { CollisionWorld } from './geo/collision.ts';
+export { createCollisionWorld } from '#@/src/geo/collision.ts';
+export type { CollisionWorld } from '#@/src/geo/collision.ts';

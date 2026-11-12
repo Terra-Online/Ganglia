@@ -1,4 +1,4 @@
-import type { CollisionWorld } from '../../collision.ts';
+import type { CollisionWorld } from '#@/src/collision.ts';
 import {
   createWallChecker,
   createGoalProjector,
@@ -10,7 +10,7 @@ import {
   type Vec3,
   type Wall,
   type InteractionGoal,
-} from '../../index.ts';
+} from '#@/src/index.ts';
 export interface DeviceFacts {
   devices: {
     id: string;

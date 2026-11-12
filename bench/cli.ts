@@ -5,9 +5,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { loadFileScene } from './adapters/files.ts';
-import { runBenchmark } from './run.ts';
-import { cases } from './scenes/map02.ts';
+import { loadFileScene } from '#@/bench/adapters/files.ts';
+import { runBenchmark } from '#@/bench/run.ts';
+import { cases } from '#@/bench/scenes/map02.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { values } = parseArgs({

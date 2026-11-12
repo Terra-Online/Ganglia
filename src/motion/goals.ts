@@ -1,8 +1,8 @@
-import { createBoundsIndex } from '../geo/bounds.ts';
-import type { Vec3, Surface } from '../geo/geometry.ts';
-import { supportSnapshot } from '../geo/support-snapshot.ts';
-import { projectPoint } from '../geo/surfaces.ts';
-import type { Route } from '../route/routes.ts';
+import { createBoundsIndex } from '#@/src/geo/bounds.ts';
+import type { Vec3, Surface } from '#@/src/geo/geometry.ts';
+import { supportSnapshot } from '#@/src/geo/support-snapshot.ts';
+import { projectPoint } from '#@/src/geo/surfaces.ts';
+import type { Route } from '#@/src/route/routes.ts';
 
 /** Explicit source-derived interaction volume. No per-game defaults are supplied.
  * Airborne collection goals finish at the first in-flight hit. */

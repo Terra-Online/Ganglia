@@ -1,9 +1,9 @@
-import type { Vec3, Surface } from '../geo/geometry.ts';
-import type { Boundary } from '../search/traversal.ts';
-import type { GoalProjection } from './goals.ts';
-import { closestOnSurface } from './goals.ts';
-import type { JumpModel } from './jumps.ts';
-import { jumpDuration } from './jumps.ts';
+import type { Vec3, Surface } from '#@/src/geo/geometry.ts';
+import type { GoalProjection } from '#@/src/motion/goals.ts';
+import { closestOnSurface } from '#@/src/motion/goals.ts';
+import type { JumpModel } from '#@/src/motion/jumps.ts';
+import { jumpDuration } from '#@/src/motion/jumps.ts';
+import type { Boundary } from '#@/src/search/traversal.ts';
 
 interface Witness {
   surface: string;

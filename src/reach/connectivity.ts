@@ -1,4 +1,4 @@
-import type { Edge, Graph } from '../route/routes.ts';
+import type { Edge, Graph } from '#@/src/route/routes.ts';
 export interface GroundTopology<Id = string> {
   ids: Map<Id, number>;
   components: Int32Array;

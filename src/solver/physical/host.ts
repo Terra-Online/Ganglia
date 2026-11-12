@@ -1,11 +1,11 @@
-import type { RouteQuery, RouteResult } from '../contract.ts';
-import { createPhysicalCache } from './preparation.ts';
-import { preparePhysicalSolver } from './prepared.ts';
-import type { PhysicalInput } from './solve.ts';
-import { physicalWorkPlan, type PhysicalWork } from './work.ts';
+import type { RouteQuery, RouteResult } from '#@/src/solver/contract.ts';
+import { createPhysicalCache } from '#@/src/solver/physical/preparation.ts';
+import { preparePhysicalSolver } from '#@/src/solver/physical/prepared.ts';
+import type { PhysicalInput } from '#@/src/solver/physical/solve.ts';
+import { physicalWorkPlan, type PhysicalWork } from '#@/src/solver/physical/work.ts';
 
-export { physicalWork, physicalWorkPlan, readPhysicalWork } from './work.ts';
-export type { PhysicalWork } from './work.ts';
+export { physicalWork, physicalWorkPlan, readPhysicalWork } from '#@/src/solver/physical/work.ts';
+export type { PhysicalWork } from '#@/src/solver/physical/work.ts';
 
 /** Resource hosts retain this preparation with their immutable input region.
  * Cache slots and dependent invalidation stay private to the solver. */
@@ -48,6 +48,10 @@ export function createPhysicalPreparation() {
   };
 }
 
-export { physicalTileSpan, physicalMargin, physicalCoverage } from './coverage.ts';
+export {
+  physicalTileSpan,
+  physicalMargin,
+  physicalCoverage,
+} from '#@/src/solver/physical/coverage.ts';
 
-export { validateWaypoints } from '../../route/jump-planner.ts';
+export { validateWaypoints } from '#@/src/route/jump-planner.ts';

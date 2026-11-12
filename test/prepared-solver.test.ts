@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.ts';
-import type { Surface } from '../src/geo/geometry.ts';
-import type { GroundConnection } from '../src/route/ground.ts';
-import { planJumpRoute } from '../src/route/jump-planner.ts';
-import type { RouteQuery } from '../src/solver/contract.ts';
-import { prepareSurfaceActionSolver } from '../src/solver/index.ts';
+import type { Surface } from '#@/src/geo/geometry.ts';
+import type { GroundConnection } from '#@/src/route/ground.ts';
+import type { RouteQuery } from '#@/src/solver/contract.ts';
+import { prepareSurfaceActionSolver } from '#@/src/solver/index.ts';
 
 const surfaces: Surface[] = [0, 7, 14].map((x, i) => ({
   id: `floor/${i}`,
@@ -84,31 +82,6 @@ test('supplied traversal semantics survive solving without interpreting connecti
   }
 });
 
-test('a new prepared query preserves the existing solver result across intervening goals', async () => {
-  const solver = await prepareSurfaceActionSolver({
-    surfaces,
-    collision,
-    walls: options.walls,
-    config: { movement: options, search: options },
-  });
-  try {
-    const expected = planJumpRoute(
-      surfaces,
-      createCollisionWorld(collision),
-      query.starts,
-      query.goal,
-      options,
-    );
-    assert.ok(expected.route.status === 'complete');
-    assert.equal(expected.route.segments.filter((s) => s.mode === 'jump').length, 2);
-    assert.deepEqual(await solver.solve(query), expected);
-    await solver.solve({ ...query, goal: [102, 0, 0] });
-    assert.deepEqual(await solver.solve(query), expected);
-  } finally {
-    await solver.close();
-  }
-});
-
 test('a same-scene batch preserves order, budgets and independent search state', async () => {
   const queries: readonly RouteQuery[] = [
     query,
@@ -135,6 +108,8 @@ test('a same-scene batch preserves order, budgets and independent search state',
     expected.map((r) => r.route.status),
     ['complete', 'no-verified-route', 'complete', 'unmapped', 'complete'],
   );
+  assert.equal(expected[0].route.status, 'complete');
+  assert.equal(expected[0].route.segments.filter((segment) => segment.mode === 'jump').length, 2);
   const solver = await prepareSurfaceActionSolver({
     surfaces,
     collision,

@@ -1,4 +1,4 @@
-import type { CollisionGeometry, Vec3 } from './geometry.ts';
+import type { CollisionGeometry, Vec3 } from '#@/src/geo/geometry.ts';
 
 export interface CollisionOptions {
   /** Inclusive XZ rectangle in world metres, retaining full vertical coverage.

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { runBenchmark } from '../bench/run.ts';
-import type { RouteQuery, RouteResult } from '../src/solver/contract.ts';
+import { runBenchmark } from '#@/bench/run.ts';
+import type { RouteQuery, RouteResult } from '#@/src/solver/contract.ts';
 
 test('prewarm and measurement submit whole batches on one solver with ordered results', async () => {
   const cases: readonly { id: string; query: RouteQuery }[] = [1, 2, 3].map((id) => ({

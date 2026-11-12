@@ -1,13 +1,13 @@
-import type { Vec3 } from '../geo/geometry.ts';
-import { hasTerminalGroundEvent, markTerminalGoal } from '../motion/goals.ts';
-import type { Segment } from '../motion/motion.ts';
-import { groundComponents, condenseComponents, canReach } from '../reach/connectivity.ts';
-import type { LocomotionOptions } from '../resource/locomotion.ts';
-import { retimeGroundRoute } from '../resource/locomotion.ts';
-import type { GroundPlanner } from './ground.ts';
-import { groundPreparation } from './ground.ts';
-import type { Route } from './routes.ts';
-import type { GroundStraightener } from './straighten.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
+import { hasTerminalGroundEvent, markTerminalGoal } from '#@/src/motion/goals.ts';
+import type { Segment } from '#@/src/motion/motion.ts';
+import { groundComponents, condenseComponents, canReach } from '#@/src/reach/connectivity.ts';
+import type { LocomotionOptions } from '#@/src/resource/locomotion.ts';
+import { retimeGroundRoute } from '#@/src/resource/locomotion.ts';
+import type { GroundPlanner } from '#@/src/route/ground.ts';
+import { groundPreparation } from '#@/src/route/ground.ts';
+import type { Route } from '#@/src/route/routes.ts';
+import type { GroundStraightener } from '#@/src/route/straighten.ts';
 
 type CompleteRoute = Extract<Route, { status: 'complete' }>;
 

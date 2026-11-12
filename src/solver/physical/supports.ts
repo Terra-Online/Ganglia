@@ -1,4 +1,4 @@
-import type { Surface, Vec3 } from '../../index.ts';
+import type { Surface, Vec3 } from '#@/src/index.ts';
 
 /** world-axis-aligned bounds enclosing all collider bodies at one sampled pose */
 export interface PoseBounds {

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Surface, Vec3 } from '../src/geo/geometry.ts';
-import { createGoalProjector, projectGoal } from '../src/motion/goals.ts';
+import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
+import { createGoalProjector, projectGoal } from '#@/src/motion/goals.ts';
 
 const ground = (id: string, x0: number, x1: number, z0 = 0, z1 = 2, y = 0): Surface => ({
   id,
@@ -240,8 +240,40 @@ test('constructing after support mutation revalidates and keeps earlier projecti
   surface.vertices[1][0] = NaN;
   assert.throws(() => createGoalProjector([surface]), /Invalid goal surface/);
   assert.equal(updated([1, 3.1, 1], { maxVertical: 0.5 })[0].position[1], 3);
-  const unrelated: Surface = ground('unrelated', 0, 2);
-  // Goal projection does not inspect portal metadata.
-  unrelated.portals = 'not-used-by-goal-projection' as unknown as number[];
-  assert.equal(createGoalProjector([unrelated])([1, 0, 1], { maxVertical: 0.5 }).length, 1);
+});
+
+test('interaction projection selects triangle interiors, edges and vertices at varied scales', () => {
+  for (const scale of [0.001, 1, 1e5]) {
+    const slope: Surface = {
+      id: 'slope',
+      vertices: [
+        [0, 0, 0],
+        [4 * scale, 0, 0],
+        [0, 4 * scale, 4 * scale],
+      ],
+    };
+    for (const [target, expected] of [
+      [
+        [scale, 0, 2 * scale],
+        [scale, scale, scale],
+      ],
+      [
+        [-scale, scale, scale],
+        [0, scale, scale],
+      ],
+      [
+        [5 * scale, -scale, -scale],
+        [4 * scale, 0, 0],
+      ],
+    ] satisfies [Vec3, Vec3][]) {
+      const result = projectGoal([slope], target, { interaction: { radius: 10 * scale } });
+      assert.equal(result.length, 1);
+      for (let axis = 0; axis < 3; axis++)
+        assert.ok(Math.abs(result[0].position[axis] - expected[axis]) <= scale * 1e-9);
+      assert.ok(
+        Math.abs(result[0].distance - Math.hypot(...target.map((v, i) => v - expected[i]))) <=
+          scale * 1e-9,
+      );
+    }
+  }
 });

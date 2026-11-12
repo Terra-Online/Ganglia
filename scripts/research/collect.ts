@@ -1,8 +1,8 @@
-import type { CollisionWorld } from '../../src/geo/collision.ts';
-import type { Vec3, Surface, CollisionGeometry } from '../../src/geo/geometry.ts';
-import type { JumpModel, Arc } from '../../src/motion/jumps.ts';
-import type { GroundOptions } from '../../src/route/ground.ts';
-import type { Model } from './policy.ts';
+import type { Model } from '#@/scripts/research/policy.ts';
+import type { CollisionWorld } from '#@/src/geo/collision.ts';
+import type { Vec3, Surface, CollisionGeometry } from '#@/src/geo/geometry.ts';
+import type { JumpModel, Arc } from '#@/src/motion/jumps.ts';
+import type { GroundOptions } from '#@/src/route/ground.ts';
 type Source = { buildGuid?: string; contentHash?: string };
 type Binding = {
   scene: string;
@@ -79,13 +79,13 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, isDeepStrictEqual } from 'node:util';
 
-import { createCollisionWorld } from '../../src/collision.ts';
-import { createWallChecker } from '../../src/geo/walls.ts';
-import { createGoalProjector } from '../../src/motion/goals.ts';
-import { jumpDuration, jumpConnection, runOffConnection } from '../../src/motion/jumps.ts';
-import { createGroundStraightener } from '../../src/route/straighten.ts';
-import { standingFoot } from '../../src/search/traversal.ts';
-import { random, rank, crossEntropy, withFallback } from './policy.ts';
+import { random, rank, crossEntropy, withFallback } from '#@/scripts/research/policy.ts';
+import { createCollisionWorld } from '#@/src/collision.ts';
+import { createWallChecker } from '#@/src/geo/walls.ts';
+import { createGoalProjector } from '#@/src/motion/goals.ts';
+import { jumpDuration, jumpConnection, runOffConnection } from '#@/src/motion/jumps.ts';
+import { createGroundStraightener } from '#@/src/route/straighten.ts';
+import { standingFoot } from '#@/src/search/traversal.ts';
 
 const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const horizontal = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[2] - b[2]);

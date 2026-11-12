@@ -5,15 +5,15 @@ import { resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { Surface } from '../../src/geo/geometry.ts';
-import type { GroundOptions } from '../../src/route/ground.ts';
-import type { Route } from '../../src/route/routes.ts';
-import { createCandidatePlanner } from '../../src/search/candidate-planner.ts';
-import type { RouteResult } from '../../src/solver/contract.ts';
-import { createPhysicalPreparation } from '../../src/solver/physical/host.ts';
-import type { PhysicalWork } from '../../src/solver/physical/work.ts';
-import { prepareSceneRouteSolver, type SceneResources } from '../../src/solver/scene/prepared.ts';
-import type { WindowRequest } from '../../src/solver/window-route.ts';
+import type { Surface } from '#@/src/geo/geometry.ts';
+import type { GroundOptions } from '#@/src/route/ground.ts';
+import type { Route } from '#@/src/route/routes.ts';
+import { createCandidatePlanner } from '#@/src/search/candidate-planner.ts';
+import type { RouteResult } from '#@/src/solver/contract.ts';
+import { createPhysicalPreparation } from '#@/src/solver/physical/host.ts';
+import type { PhysicalWork } from '#@/src/solver/physical/work.ts';
+import { prepareSceneRouteSolver, type SceneResources } from '#@/src/solver/scene/prepared.ts';
+import type { WindowRequest } from '#@/src/solver/window-route.ts';
 
 type Source = { buildGuid: string; contentHash: string };
 type Ground = {

@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { buildGroundSurfaces, buildGroundTiles } from '../src/build.ts';
-import type { BuildOptions } from '../src/geo/build.ts';
-import type { Portal, Surface, Vec3 } from '../src/geo/geometry.ts';
-import { surfaceGraph } from '../src/index.ts';
-import { planGroundRoute } from '../src/route/ground.ts';
-import { createGroundStraightener } from '../src/route/straighten.ts';
-import { exposedBoundaries } from '../src/search/traversal.ts';
+import { buildGroundSurfaces, buildGroundTiles } from '#@/src/build.ts';
+import type { BuildOptions } from '#@/src/geo/build.ts';
+import type { Portal, Surface, Vec3 } from '#@/src/geo/geometry.ts';
+import { surfaceGraph } from '#@/src/index.ts';
+import { planGroundRoute } from '#@/src/route/ground.ts';
+import { createGroundStraightener } from '#@/src/route/straighten.ts';
+import { exposedBoundaries } from '#@/src/search/traversal.ts';
 
 const options: BuildOptions = {
   profile: { radius: 0.35, height: 1.66 },

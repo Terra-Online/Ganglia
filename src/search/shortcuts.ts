@@ -1,29 +1,39 @@
-import type { Bounds, BoundsIndex } from '../geo/bounds.ts';
-import { createBoundsIndex } from '../geo/bounds.ts';
-import type { CollisionWorld } from '../geo/collision.ts';
-import type { Vec3, Surface } from '../geo/geometry.ts';
-import type { GoalProjection } from '../motion/goals.ts';
-import type { Arc, ApproachCache, ExitCache, MotionControl, JumpOptions } from '../motion/jumps.ts';
+import type { Bounds, BoundsIndex } from '#@/src/geo/bounds.ts';
+import { createBoundsIndex } from '#@/src/geo/bounds.ts';
+import type { CollisionWorld } from '#@/src/geo/collision.ts';
+import type { Vec3, Surface } from '#@/src/geo/geometry.ts';
+import type { GoalProjection } from '#@/src/motion/goals.ts';
+import type {
+  Arc,
+  ApproachCache,
+  ExitCache,
+  MotionControl,
+  JumpOptions,
+} from '#@/src/motion/jumps.ts';
 import {
   jumpConnection,
   jumpDuration,
   runOffConnection,
   createMotionVariants,
-} from '../motion/jumps.ts';
-import { landingCandidates, boundaryLanding, createLandingGoalCache } from '../motion/landings.ts';
-import type { DistanceField, WeightedEdge } from '../reach/distance-field.ts';
-import { advanceDistanceField } from '../reach/distance-field.ts';
-import { createMotionBounds } from '../reach/motion-bounds.ts';
-import { createJumpEnvelope, createJumpPredecessor } from '../reach/reachability.ts';
-import type { GroundConnection, GroundOptions } from '../route/ground.ts';
-import { movementGeometry } from '../route/movement-geometry.ts';
-import type { Edge, Route } from '../route/routes.ts';
-import type { GroundStraightener } from '../route/straighten.ts';
-import { createGroundStraightener } from '../route/straighten.ts';
-import { boundaryTree, boundaryOrder } from './boundary-order.ts';
-import { createCandidateBounds } from './candidate-bounds.ts';
-import type { DiscoveryOptions, Boundary } from './traversal.ts';
-import { interleave, standingFoot, validateDiscovery } from './traversal.ts';
+} from '#@/src/motion/jumps.ts';
+import {
+  landingCandidates,
+  boundaryLanding,
+  createLandingGoalCache,
+} from '#@/src/motion/landings.ts';
+import type { DistanceField, WeightedEdge } from '#@/src/reach/distance-field.ts';
+import { advanceDistanceField } from '#@/src/reach/distance-field.ts';
+import { createMotionBounds } from '#@/src/reach/motion-bounds.ts';
+import { createJumpEnvelope, createJumpPredecessor } from '#@/src/reach/reachability.ts';
+import type { GroundConnection, GroundOptions } from '#@/src/route/ground.ts';
+import { movementGeometry } from '#@/src/route/movement-geometry.ts';
+import type { Edge, Route } from '#@/src/route/routes.ts';
+import type { GroundStraightener } from '#@/src/route/straighten.ts';
+import { createGroundStraightener } from '#@/src/route/straighten.ts';
+import { boundaryTree, boundaryOrder } from '#@/src/search/boundary-order.ts';
+import { createCandidateBounds } from '#@/src/search/candidate-bounds.ts';
+import type { DiscoveryOptions, Boundary } from '#@/src/search/traversal.ts';
+import { interleave, standingFoot, validateDiscovery } from '#@/src/search/traversal.ts';
 
 interface FieldWork {
   /** True when roots, the base graph or existing actions required a full restart. */
@@ -395,7 +405,7 @@ function findConnections(
     return traces.get(key)!;
   };
   const approaches =
-      cache?.approaches ?? new Map<string, import('../motion/jumps.ts').Approach | null>(),
+      cache?.approaches ?? new Map<string, import('#@/src/motion/jumps.ts').Approach | null>(),
     exits = cache?.exits ?? new Map<string, [number, number] | null>();
   if (cache) {
     cache.approaches = approaches;

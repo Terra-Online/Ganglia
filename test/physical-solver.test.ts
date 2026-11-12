@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { preparePhysicalRouteSolver, type PhysicalInput } from '../src/solver/index.ts';
+import { preparePhysicalRouteSolver, type PhysicalInput } from '#@/src/solver/index.ts';
 
 const input: PhysicalInput = {
   ground: {
@@ -69,7 +69,10 @@ test('physical solver returns fresh single and batch routes through the prepared
   const batch = await solver.solveBatch([query, query]);
   assert.deepEqual(batch[0], single);
   assert.deepEqual(batch[1], single);
-  assert.notEqual(batch[0].route, batch[1].route);
+  assert.equal(batch[0].route.status, 'complete');
+  batch[0].route.points[0][0] = -100;
+  assert.deepEqual(batch[1], single);
+  assert.deepEqual(await solver.solve(query), single);
   await solver.close();
   await assert.rejects(solver.solve(query), /closed/);
 });
@@ -98,6 +101,11 @@ test('physical solver distinguishes mapped but disconnected ground from unmapped
     goal: [25, 0, 1],
   });
   assert.equal(result.route.status, 'no-verified-route');
+  const unmapped = await solver.solve({
+    starts: [{ id: 'start', state: 'available', cost: 0, position: [1, 0, 1] }],
+    goal: [100, 0, 1],
+  });
+  assert.equal(unmapped.route.status, 'unmapped');
   await solver.close();
 });
 

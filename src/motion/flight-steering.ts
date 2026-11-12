@@ -1,6 +1,6 @@
-import type { Vec3 } from '../geo/geometry.ts';
-import type { JumpOptions, MotionControl } from './jumps.ts';
-import { jumpDuration, jumpVerticalRange } from './jumps.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
+import type { JumpOptions, MotionControl } from '#@/src/motion/jumps.ts';
+import { jumpDuration, jumpVerticalRange } from '#@/src/motion/jumps.ts';
 // Only the constant-horizontal jump family has this inverse time interval.
 // Other controls retain their complete trajectory and goal checks.
 export function mayReachGoal(

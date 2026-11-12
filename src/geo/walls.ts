@@ -1,5 +1,5 @@
-import type { Bounds } from './bounds.ts';
-import type { Vec3 } from './geometry.ts';
+import type { Bounds } from '#@/src/geo/bounds.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
 
 export interface Wall {
   min: Vec3;

@@ -1,5 +1,5 @@
-import type { Route, Graph, Edge, Arrival } from '../route/routes.ts';
-import { createUpdatingRoutePlanner } from '../route/routes.ts';
+import type { Route, Graph, Edge, Arrival } from '#@/src/route/routes.ts';
+import { createUpdatingRoutePlanner } from '#@/src/route/routes.ts';
 
 export interface LazyPlanOptions {
   validate: (edge: Edge, index: number) => Promise<Edge | null>;

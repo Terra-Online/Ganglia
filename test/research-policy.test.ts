@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { regions, sample, checkBinding } from '../scripts/research/collect.ts';
+import { regions, sample, checkBinding } from '#@/scripts/research/collect.ts';
 import {
   random,
   train,
@@ -10,8 +10,8 @@ import {
   withFallback,
   featureNames,
   checkSplits,
-} from '../scripts/research/policy.ts';
-import type { Surface } from '../src/geo/geometry.ts';
+} from '#@/scripts/research/policy.ts';
+import type { Surface } from '#@/src/geo/geometry.ts';
 
 test('sampling stays inside supported triangles and follows projected area instead of triangle count', () => {
   const floor = (id: string, x: number, length: number): Surface => ({

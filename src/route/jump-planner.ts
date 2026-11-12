@@ -1,24 +1,29 @@
-import type { CollisionWorld } from '../geo/collision.ts';
-import type { Vec3, Surface } from '../geo/geometry.ts';
-import type { InteractionGoal } from '../motion/goals.ts';
-import { createGoalProjector, findGoalHit, markTerminalGoal } from '../motion/goals.ts';
-import type { JumpModel } from '../motion/jumps.ts';
+import type { CollisionWorld } from '#@/src/geo/collision.ts';
+import type { Vec3, Surface } from '#@/src/geo/geometry.ts';
+import type { InteractionGoal } from '#@/src/motion/goals.ts';
+import { createGoalProjector, findGoalHit, markTerminalGoal } from '#@/src/motion/goals.ts';
+import type { JumpModel } from '#@/src/motion/jumps.ts';
+import { planAirborneGoal } from '#@/src/route/airborne-goal.ts';
+import type { SpeedBoost } from '#@/src/route/boosted-route.ts';
+import { planBoostedRoute } from '#@/src/route/boosted-route.ts';
+import type {
+  GroundOptions,
+  GroundPlanner,
+  GroundArrival,
+  GroundConnection,
+} from '#@/src/route/ground.ts';
+import { createGroundPlanner, groundPreparation } from '#@/src/route/ground.ts';
+import { movementGeometry } from '#@/src/route/movement-geometry.ts';
+import { findRouteShortcuts } from '#@/src/route/route-shortcuts.ts';
+import type { Route } from '#@/src/route/routes.ts';
 import type {
   ShortcutDiagnostics,
   FrontierDiagnostics,
   ShortcutCache,
-} from '../search/shortcuts.ts';
-import { findJumpFrontier, findJumpShortcuts } from '../search/shortcuts.ts';
-import type { DiscoveryDiagnostics } from '../search/traversal.ts';
-import { findJumpConnections } from '../search/traversal.ts';
-import { planAirborneGoal } from './airborne-goal.ts';
-import type { SpeedBoost } from './boosted-route.ts';
-import { planBoostedRoute } from './boosted-route.ts';
-import type { GroundOptions, GroundPlanner, GroundArrival, GroundConnection } from './ground.ts';
-import { createGroundPlanner, groundPreparation } from './ground.ts';
-import { movementGeometry } from './movement-geometry.ts';
-import { findRouteShortcuts } from './route-shortcuts.ts';
-import type { Route } from './routes.ts';
+} from '#@/src/search/shortcuts.ts';
+import { findJumpFrontier, findJumpShortcuts } from '#@/src/search/shortcuts.ts';
+import type { DiscoveryDiagnostics } from '#@/src/search/traversal.ts';
+import { findJumpConnections } from '#@/src/search/traversal.ts';
 
 export interface JumpRouteOptions extends GroundOptions {
   boosts?: SpeedBoost[];

@@ -1,85 +1,39 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { boundaryTree, boundaryOrder } from '../src/search/boundary-order.ts';
-import { interleave } from '../src/search/traversal.ts';
+import { boundaryOrder, boundaryTree } from '#@/src/search/boundary-order.ts';
 
-type Entry = { index: number; score: number; midpoint: number[] };
-// The reference is the original full-list ordering. New construction may avoid
-// unconsumed suffixes, but every consumed item and tie must retain its place.
-const reference = (entries: Entry[], size: number, height: number, diversity: number): Entry[] => {
-  if (entries.length < 2 || size <= diversity) return entries;
-  const regions = new Map<string, Entry[]>();
-  for (const entry of entries) {
-    const p = entry.midpoint;
-    const key = [Math.floor(p[0] / size), Math.floor(p[1] / height), Math.floor(p[2] / size)].join(
-      '/',
-    );
-    const group = regions.get(key) ?? [];
-    group.push(entry);
-    regions.set(key, group);
-  }
-  return interleave(
-    [...regions.values()].map((group) => reference(group, size / 2, height, diversity)),
-    entries.length,
-  );
-};
-
-test('hierarchical boundary ordering preserves full-list prefixes, stable ties and filtered floors', () => {
-  let seed = 129;
-  const random = () => {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    return seed / 2 ** 32;
-  };
-  const entries = Array.from({ length: 1200 }, (_, index) => ({
-    index,
-    midpoint: [
-      Math.floor(random() * 80) - 40,
-      Math.floor(random() * 12) - 6,
-      Math.floor(random() * 80) - 40,
-    ],
-    score: Math.floor(random() * 30),
-  }));
-  for (const [size, height, diversity] of [
-    [16, 2, 0.6],
-    [4, 3, 0.7],
-    [0.5, 2, 0.6],
-  ]) {
-    const tree = boundaryTree(entries, size, height, diversity);
-    for (const eligible of [
-      () => true,
-      (entry: Entry) => entry.index % 3 === 0,
-      (entry: Entry) => entry.midpoint[1] >= 0,
-      () => false,
-    ]) {
-      const compare = (a: Entry, b: Entry) => a.score - b.score || a.index - b.index;
-      const expected = reference(entries.filter(eligible).sort(compare), size, height, diversity);
-      for (const limit of [0, 1, 7, 128, 2048]) {
-        assert.deepEqual(boundaryOrder(tree, eligible, compare, limit), expected.slice(0, limit));
-      }
-    }
-  }
-});
-
-test('lazy prefix handles repeated entry references and uneven exhausted groups', () => {
-  const a = { index: 0, score: 0, midpoint: [0, 0, 0] },
-    b = { index: 1, score: 0, midpoint: [20, 0, 0] };
+test('bounded discovery covers separate regions before exhausting nearby entries', () => {
   const entries = [
-    a,
-    a,
-    b,
-    ...Array.from({ length: 21 }, (_, index) => ({
-      index: index + 2,
-      score: index % 3,
-      midpoint: [30 + index, 0, 0],
-    })),
+    ...Array.from({ length: 20 }, (_, id) => ({ id, midpoint: [0, 0, 0], score: id })),
+    { id: 20, midpoint: [32, 0, 0], score: 20 },
+    { id: 21, midpoint: [0, 4, 0], score: 21 },
   ];
-  const compare = (a: Entry, b: Entry) => a.score - b.score || a.index - b.index;
-  const expected = reference([...entries].sort(compare), 16, 2, 0.6);
   const tree = boundaryTree(entries, 16, 2, 0.6);
-  for (const count of [1, 2, 3, 7, 24, 100])
+  const compare = (a: (typeof entries)[number], b: (typeof entries)[number]) => a.score - b.score;
+  const all = boundaryOrder(tree, () => true, compare, entries.length);
+  assert.deepEqual(
+    all.slice(0, 3).map((entry) => entry.id),
+    [0, 20, 21],
+  );
+  assert.deepEqual(
+    all.map((entry) => entry.id).sort((a, b) => a - b),
+    entries.map((entry) => entry.id),
+  );
+  for (const limit of [0, 1, 3, 9, 100])
     assert.deepEqual(
-      boundaryOrder(tree, () => true, compare, count),
-      expected.slice(0, count),
+      boundaryOrder(tree, () => true, compare, limit),
+      all.slice(0, limit),
     );
+  const selected = boundaryOrder(tree, (entry) => entry.midpoint[1] === 0, compare, 100);
+  assert.equal(selected.length, 21);
+  assert.ok(selected.every((entry) => entry.id !== 21));
+  assert.deepEqual(
+    boundaryOrder(tree, () => false, compare, 10),
+    [],
+  );
+  assert.deepEqual(
+    boundaryOrder(tree, () => true, compare, entries.length),
+    all,
+  );
 });

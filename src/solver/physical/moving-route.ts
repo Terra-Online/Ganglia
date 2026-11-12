@@ -5,9 +5,9 @@ import {
   type Route,
   type Surface,
   type Vec3,
-} from '../../index.ts';
-import type { SourceFace } from './moving-ground.ts';
-import type { PoseBounds, PoseSpan, SweptSupport } from './supports.ts';
+} from '#@/src/index.ts';
+import type { SourceFace } from '#@/src/solver/physical/moving-ground.ts';
+import type { PoseBounds, PoseSpan, SweptSupport } from '#@/src/solver/physical/supports.ts';
 
 /** a selected route's actual contact pose, independent of its navigation model */
 export type SupportBox = PoseBounds & {

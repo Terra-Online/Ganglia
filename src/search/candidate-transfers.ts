@@ -1,5 +1,5 @@
-import type { Surface, Vec3 } from '../geo/geometry.ts';
-import type { GroundTopology } from '../reach/connectivity.ts';
+import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
+import type { GroundTopology } from '#@/src/reach/connectivity.ts';
 interface Occurrence {
   surface: string;
   ordinal: number;

@@ -9,8 +9,8 @@ import {
   type WindowJob,
 } from '@opendfieldmap/ganglia/solver';
 
-import type { Surface } from '../src/geo/geometry.ts';
-import type { Route } from '../src/route/routes.ts';
+import type { Surface } from '#@/src/geo/geometry.ts';
+import type { Route } from '#@/src/route/routes.ts';
 
 type Job = WindowJob & {
   output: string;

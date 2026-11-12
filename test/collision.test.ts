@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.ts';
-import type { CollisionOptions } from '../src/geo/collision.ts';
-import type { Vec3 } from '../src/geo/geometry.ts';
+import { createCollisionWorld } from '#@/src/collision.ts';
+import type { CollisionOptions } from '#@/src/geo/collision.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
 const profile = { radius: 0.35, height: 1.66 };
 const world = (faces: Vec3[][]) =>
   createCollisionWorld({
@@ -365,4 +365,37 @@ test('crop bounds are finite and malformed excluded source geometry still fails'
       } as unknown as Parameters<typeof createCollisionWorld>[1]),
     /index/,
   );
+});
+
+test('indexed sweeps retain every collision across mixed faces and source permutations', () => {
+  const faces: Vec3[][] = Array.from({ length: 67 }, (_, i) => {
+    const x = ((i * 17) % 11) - 5,
+      y = (i % 4) - 2,
+      z = ((i * 7) % 13) - 6;
+    return i % 5 === 0
+      ? [
+          [x, y - 2, z - 2],
+          [x, y + 2, z - 2],
+          [x, y, z + 2],
+        ]
+      : [
+          [x - 2, y, z - 2],
+          [x, y, z + 2],
+          [x + 2, y, z - 2],
+        ];
+  });
+  for (const ordered of [faces, faces.toReversed()]) {
+    const indexed = world(ordered),
+      singles = ordered.map((face) => world([face]));
+    for (let i = 0; i < 40; i++) {
+      const start: Vec3 = [(i % 9) - 4, (i % 5) - 2, (i % 7) - 3];
+      const end: Vec3 = [3 - (i % 7), 2 - (i % 5), 4 - (i % 9)];
+      const hit = indexed.sweepCapsule(start, end, profile);
+      assert.equal(
+        hit !== null,
+        singles.some((single) => single.sweepCapsule(start, end, profile) !== null),
+      );
+      if (hit) assert.ok(singles[hit.triangle].sweepCapsule(start, end, profile));
+    }
+  }
 });

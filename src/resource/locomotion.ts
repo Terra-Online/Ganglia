@@ -1,8 +1,8 @@
-import type { Vec3 } from '../geo/geometry.ts';
-import { hasTerminalGroundEvent, markTerminalGoal } from '../motion/goals.ts';
-import type { MovementMode, Segment } from '../motion/motion.ts';
-import { validateMotion } from '../motion/motion.ts';
-import type { Route } from '../route/routes.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
+import { hasTerminalGroundEvent, markTerminalGoal } from '#@/src/motion/goals.ts';
+import type { MovementMode, Segment } from '#@/src/motion/motion.ts';
+import { validateMotion } from '#@/src/motion/motion.ts';
+import type { Route } from '#@/src/route/routes.ts';
 
 /** Explicit movement policy. No unverified game-specific energy defaults are inferred. */
 export interface LocomotionOptions {

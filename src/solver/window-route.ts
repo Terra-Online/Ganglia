@@ -1,14 +1,18 @@
-import type { Surface, Vec3 } from '../geo/geometry.ts';
-import type { Wall } from '../geo/walls.ts';
-import { createGoalProjector } from '../motion/goals.ts';
-import type { InteractionGoal } from '../motion/goals.ts';
-import type { LocomotionOptions } from '../resource/locomotion.ts';
-import { pruneGroundDetours } from '../route/ground-detours.ts';
-import { createGroundPlanner, type GroundOptions, type GroundArrival } from '../route/ground.ts';
-import type { Route } from '../route/routes.ts';
-import type { RouteQuery } from './contract.ts';
-import { physicalWork, type PhysicalWork } from './physical/work.ts';
-import { composeRoutes } from './route-result.ts';
+import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
+import type { Wall } from '#@/src/geo/walls.ts';
+import { createGoalProjector } from '#@/src/motion/goals.ts';
+import type { InteractionGoal } from '#@/src/motion/goals.ts';
+import type { LocomotionOptions } from '#@/src/resource/locomotion.ts';
+import { pruneGroundDetours } from '#@/src/route/ground-detours.ts';
+import {
+  createGroundPlanner,
+  type GroundOptions,
+  type GroundArrival,
+} from '#@/src/route/ground.ts';
+import type { Route } from '#@/src/route/routes.ts';
+import type { RouteQuery } from '#@/src/solver/contract.ts';
+import { physicalWork, type PhysicalWork } from '#@/src/solver/physical/work.ts';
+import { composeRoutes } from '#@/src/solver/route-result.ts';
 type Complete = Extract<Route, { status: 'complete' }>;
 export interface WindowRequest {
   scene: string;

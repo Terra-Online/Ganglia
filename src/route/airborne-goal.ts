@@ -1,23 +1,23 @@
-import type { CollisionWorld } from '../geo/collision.ts';
-import type { Vec3, Surface } from '../geo/geometry.ts';
-import { createWallChecker } from '../geo/walls.ts';
-import { mayReachGoal } from '../motion/flight-steering.ts';
-import type { InteractionGoal } from '../motion/goals.ts';
-import { createGoalProjector, findGoalHit, trimGoalFlight } from '../motion/goals.ts';
-import type { MotionControl, Arc } from '../motion/jumps.ts';
+import type { CollisionWorld } from '#@/src/geo/collision.ts';
+import type { Vec3, Surface } from '#@/src/geo/geometry.ts';
+import { createWallChecker } from '#@/src/geo/walls.ts';
+import { mayReachGoal } from '#@/src/motion/flight-steering.ts';
+import type { InteractionGoal } from '#@/src/motion/goals.ts';
+import { createGoalProjector, findGoalHit, trimGoalFlight } from '#@/src/motion/goals.ts';
+import type { MotionControl, Arc } from '#@/src/motion/jumps.ts';
 import {
   createMotionVariants,
   jumpConnection,
   jumpDuration,
   runOffConnection,
-} from '../motion/jumps.ts';
-import { boundaryLanding } from '../motion/landings.ts';
-import { retimeGroundRoute } from '../resource/locomotion.ts';
-import { standingFoot, validateDiscovery } from '../search/traversal.ts';
-import type { GroundArrival, GroundConnection } from './ground.ts';
-import type { PlannerOptions, JumpResult } from './jump-planner.ts';
-import { movementGeometry } from './movement-geometry.ts';
-import type { Route } from './routes.ts';
+} from '#@/src/motion/jumps.ts';
+import { boundaryLanding } from '#@/src/motion/landings.ts';
+import { retimeGroundRoute } from '#@/src/resource/locomotion.ts';
+import type { GroundArrival, GroundConnection } from '#@/src/route/ground.ts';
+import type { PlannerOptions, JumpResult } from '#@/src/route/jump-planner.ts';
+import { movementGeometry } from '#@/src/route/movement-geometry.ts';
+import type { Route } from '#@/src/route/routes.ts';
+import { standingFoot, validateDiscovery } from '#@/src/search/traversal.ts';
 
 type Options = PlannerOptions & { interaction: InteractionGoal };
 interface Witness {

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Route } from '../src/route/routes.ts';
-import type { RouteEvent } from '../src/solver/contract.ts';
-import { prepareSceneRouteSolver, type SceneResources } from '../src/solver/scene/prepared.ts';
+import type { Route } from '#@/src/route/routes.ts';
+import type { RouteEvent } from '#@/src/solver/contract.ts';
+import { prepareSceneRouteSolver, type SceneResources } from '#@/src/solver/scene/prepared.ts';
 
 type Job = { status: 'ready'; route?: Route };
 function fixture() {

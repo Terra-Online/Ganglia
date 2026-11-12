@@ -1,6 +1,6 @@
-import type { Bounds } from '../geo/bounds.ts';
-import type { JumpModel } from '../motion/jumps.ts';
-import { jumpDuration, jumpTravel } from '../motion/jumps.ts';
+import type { Bounds } from '#@/src/geo/bounds.ts';
+import type { JumpModel } from '#@/src/motion/jumps.ts';
+import { jumpDuration, jumpTravel } from '#@/src/motion/jumps.ts';
 
 export interface EnvelopeOptions {
   model: JumpModel;

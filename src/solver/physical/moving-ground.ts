@@ -1,5 +1,5 @@
-import { buildGroundSurfaces, type BuildOptions, type CollisionGeometry } from '../../build.ts';
-import { createCollisionWorld, type CollisionWorld } from '../../collision.ts';
+import { buildGroundSurfaces, type BuildOptions, type CollisionGeometry } from '#@/src/build.ts';
+import { createCollisionWorld, type CollisionWorld } from '#@/src/collision.ts';
 /* oxlint-disable no-await-in-loop -- each bounded native build is completed before allocating the next */
 import {
   createGoalProjector,
@@ -9,8 +9,8 @@ import {
   type Surface,
   type Vec3,
   type Wall,
-} from '../../index.ts';
-import type { SweptSupport } from './supports.ts';
+} from '#@/src/index.ts';
+import type { SweptSupport } from '#@/src/solver/physical/supports.ts';
 
 type Bounds = NonNullable<BuildOptions['bounds']>;
 type Bake = { bounds: Bounds; height: [number, number]; roofs: number; triangles: number };

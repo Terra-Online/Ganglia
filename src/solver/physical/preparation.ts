@@ -1,4 +1,4 @@
-import type { PhysicalCache } from './solve.ts';
+import type { PhysicalCache } from '#@/src/solver/physical/solve.ts';
 /** One cache slot holds values produced by the same physical preparation site.
  * Slot/key changes invalidate dependants before a different preparation is stored. */
 export function createPhysicalCache() {

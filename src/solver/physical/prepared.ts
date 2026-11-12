@@ -1,12 +1,17 @@
-import { validateWaypoints } from '../../route/jump-planner.ts';
-import type { PreparedRouteSolver, RouteQuery, RouteResult, SolveOptions } from '../contract.ts';
-import { createPhysicalCache } from './preparation.ts';
+import { validateWaypoints } from '#@/src/route/jump-planner.ts';
+import type {
+  PreparedRouteSolver,
+  RouteQuery,
+  RouteResult,
+  SolveOptions,
+} from '#@/src/solver/contract.ts';
+import { createPhysicalCache } from '#@/src/solver/physical/preparation.ts';
 import {
   solvePhysicalRoute,
   type PhysicalCache,
   type PhysicalContext,
   type PhysicalInput,
-} from './solve.ts';
+} from '#@/src/solver/physical/solve.ts';
 
 export async function preparePhysicalSolver(
   input: PhysicalInput,

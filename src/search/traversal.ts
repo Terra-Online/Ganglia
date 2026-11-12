@@ -1,18 +1,18 @@
-import type { Bounds } from '../geo/bounds.ts';
-import { createBoundsIndex } from '../geo/bounds.ts';
-import type { CollisionWorld } from '../geo/collision.ts';
-import type { Vec3, Surface, Portal } from '../geo/geometry.ts';
-import type { SharedPortal } from '../geo/surfaces.ts';
-import { surfacePortals, directedPortals } from '../geo/surfaces.ts';
-import type { Wall } from '../geo/walls.ts';
-import { createWallChecker } from '../geo/walls.ts';
-import type { InteractionGoal } from '../motion/goals.ts';
-import type { JumpModel } from '../motion/jumps.ts';
-import { jumpConnection, jumpDuration } from '../motion/jumps.ts';
-import { landingCandidates } from '../motion/landings.ts';
-import type { GroundPlanner, GroundConnection } from '../route/ground.ts';
-import { movementGeometry } from '../route/movement-geometry.ts';
-import { createMinHeap } from './heap.ts';
+import type { Bounds } from '#@/src/geo/bounds.ts';
+import { createBoundsIndex } from '#@/src/geo/bounds.ts';
+import type { CollisionWorld } from '#@/src/geo/collision.ts';
+import type { Vec3, Surface, Portal } from '#@/src/geo/geometry.ts';
+import type { SharedPortal } from '#@/src/geo/surfaces.ts';
+import { surfacePortals, directedPortals } from '#@/src/geo/surfaces.ts';
+import type { Wall } from '#@/src/geo/walls.ts';
+import { createWallChecker } from '#@/src/geo/walls.ts';
+import type { InteractionGoal } from '#@/src/motion/goals.ts';
+import type { JumpModel } from '#@/src/motion/jumps.ts';
+import { jumpConnection, jumpDuration } from '#@/src/motion/jumps.ts';
+import { landingCandidates } from '#@/src/motion/landings.ts';
+import type { GroundPlanner, GroundConnection } from '#@/src/route/ground.ts';
+import { movementGeometry } from '#@/src/route/movement-geometry.ts';
+import { createMinHeap } from '#@/src/search/heap.ts';
 
 export interface DiscoveryOptions {
   profile: { radius: number; height: number };
@@ -130,7 +130,7 @@ type DiscoveredConnection = GroundConnection & {
   motionValidation: 'model-based';
 };
 
-export { groundComponents } from '../reach/connectivity.ts';
+export { groundComponents } from '#@/src/reach/connectivity.ts';
 
 const finitePoint = (point: unknown) =>
   Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);

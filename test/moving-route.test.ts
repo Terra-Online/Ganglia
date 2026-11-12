@@ -7,9 +7,9 @@ import {
   type Route,
   type Surface,
   type Vec3,
-} from '../src/index.ts';
-import { createMovingRouteAnnotator } from '../src/solver/physical/moving-route.ts';
-import { sweepSupports, type SweptSupport } from '../src/solver/physical/supports.ts';
+} from '#@/src/index.ts';
+import { createMovingRouteAnnotator } from '#@/src/solver/physical/moving-route.ts';
+import { sweepSupports, type SweptSupport } from '#@/src/solver/physical/supports.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number): Surface => ({
   id,

@@ -1,7 +1,7 @@
-import type { Graph, Edge, Node } from '../route/routes.ts';
-import type { Bounds } from './bounds.ts';
-import { createBoundsIndex } from './bounds.ts';
-import type { Vec3, Surface, Portal } from './geometry.ts';
+import type { Bounds } from '#@/src/geo/bounds.ts';
+import { createBoundsIndex } from '#@/src/geo/bounds.ts';
+import type { Vec3, Surface, Portal } from '#@/src/geo/geometry.ts';
+import type { Graph, Edge, Node } from '#@/src/route/routes.ts';
 
 export interface SharedPortal {
   from: string;

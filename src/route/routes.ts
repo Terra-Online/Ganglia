@@ -1,18 +1,18 @@
-import type { Vec3 } from '../geo/geometry.ts';
-import type { Wall } from '../geo/walls.ts';
-import { createWallChecker } from '../geo/walls.ts';
-import type { MovementMode, BoostUse, Segment } from '../motion/motion.ts';
-import { validateMotion, routeSegment } from '../motion/motion.ts';
-import type { CondensedTopology, GroundTopology } from '../reach/connectivity.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
+import type { Wall } from '#@/src/geo/walls.ts';
+import { createWallChecker } from '#@/src/geo/walls.ts';
+import type { MovementMode, BoostUse, Segment } from '#@/src/motion/motion.ts';
+import { validateMotion, routeSegment } from '#@/src/motion/motion.ts';
+import type { CondensedTopology, GroundTopology } from '#@/src/reach/connectivity.ts';
 import {
   groundComponents,
   condenseComponents,
   directedComponents,
   canReach,
-} from '../reach/connectivity.ts';
-import type { LocomotionOptions } from '../resource/locomotion.ts';
-import { searchResources } from '../resource/resource-search.ts';
-import { createMinHeap } from '../search/heap.ts';
+} from '#@/src/reach/connectivity.ts';
+import type { LocomotionOptions } from '#@/src/resource/locomotion.ts';
+import { searchResources } from '#@/src/resource/resource-search.ts';
+import { createMinHeap } from '#@/src/search/heap.ts';
 
 export interface Node {
   id: string;

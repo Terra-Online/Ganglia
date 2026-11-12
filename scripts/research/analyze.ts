@@ -3,9 +3,9 @@ import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
-import type { Episode, CompactDecision } from './collect.ts';
-import type { Model } from './policy.ts';
-import { train, rank, probability, checkSplits } from './policy.ts';
+import type { Episode, CompactDecision } from '#@/scripts/research/collect.ts';
+import type { Model } from '#@/scripts/research/policy.ts';
+import { train, rank, probability, checkSplits } from '#@/scripts/research/policy.ts';
 
 const { values } = parseArgs({
   options: {

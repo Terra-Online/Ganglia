@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.ts';
-import { createGroundPlanner, createGoalProjector, type Surface, type Vec3 } from '../src/index.ts';
-import { movingGround } from '../src/solver/physical/moving-ground.ts';
-import { sweepSupports, type SweptSupport } from '../src/solver/physical/supports.ts';
+import { createCollisionWorld } from '#@/src/collision.ts';
+import { createGroundPlanner, createGoalProjector, type Surface, type Vec3 } from '#@/src/index.ts';
+import { movingGround } from '#@/src/solver/physical/moving-ground.ts';
+import { sweepSupports, type SweptSupport } from '#@/src/solver/physical/supports.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -3, z1 = 3): Surface => ({
   id,

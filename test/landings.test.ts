@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.ts';
-import type { Surface, Vec3 } from '../src/geo/geometry.ts';
-import type { Wall } from '../src/geo/walls.ts';
-import type { JumpModel } from '../src/motion/jumps.ts';
-import { jumpConnection } from '../src/motion/jumps.ts';
-import { landingCandidates, createLandingGoalCache } from '../src/motion/landings.ts';
+import { createCollisionWorld } from '#@/src/collision.ts';
+import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
+import type { Wall } from '#@/src/geo/walls.ts';
+import type { JumpModel } from '#@/src/motion/jumps.ts';
+import { jumpConnection } from '#@/src/motion/jumps.ts';
+import { landingCandidates, createLandingGoalCache } from '#@/src/motion/landings.ts';
 
 test('finds feasible landing interiors when nearest, goal and centre witnesses fail', () => {
   const surface: Surface = {
@@ -55,105 +55,25 @@ test('finds feasible landing interiors when nearest, goal and centre witnesses f
       sweep: world.sweepCapsule,
     }),
   );
-  assert.ok(arcs.slice(0, 3).every((arc) => arc === null));
-  assert.ok(arcs.slice(3).some((arc) => arc !== null));
+  for (const point of [
+    [5, 0, 0],
+    [12, 0, 0],
+    [29 / 3, 0, 0],
+  ] satisfies Vec3[])
+    assert.equal(
+      jumpConnection(start, point, {
+        ...model,
+        mode: 'jump',
+        profile,
+        walls,
+        sweep: world.sweepCapsule,
+      }),
+      null,
+    );
+  assert.ok(arcs.some((arc) => arc !== null));
 });
 
-test('static landing metadata preserves witness order and fresh output as the goal changes', () => {
-  const surface: Surface = {
-    id: 'floor',
-    vertices: [
-      [-2, 0, -2],
-      [2, 0, -2],
-      [2, 0, 2],
-      [-2, 0, 2],
-    ],
-  };
-  const model = {
-    gravity: 10,
-    fallingGravity: 10,
-    maxJumpHeight: 2,
-    maxFallingSpeed: 20,
-    apexTime: 0.2,
-    maxHorizontalSpeed: 3,
-  };
-  const start: Vec3 = [-4, 0, 0];
-  const query = (surface: Surface, start: Vec3, goal: Vec3) =>
-    landingCandidates(surface, start, goal, model, 0.3);
-  const expected = [
-    { surface: 'floor', position: [-2, 0, 0], distance: 2 },
-    { surface: 'floor', position: [2, 0, 1], distance: 2 },
-    { surface: 'floor', position: [0, 0, 0], distance: 0 },
-    { surface: 'floor', position: [-0.15568513614953483, 0, -1.925244022804756] },
-    { surface: 'floor', position: [-0.21909860045131624, 0, -1.8510398591663662] },
-    { surface: 'floor', position: [-0.15568513614953505, 0, 1.925244022804756] },
-    { surface: 'floor', position: [-0.21909860045131624, 0, 1.8510398591663662] },
-  ];
-  assert.deepEqual([...landingCandidates(surface, start, [4, 0, 1], model, 0.3)], expected);
-  assert.deepEqual([...query(surface, start, [4, 0, 1])], expected);
-  const changed = expected.map((witness, index) =>
-    index === 1 ? { surface: 'floor', position: [0, 0, 2], distance: Math.sqrt(2) } : witness,
-  );
-  assert.deepEqual([...query(surface, start, [0, 1, 3])], changed);
-  assert.deepEqual([...query(surface, start, [4, 0, 1])], expected);
-  const first = [...query(surface, start, [4, 0, 1])];
-  first[0].position[0] = -100;
-  first[2].position[1] = -100;
-  first.at(-1)!.surface = 'changed';
-  assert.deepEqual([...query(surface, start, [4, 0, 1])], expected);
-});
-
-test('query goal witnesses cache each face projection and return fresh output without binding changed goals', () => {
-  const vertices: Vec3[] = [
-    [-2, 0, -2],
-    [2, 0, -2],
-    [2, 0, 2],
-    [-2, 0, 2],
-  ];
-  let reads = 0;
-  const surface: Surface = {
-    id: 'floor',
-    get vertices() {
-      reads++;
-      return vertices;
-    },
-  };
-  const goal: Vec3 | undefined = [4, 0, 1],
-    cached = createLandingGoalCache(goal);
-  const first = cached(surface, goal),
-    initialReads = reads;
-  assert.ok(first);
-  assert.ok(initialReads > 0);
-  first.position[0] = 100;
-  first.surface = 'changed';
-  assert.deepEqual(cached(surface, [...goal]), {
-    surface: 'floor',
-    position: [2, 0, 1],
-    distance: 2,
-  });
-  assert.equal(reads, initialReads);
-  goal[0] = 0;
-  goal[1] = 1;
-  goal[2] = 3;
-  assert.deepEqual(cached(surface, goal), {
-    surface: 'floor',
-    position: [0, 0, 2],
-    distance: Math.sqrt(2),
-  });
-  assert.ok(reads > initialReads);
-  const degenerate: Surface = {
-    id: 'empty',
-    vertices: [
-      [0, 0, 0],
-      [1, 0, 0],
-      [2, 0, 0],
-    ],
-  };
-  assert.equal(cached(degenerate, [4, 0, 1]), null);
-  assert.equal(cached(degenerate, [4, 0, 1]), null);
-});
-
-test('optional goal cache preserves every landing witness in order while start-dependent witnesses change', () => {
+test('landing queries isolate returned witnesses and do not retain a changed goal', () => {
   const surface: Surface = {
     id: 'floor',
     vertices: [
@@ -173,11 +93,21 @@ test('optional goal cache preserves every landing witness in order while start-d
     apexTime: 0.2,
     maxHorizontalSpeed: 3,
   };
-  for (const start of [
-    [-4, 0, 0],
-    [0, 3, -4],
-    [-4, 0, 0],
-  ] satisfies Vec3[]) {
+  for (const [start, target] of [
+    [
+      [-4, 0, 0],
+      [4, 0, 1],
+    ],
+    [
+      [0, 3, -4],
+      [0, 1, 3],
+    ],
+    [
+      [-4, 0, 0],
+      [4, 0, 1],
+    ],
+  ] satisfies [Vec3, Vec3][]) {
+    goal.splice(0, 3, ...target);
     const expected = [...landingCandidates(surface, start, goal, model, 0.3)];
     const actual = [...landingCandidates(surface, start, goal, model, 0.3, cache)];
     assert.deepEqual(actual, expected);

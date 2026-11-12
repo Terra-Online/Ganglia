@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { clipSurface } from '../src/geo/clip-surface.ts';
-import type { Vec3 } from '../src/geo/geometry.ts';
-import { projectPoint, surfaceGraph } from '../src/index.ts';
+import { clipSurface } from '#@/src/geo/clip-surface.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
+import { projectPoint, surfaceGraph } from '#@/src/index.ts';
 
 test('grid snapping preserves convex support and seam endpoints in clipped slivers', () => {
   for (const offset of [0, -1024.8, 2048.4])

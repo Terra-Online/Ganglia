@@ -1,13 +1,13 @@
-import type { CollisionWorld } from '../geo/collision.ts';
-import type { Vec3, Surface } from '../geo/geometry.ts';
-import type { InteractionGoal } from '../motion/goals.ts';
-import { findGoalHit, trimGoalFlight } from '../motion/goals.ts';
-import { jumpConnection } from '../motion/jumps.ts';
-import type { BoostUse } from '../motion/motion.ts';
-import { retimeGroundRoute } from '../resource/locomotion.ts';
-import type { GroundArrival } from './ground.ts';
-import type { JumpDiagnostics, PlannerOptions, JumpResult } from './jump-planner.ts';
-import type { Route } from './routes.ts';
+import type { CollisionWorld } from '#@/src/geo/collision.ts';
+import type { Vec3, Surface } from '#@/src/geo/geometry.ts';
+import type { InteractionGoal } from '#@/src/motion/goals.ts';
+import { findGoalHit, trimGoalFlight } from '#@/src/motion/goals.ts';
+import { jumpConnection } from '#@/src/motion/jumps.ts';
+import type { BoostUse } from '#@/src/motion/motion.ts';
+import { retimeGroundRoute } from '#@/src/resource/locomotion.ts';
+import type { GroundArrival } from '#@/src/route/ground.ts';
+import type { JumpDiagnostics, PlannerOptions, JumpResult } from '#@/src/route/jump-planner.ts';
+import type { Route } from '#@/src/route/routes.ts';
 
 export interface SpeedBoost extends BoostUse {
   position: Vec3;

@@ -1,18 +1,18 @@
-import type { Portal, Vec3, Surface } from '../geo/geometry.ts';
-import { createSupportProjector } from '../geo/support-projector.ts';
-import type { SharedPortal } from '../geo/surfaces.ts';
-import { surfaceGraph, surfacePortals } from '../geo/surfaces.ts';
-import type { Wall } from '../geo/walls.ts';
-import type { InteractionGoal, GoalProjector } from '../motion/goals.ts';
-import { createGoalProjector } from '../motion/goals.ts';
-import type { MovementMode, Segment } from '../motion/motion.ts';
-import { validateMotion } from '../motion/motion.ts';
-import type { LocomotionOptions } from '../resource/locomotion.ts';
-import { retimeGroundRoute } from '../resource/locomotion.ts';
-import type { Graph, Arrival, Route, ResourceSearch } from './routes.ts';
-import { createRoutePlanner, prepareRoutePlanner } from './routes.ts';
-import type { GroundStraightener } from './straighten.ts';
-import { createGroundStraightener } from './straighten.ts';
+import type { Portal, Vec3, Surface } from '#@/src/geo/geometry.ts';
+import { createSupportProjector } from '#@/src/geo/support-projector.ts';
+import type { SharedPortal } from '#@/src/geo/surfaces.ts';
+import { surfaceGraph, surfacePortals } from '#@/src/geo/surfaces.ts';
+import type { Wall } from '#@/src/geo/walls.ts';
+import type { InteractionGoal, GoalProjector } from '#@/src/motion/goals.ts';
+import { createGoalProjector } from '#@/src/motion/goals.ts';
+import type { MovementMode, Segment } from '#@/src/motion/motion.ts';
+import { validateMotion } from '#@/src/motion/motion.ts';
+import type { LocomotionOptions } from '#@/src/resource/locomotion.ts';
+import { retimeGroundRoute } from '#@/src/resource/locomotion.ts';
+import type { Graph, Arrival, Route, ResourceSearch } from '#@/src/route/routes.ts';
+import { createRoutePlanner, prepareRoutePlanner } from '#@/src/route/routes.ts';
+import type { GroundStraightener } from '#@/src/route/straighten.ts';
+import { createGroundStraightener } from '#@/src/route/straighten.ts';
 
 export interface GroundArrival {
   id: string;

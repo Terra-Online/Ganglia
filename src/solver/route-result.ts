@@ -1,6 +1,6 @@
-import type { LocomotionOptions } from '../resource/locomotion.ts';
-import { retimeGroundRoute } from '../resource/locomotion.ts';
-import type { Route } from '../route/routes.ts';
+import type { LocomotionOptions } from '#@/src/resource/locomotion.ts';
+import { retimeGroundRoute } from '#@/src/resource/locomotion.ts';
+import type { Route } from '#@/src/route/routes.ts';
 
 type Complete = Extract<Route, { status: 'complete' }>;
 

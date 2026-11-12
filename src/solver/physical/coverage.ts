@@ -1,4 +1,4 @@
-import type { Corridor } from '../window-route.ts';
+import type { Corridor } from '#@/src/solver/window-route.ts';
 export const physicalTileSpan = 256 * 0.15;
 export const physicalMargin = 24;
 export const physicalCoverage = (

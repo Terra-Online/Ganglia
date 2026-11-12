@@ -1,5 +1,5 @@
-import type { Vec3 } from '../geo/geometry.ts';
-import type { Route, Edge } from '../route/routes.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
+import type { Route, Edge } from '#@/src/route/routes.ts';
 
 export type MovementMode = 'walk' | 'rope' | 'jump' | 'drop' | 'launch';
 

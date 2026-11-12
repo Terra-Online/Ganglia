@@ -1,5 +1,5 @@
-import type { Surface, Vec3 } from './geometry.ts';
-import { projectPoint } from './surfaces.ts';
+import type { Surface, Vec3 } from '#@/src/geo/geometry.ts';
+import { projectPoint } from '#@/src/geo/surfaces.ts';
 
 type Projection = ReturnType<typeof projectPoint>;
 

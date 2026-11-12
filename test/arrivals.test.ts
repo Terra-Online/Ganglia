@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Vec3 } from '../src/geo/geometry.ts';
-import { routeFrom } from '../src/index.ts';
-import type { Arrival, Edge, Graph, Node } from '../src/route/routes.ts';
-import { expectStatus } from './assertions.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
+import { routeFrom } from '#@/src/index.ts';
+import type { Arrival, Edge, Graph, Node } from '#@/src/route/routes.ts';
+import { expectStatus } from '#@/test/assertions.ts';
 test('selects by walking cost plus teleport overhead, excluding locked and disconnected arrivals', () => {
   const nodes: Node[] = ['near', 'far', 'goal', 'locked', 'island'].map((id, i) => ({
     id,

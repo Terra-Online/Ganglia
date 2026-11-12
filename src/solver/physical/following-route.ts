@@ -1,5 +1,5 @@
-import { buildGroundSurfaces, type BuildOptions, type CollisionGeometry } from '../../build.ts';
-import { createCollisionWorld, type CollisionWorld } from '../../collision.ts';
+import { buildGroundSurfaces, type BuildOptions, type CollisionGeometry } from '#@/src/build.ts';
+import { createCollisionWorld, type CollisionWorld } from '#@/src/collision.ts';
 /* oxlint-disable no-await-in-loop -- each bounded layout is baked and queried in isolation */
 import {
   createGoalProjector,
@@ -12,10 +12,10 @@ import {
   type Route,
   type Surface,
   type Vec3,
-} from '../../index.ts';
-import type { SupportBox } from './moving-route.ts';
-import type { FollowingSupport } from './supports.ts';
-import { supportBounds, type PoseBounds } from './supports.ts';
+} from '#@/src/index.ts';
+import type { SupportBox } from '#@/src/solver/physical/moving-route.ts';
+import type { FollowingSupport } from '#@/src/solver/physical/supports.ts';
+import { supportBounds, type PoseBounds } from '#@/src/solver/physical/supports.ts';
 
 type Point = [number, number];
 type Diagnostics = {

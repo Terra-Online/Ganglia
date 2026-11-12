@@ -1274,3 +1274,29 @@ Measured source SHA-256 is
 and resolved kernel SHA-256 is
 `c9443708b4d7498ae5eb8179465007dcd3fad3f0a4156fa019c7fa1fe7d0af5e`.
 Raw report: `.local/research/main-merge-full-50.json`.
+
+
+## Interface-focused tests and native imports, 2026-11-12
+
+Alpha.82 replaces relative module specifiers with the package-local `#@/` alias.
+Node and TypeScript resolve it through `package.json#imports`; Atlos consumes the
+same mapping from the pinned source archive. Public exports remain unchanged.
+A structural AST comparison of all 60 source modules found no non-import syntax
+changes. Source-reading URLs retain their filesystem-relative meaning.
+
+Test cleanup removes cloned tree/projection implementations, graph/cache object
+identity assertions, a fixed floating-point candidate list and a redundant direct
+solver comparison. Existing route, collision, resource, cancellation and batch
+contracts remain covered. Analytic triangle projections, indexed collision
+coverage and bounded spatial diversity replace implementation-specific oracles.
+Prepared solver tests now exercise returned-result mutation isolation and explicitly
+distinguish unmapped from disconnected goals. Ganglia check passes 329 tests.
+Atlos World and extractor type checks, World production build and all 10 worker/HTTP
+integration tests pass with alpha.82. The existing large-chunk build warning remains.
+The focused verification artifacts use `.local/research/test-alias-*`.
+
+A three-query full-scene batch replay passed through native Node and the packaged
+Atlos game adapter. All three results are complete, match their prewarm outcomes
+and truncation flags, and retain the corresponding alpha.81 outcome hashes. This
+run validates import/packaging integration, not a 50-query throughput comparison.
+Data loading and the full prewarm batch remain outside the measurement.

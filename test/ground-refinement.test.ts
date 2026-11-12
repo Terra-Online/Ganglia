@@ -3,9 +3,9 @@ import { test } from 'node:test';
 
 import { refineGoalGround } from '@opendfieldmap/ganglia/solver';
 
-import { buildGroundSurfaces } from '../src/build.ts';
-import { createCollisionWorld } from '../src/collision.ts';
-import { createGoalProjector, type Surface, type Vec3 } from '../src/index.ts';
+import { buildGroundSurfaces } from '#@/src/build.ts';
+import { createCollisionWorld } from '#@/src/collision.ts';
+import { createGoalProjector, type Surface, type Vec3 } from '#@/src/index.ts';
 
 const floor = (id: string, left: number, right: number, height: number): Surface => ({
   id,

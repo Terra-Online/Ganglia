@@ -1,5 +1,5 @@
-import type { BuildOptions, CollisionGeometry } from '../../build.ts';
-import { createCollisionWorld } from '../../collision.ts';
+import type { BuildOptions, CollisionGeometry } from '#@/src/build.ts';
+import { createCollisionWorld } from '#@/src/collision.ts';
 import {
   createGroundPlanner,
   jumpDuration,
@@ -16,14 +16,20 @@ import {
   type Surface,
   type Vec3,
   type Wall,
-} from '../../index.ts';
-import type { SearchBudget } from '../contract.ts';
-import { refineGoalGround } from '../ground-refinement.ts';
-import { createDeviceConnections as deviceConnections, type DeviceFacts } from './devices.ts';
-import { planFollowingRoute } from './following-route.ts';
-import { movingGround } from './moving-ground.ts';
-import { type SupportBox, createMovingRouteAnnotator } from './moving-route.ts';
-import type { SweptSupport, FollowingSupport } from './supports.ts';
+} from '#@/src/index.ts';
+import type { SearchBudget } from '#@/src/solver/contract.ts';
+import { refineGoalGround } from '#@/src/solver/ground-refinement.ts';
+import {
+  createDeviceConnections as deviceConnections,
+  type DeviceFacts,
+} from '#@/src/solver/physical/devices.ts';
+import { planFollowingRoute } from '#@/src/solver/physical/following-route.ts';
+import { movingGround } from '#@/src/solver/physical/moving-ground.ts';
+import {
+  type SupportBox,
+  createMovingRouteAnnotator,
+} from '#@/src/solver/physical/moving-route.ts';
+import type { SweptSupport, FollowingSupport } from '#@/src/solver/physical/supports.ts';
 export type PhysicalGround = {
   surfaces: Surface[];
   options: GroundOptions & { profile: NonNullable<GroundOptions['profile']> };

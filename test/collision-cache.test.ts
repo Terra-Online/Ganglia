@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createCollisionWorld } from '../src/collision.ts';
-import type { CollisionOptions, CollisionWorld } from '../src/geo/collision.ts';
-import type { Vec3 } from '../src/geo/geometry.ts';
+import { createCollisionWorld } from '#@/src/collision.ts';
+import type { CollisionOptions, CollisionWorld } from '#@/src/geo/collision.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
 
 const profile = { radius: 0.35, height: 1.66 };
 const support = { maxUp: 0.5, maxDown: 0.5, maxSlope: 46 };

@@ -1,8 +1,8 @@
-import type { CollisionOptions } from '../geo/collision.ts';
-import type { Vec3, Surface, CollisionGeometry } from '../geo/geometry.ts';
-import type { GroundArrival, GroundConnection } from '../route/ground.ts';
-import type { JumpRouteOptions } from '../route/jump-planner.ts';
-import type { Route } from '../route/routes.ts';
+import type { CollisionOptions } from '#@/src/geo/collision.ts';
+import type { Vec3, Surface, CollisionGeometry } from '#@/src/geo/geometry.ts';
+import type { GroundArrival, GroundConnection } from '#@/src/route/ground.ts';
+import type { JumpRouteOptions } from '#@/src/route/jump-planner.ts';
+import type { Route } from '#@/src/route/routes.ts';
 
 /** One immutable physical snapshot. Keep inputs unchanged until close(). */
 export interface SceneInput {

@@ -7,10 +7,10 @@ import {
   markWalkableTriangles,
 } from '@recast-navigation/core';
 
-import { createBoundsIndex } from './bounds.ts';
-import { clipSurface, tolerance } from './clip-surface.ts';
-import type { CollisionGeometry, Vec3, Surface, Portal } from './geometry.ts';
-import { buildSupportField } from './support-field.ts';
+import { createBoundsIndex } from '#@/src/geo/bounds.ts';
+import { clipSurface, tolerance } from '#@/src/geo/clip-surface.ts';
+import type { CollisionGeometry, Vec3, Surface, Portal } from '#@/src/geo/geometry.ts';
+import { buildSupportField } from '#@/src/geo/support-field.ts';
 
 export interface BuildOptions {
   profile: { radius: number; height: number };

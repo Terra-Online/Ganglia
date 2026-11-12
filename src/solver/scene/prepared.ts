@@ -1,17 +1,22 @@
-import type { Vec3 } from '../../geo/geometry.ts';
-import type { Wall } from '../../geo/walls.ts';
-import type { GroundArrival } from '../../route/ground.ts';
-import { validateWaypoints } from '../../route/jump-planner.ts';
-import type { Route } from '../../route/routes.ts';
-import type { PreparedRouteSolver, RouteQuery, RouteResult, SolveOptions } from '../contract.ts';
-import { composeRoutes } from '../route-result.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
+import type { Wall } from '#@/src/geo/walls.ts';
+import type { GroundArrival } from '#@/src/route/ground.ts';
+import { validateWaypoints } from '#@/src/route/jump-planner.ts';
+import type { Route } from '#@/src/route/routes.ts';
+import type {
+  PreparedRouteSolver,
+  RouteQuery,
+  RouteResult,
+  SolveOptions,
+} from '#@/src/solver/contract.ts';
+import { composeRoutes } from '#@/src/solver/route-result.ts';
 import {
   createWindowRoute,
   type WindowConfig,
   type WindowJob,
   type WindowRequest,
   type WindowResources,
-} from '../window-route.ts';
+} from '#@/src/solver/window-route.ts';
 
 type Complete = Extract<Route, { status: 'complete' }>;
 export type SceneProposal =

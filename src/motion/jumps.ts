@@ -1,7 +1,7 @@
-import type { CollisionWorld } from '../geo/collision.ts';
-import type { Vec3 } from '../geo/geometry.ts';
-import type { Wall } from '../geo/walls.ts';
-import { createWallChecker } from '../geo/walls.ts';
+import type { CollisionWorld } from '#@/src/geo/collision.ts';
+import type { Vec3 } from '#@/src/geo/geometry.ts';
+import type { Wall } from '#@/src/geo/walls.ts';
+import { createWallChecker } from '#@/src/geo/walls.ts';
 
 export interface JumpModel {
   gravity: number;

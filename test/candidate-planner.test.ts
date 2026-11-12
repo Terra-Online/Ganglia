@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { Portal, Surface, Vec3 } from '../src/geo/geometry.ts';
-import { blockedByWalls } from '../src/geo/walls.ts';
-import type { Wall } from '../src/geo/walls.ts';
-import type { GroundArrival, GroundOptions } from '../src/route/ground.ts';
-import type { CandidateEdge } from '../src/search/candidate-planner.ts';
-import { createCandidatePlanner } from '../src/search/candidate-planner.ts';
-import { expectStatus } from './assertions.ts';
+import type { Portal, Surface, Vec3 } from '#@/src/geo/geometry.ts';
+import { blockedByWalls } from '#@/src/geo/walls.ts';
+import type { Wall } from '#@/src/geo/walls.ts';
+import type { GroundArrival, GroundOptions } from '#@/src/route/ground.ts';
+import type { CandidateEdge } from '#@/src/search/candidate-planner.ts';
+import { createCandidatePlanner } from '#@/src/search/candidate-planner.ts';
+import { expectStatus } from '#@/test/assertions.ts';
 const square = (id: string, x: number, z: number): Surface => ({
   id,
   vertices: [

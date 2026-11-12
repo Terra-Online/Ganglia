@@ -1,6 +1,6 @@
 {
   "name": "@opendfieldmap/ganglia",
-  "version": "0.1.0-alpha.81",
+  "version": "0.1.0-alpha.82",
   "private": true,
   "description": "Conservative ground-route planning for Open Endfield Map",
   "license": "SEE LICENSE IN LICENSE",
@@ -10,6 +10,9 @@
     "LICENSE-AGPL-3.0"
   ],
   "type": "module",
+  "imports": {
+    "#@/*": "./*"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./build": "./src/build.ts",
