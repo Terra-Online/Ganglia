@@ -8,6 +8,7 @@ import { parseArgs } from 'node:util';
 import { loadFileScene } from '#@/bench/adapters/files.ts';
 import { runBenchmark } from '#@/bench/run.ts';
 import { cases } from '#@/bench/scenes/map02.ts';
+import { gangliaV1Defaults, type SolverConfig } from '#@/src/solver/index.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { values } = parseArgs({
@@ -16,27 +17,32 @@ const { values } = parseArgs({
     help: { type: 'boolean' },
     'data-root': { type: 'string', default: resolve(root, '.local/data') },
     extractor: { type: 'string', default: resolve(root, '.local/repos/Atlos/talos/.cache/noclip') },
-    concurrency: { type: 'string', default: '1' },
+    concurrency: { type: 'string' },
+    config: { type: 'string' },
     limit: { type: 'string', default: '50' },
   },
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <lanes>]',
+    'Usage: pnpm benchmark:full [--json] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <lanes>] [--config <json-file>]',
   );
 else {
   try {
     const count = Number(values.limit);
     if (!Number.isInteger(count) || count < 1 || count > cases.length)
       throw new Error('Invalid query limit');
-    const concurrency = Number(values.concurrency);
+    const config: SolverConfig = values.config
+      ? JSON.parse(await readFile(values.config, 'utf8'))
+      : { ...gangliaV1Defaults };
+    const concurrency =
+      values.concurrency === undefined ? config.batchConcurrency : Number(values.concurrency);
     if (!Number.isSafeInteger(concurrency) || concurrency < 1)
       throw new Error('Invalid concurrency');
     const started = performance.now();
     const { prepare, timings, metadata } = await loadFileScene(
       values['data-root'],
       values.extractor,
-      concurrency,
+      { ...config, batchConcurrency: concurrency },
     );
     const inputLoadMs = performance.now() - started;
     const selected = cases.slice(0, count);

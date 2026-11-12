@@ -8,16 +8,16 @@ import type {
   RouteQuery,
   RouteResult,
   SceneInput,
-  SearchBudget,
+  SolverConfig,
 } from '#@/src/solver/contract.ts';
 
-export async function prepareSurfaceActionSolver(input: SceneInput): Promise<PreparedRouteSolver> {
+export async function prepareSurfaceActionSolver(
+  input: SceneInput,
+  config: SolverConfig,
+): Promise<PreparedRouteSolver> {
   const options = {
-    sampleSpacing: 1,
-    maxCandidates: 512,
-    maxLinks: 64,
-    ...input.config.movement,
-    ...input.config.search,
+    ...input.movement,
+    ...config,
     walls: input.walls,
     connections: input.connections,
     portals: input.portals,
@@ -36,26 +36,17 @@ export async function prepareSurfaceActionSolver(input: SceneInput): Promise<Pre
   };
   const solve = (query: RouteQuery): RouteResult => {
     if (!prepared) throw new Error('Route solver is closed');
-    // Per-query overrides are search budgets; geometry and movement remain snapshot-bound.
-    const budget = query.config?.search;
-    const overrides: SearchBudget = {};
-    for (const key of [
-      'sampleSpacing',
-      'maxCandidates',
-      'maxShortcutCandidates',
-      'maxLinks',
-    ] as const) {
-      if (Object.hasOwn(budget ?? {}, key)) Object.assign(overrides, { [key]: budget?.[key] });
-    }
     return planJumpRoute(prepared.surfaces, prepared.world, query.starts, query.goal, {
       ...prepared.options,
-      ...overrides,
       interaction: query.interaction,
       waypoints: query.waypoints,
       groundPlanner: prepared.planner,
     });
   };
   return {
+    get config() {
+      return config;
+    },
     async solve(query, options) {
       options?.signal?.throwIfAborted();
       options?.onEvent?.({ type: 'progress', phase: 'search' });

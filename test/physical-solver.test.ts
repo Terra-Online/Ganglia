@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { preparePhysicalRouteSolver, type PhysicalInput } from '#@/src/solver/index.ts';
+import { prepareRouteSolver, gangliaV1Defaults, type PhysicalInput } from '#@/src/solver/index.ts';
 
 const input: PhysicalInput = {
   ground: {
@@ -19,7 +19,7 @@ const input: PhysicalInput = {
     options: { walls: [], profile: { radius: 0.2, height: 1.6 }, speed: 1, maxVertical: 0.5 },
   },
   collision: { positions: [0, 0, 0, 0, 0, 10, 10, 0, 10], indices: [0, 1, 2] },
-  config: {
+  movement: {
     model: {
       gravity: 10,
       fallingGravity: 10,
@@ -40,7 +40,7 @@ const input: PhysicalInput = {
   locomotion: { speed: 1, sprintSpeed: 2, sprintAcceleration: 1 },
 };
 test('physical solver returns fresh single and batch routes through the prepared seam', async () => {
-  const solver = await preparePhysicalRouteSolver(input);
+  const solver = await prepareRouteSolver(gangliaV1Defaults, { kind: 'physical', input: input });
   const query = {
     starts: [
       {
@@ -78,22 +78,25 @@ test('physical solver returns fresh single and batch routes through the prepared
 });
 
 test('physical solver distinguishes mapped but disconnected ground from unmapped endpoints', async () => {
-  const solver = await preparePhysicalRouteSolver({
-    ...input,
-    ground: {
-      ...input.ground,
-      surfaces: [
-        ...input.ground.surfaces,
-        {
-          id: 'island',
-          vertices: [
-            [20, 0, 0],
-            [20, 0, 10],
-            [30, 0, 10],
-            [30, 0, 0],
-          ],
-        },
-      ],
+  const solver = await prepareRouteSolver(gangliaV1Defaults, {
+    kind: 'physical',
+    input: {
+      ...input,
+      ground: {
+        ...input.ground,
+        surfaces: [
+          ...input.ground.surfaces,
+          {
+            id: 'island',
+            vertices: [
+              [20, 0, 0],
+              [20, 0, 10],
+              [30, 0, 10],
+              [30, 0, 0],
+            ],
+          },
+        ],
+      },
     },
   });
   const result = await solver.solve({
@@ -126,42 +129,47 @@ test('physical solver retains incomplete placement coverage at the prepared seam
     positions: surfaces.flatMap((s) => s.vertices.flat()),
     indices: surfaces.flatMap((_, i) => [i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3]),
   };
-  const solver = await preparePhysicalRouteSolver({
-    ...input,
-    collision,
-    ground: {
-      ...input.ground,
-      surfaces,
-      build: { bounds: { min: [0, 0], max: [10, 10] }, cellSize: 0.25, cellHeight: 0.1 },
-    },
-    devices: {
-      devices: [],
-      ropes: [],
-      followingSupports: [
-        {
-          id: 'box',
-          level: 'fixture',
-          model: 'box',
-          spawn: [4, 0, 4],
-          bodies: [
-            Array.from({ length: 8 }, (_, bits): [number, number, number] => [
-              4 + (bits & 1 ? 0.8 : -0.8),
-              bits & 2 ? 1.2 : 0,
-              4 + (bits & 4 ? 0.8 : -0.8),
-            ]),
-          ],
-          geometryKind: 'box',
-          initialState: 0,
-          maxDistance: 65,
-          assumption: 'placement-within-activity-range',
+  const solver = await prepareRouteSolver(
+    { ...gangliaV1Defaults, maxCandidates: 1 },
+    {
+      kind: 'physical',
+      input: {
+        ...input,
+        collision,
+        ground: {
+          ...input.ground,
+          surfaces,
+          build: { bounds: { min: [0, 0], max: [10, 10] }, cellSize: 0.25, cellHeight: 0.1 },
         },
-      ],
+        devices: {
+          devices: [],
+          ropes: [],
+          followingSupports: [
+            {
+              id: 'box',
+              level: 'fixture',
+              model: 'box',
+              spawn: [4, 0, 4],
+              bodies: [
+                Array.from({ length: 8 }, (_, bits): [number, number, number] => [
+                  4 + (bits & 1 ? 0.8 : -0.8),
+                  bits & 2 ? 1.2 : 0,
+                  4 + (bits & 4 ? 0.8 : -0.8),
+                ]),
+              ],
+              geometryKind: 'box',
+              initialState: 0,
+              maxDistance: 65,
+              assumption: 'placement-within-activity-range',
+            },
+          ],
+        },
+      },
     },
-  });
+  );
   const result = await solver.solve({
     starts: [{ id: 'start', state: 'available', cost: 0, position: [1, 0, 1] }],
     goal: [8, 2.5, 8],
-    config: { search: { maxCandidates: 1 } },
   });
   assert.equal(result.diagnostics.truncated, true);
   await solver.close();

@@ -10,7 +10,7 @@ import {
   type GroundArrival,
 } from '#@/src/route/ground.ts';
 import type { Route } from '#@/src/route/routes.ts';
-import type { RouteQuery } from '#@/src/solver/contract.ts';
+import type { SolverConfig } from '#@/src/solver/contract.ts';
 import { physicalWork, type PhysicalWork } from '#@/src/solver/physical/work.ts';
 import { composeRoutes } from '#@/src/solver/route-result.ts';
 type Complete = Extract<Route, { status: 'complete' }>;
@@ -22,7 +22,7 @@ export interface WindowRequest {
   interaction?: InteractionGoal;
   walls: Wall[];
   waypoints?: Vec3[];
-  config?: RouteQuery['config'];
+  solverConfig?: SolverConfig;
 }
 export interface WindowJob {
   status: 'queued' | 'building' | 'ready' | 'failed';

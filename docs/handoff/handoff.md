@@ -127,12 +127,12 @@ segments; renderers do not interpret connection identifiers.
 
 Ganglia also owns the physical-query stage orchestration, feasible fixed-device
 connections, moving-support baking and route annotations, and following-support
-placement search. `preparePhysicalRouteSolver` implements the existing single and
-whole-batch solver contract. The extractor adapter validates exported source/profile
+placement search. `prepareRouteSolver(config, input)` selects the algorithm and
+prepares scene, physical or surface inputs behind the same single/whole-batch contract. The extractor adapter validates exported source/profile
 bindings and normalizes game fields; its `player-route` command is a file/CLI entry.
 Atlos runs an owned worker against that resource adapter instead of invoking the
 extractor command for online solving. Browser resource and routing clients expose
-transfer accounting separately from algorithm timing. The normal prepared factory accepts only the immutable physical input. Per-query options carry typed progress/candidate events and cooperative cancellation; returned results retain grounded targets and display support boxes. Resource integration uses the separate `solver/host` seam: Ganglia selects serialized work and owns preparation-slot invalidation, while hosts consume its resource/scheduling plan. Coverage estimates and the active window strategy belong to Ganglia; unused legacy attempt/proposal helpers and their isolated tests have been removed. Online IPC carries a structured query. The game adapter prepares validated inputs and reports; CLI and worker adapters own atomic output. The owned noclip routing adaptation is maintained in `routing-adapter.patch`. Browser requests and results bind the catalog generation, source and fully-enabled state. Scene state changes invalidate the current request/result. The resource adapter shares preparation-slot invalidation with Ganglia, while retaining file identity and memory-budget policy.
+transfer accounting separately from algorithm timing. The factory snapshots one immutable algorithm policy alongside immutable scene/movement inputs. The current policy is `GangliaV1Config` with `algorithm: ganglia-v1`; its explicit flat fields and fixed-policy constraints are documented in `src/solver/ganglia-v1.ts`. Queries carry starts, goal, interaction and waypoints, with no policy overrides. A prepared solver exposes the frozen policy as `config`. Per-query options carry typed progress/candidate events and cooperative cancellation; returned results retain grounded targets and display support boxes. Resource integration uses the separate `solver/host` seam: Ganglia selects serialized work and owns preparation-slot invalidation, while hosts consume its resource/scheduling plan. Coverage estimates and the active window strategy belong to Ganglia; unused legacy attempt/proposal helpers and their isolated tests have been removed. Online IPC carries a structured query. The game adapter prepares validated inputs and reports; CLI and worker adapters own atomic output. The owned noclip routing adaptation is maintained in `routing-adapter.patch`. Browser requests and results bind the catalog generation, source and fully-enabled state. Scene state changes invalidate the current request/result. The resource adapter shares preparation-slot invalidation with Ganglia, while retaining file identity and memory-budget policy.
 
 The scene-level prepared solver owns global candidate selection, query-scoped failed
 transfer/arrival exclusions, physical-window retries, partial target-approach retention
@@ -149,7 +149,7 @@ pass and serves a fixed in-memory snapshot to lane-local physical preparation ca
 No frontend, resource HTTP process or completed-route cache participates. Timed work
 includes query-specific normalization, search, physical windows, retries and any
 remaining lazy computation. Preparation and prewarm durations are reported separately;
-measured inclusive phase timers may overlap across concurrent lanes. Warm/measured
+measured inclusive phase timers may overlap across concurrent lanes. `--config` selects a complete serialized solver configuration; the report records the effective frozen policy. Warm/measured
 outcomes and truncation flags are compared per input. The resolved game-adapter kernel
 must match the benchmark checkout. Missing coverage requires offline preparation.
 

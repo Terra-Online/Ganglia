@@ -1,48 +1,45 @@
 import type { CollisionOptions } from '#@/src/geo/collision.ts';
 import type { Vec3, Surface, CollisionGeometry } from '#@/src/geo/geometry.ts';
+import type { Portal } from '#@/src/geo/geometry.ts';
+import type { Wall } from '#@/src/geo/walls.ts';
+import type { InteractionGoal } from '#@/src/motion/goals.ts';
+import type { JumpModel } from '#@/src/motion/jumps.ts';
+import type { LocomotionOptions } from '#@/src/resource/locomotion.ts';
+import type { SpeedBoost } from '#@/src/route/boosted-route.ts';
 import type { GroundArrival, GroundConnection } from '#@/src/route/ground.ts';
-import type { JumpRouteOptions } from '#@/src/route/jump-planner.ts';
 import type { Route } from '#@/src/route/routes.ts';
+import type { GangliaV1Config } from '#@/src/solver/ganglia-v1.ts';
 
 /** One immutable physical snapshot. Keep inputs unchanged until close(). */
 export interface SceneInput {
   surfaces: Surface[];
   collision: CollisionGeometry;
   collisionOptions?: CollisionOptions;
-  walls: JumpRouteOptions['walls'];
-  connections?: JumpRouteOptions['connections'];
-  portals?: JumpRouteOptions['portals'];
-  boosts?: JumpRouteOptions['boosts'];
-  config: SolverConfig;
+  walls: Wall[];
+  connections?: GroundConnection[];
+  portals?: Portal[];
+  boosts?: SpeedBoost[];
+  movement: {
+    activeBoost?: string;
+    speed: number;
+    maxVertical: number;
+    profile: { radius: number; height: number };
+    locomotion?: LocomotionOptions;
+    model: JumpModel;
+    runAirSpeed: number;
+    maxSlope: number;
+    maxDrop: number;
+    maxHorizontalDistance: number;
+  };
 }
 
-export interface SolverConfig {
-  movement: Pick<
-    JumpRouteOptions,
-    | 'activeBoost'
-    | 'speed'
-    | 'maxVertical'
-    | 'profile'
-    | 'locomotion'
-    | 'model'
-    | 'runAirSpeed'
-    | 'maxSlope'
-    | 'maxDrop'
-    | 'maxHorizontalDistance'
-  >;
-  search?: SearchBudget;
-}
-
-export type SearchBudget = Partial<
-  Pick<JumpRouteOptions, 'sampleSpacing' | 'maxCandidates' | 'maxShortcutCandidates' | 'maxLinks'>
->;
+export type SolverConfig = GangliaV1Config;
 
 export interface RouteQuery {
   starts: GroundArrival[];
   goal: Vec3;
-  interaction?: JumpRouteOptions['interaction'];
+  interaction?: InteractionGoal;
   waypoints?: Vec3[];
-  config?: { search?: SearchBudget };
 }
 
 export interface RouteResult {
@@ -78,6 +75,7 @@ export interface SolveOptions {
 }
 
 export interface PreparedRouteSolver {
+  readonly config: SolverConfig;
   /** Fresh search state; immutable preparation and geometry proofs may be reused.
    * No completed-route cache. Inputs remain unchanged until the promise settles. */
   solve(query: RouteQuery, options?: SolveOptions): Promise<RouteResult>;
@@ -86,7 +84,7 @@ export interface PreparedRouteSolver {
    * and truncated results. Each request has its own search budget and state. */
   solveBatch(
     queries: readonly RouteQuery[],
-    options?: Pick<SolveOptions, 'signal'>,
+    options?: { signal?: AbortSignal },
   ): Promise<readonly RouteResult[]>;
   /** Await submitted work before closing. Idempotent; later solves reject. */
   close(): Promise<void>;

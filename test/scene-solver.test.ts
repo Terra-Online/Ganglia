@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import type { Route } from '#@/src/route/routes.ts';
 import type { RouteEvent } from '#@/src/solver/contract.ts';
-import { prepareSceneRouteSolver, type SceneResources } from '#@/src/solver/scene/prepared.ts';
+import { prepareRouteSolver, gangliaV1Defaults, type SceneResources } from '#@/src/solver/index.ts';
 
 type Job = { status: 'ready'; route?: Route };
 function fixture() {
@@ -66,17 +66,18 @@ function fixture() {
   };
   const scene = { scene: 'fixture', source: null, walls: [] };
   const config = {
+    ...gangliaV1Defaults,
     tileSpan: 38.4,
     gridSpan: 32,
     maxTiles: 16,
     margin: 4,
-    locomotion: { speed: 5, sprintSpeed: 5, sprintAcceleration: 1 },
   };
-  return { starts, resources, scene, config };
+  const locomotion = { speed: 5, sprintSpeed: 5, sprintAcceleration: 1 };
+  return { starts, resources, scene, config, locomotion };
 }
 test('a failed anchor does not discard a verified target approach or poison later queries', async () => {
-  const { starts, resources, scene, config } = fixture();
-  const solver = prepareSceneRouteSolver(scene, resources, config);
+  const { starts, resources, scene, config, locomotion } = fixture();
+  const solver = await prepareRouteSolver(config, { kind: 'scene', scene, resources, locomotion });
   const events: RouteEvent[] = [];
   const query = { starts, goal: [20, 0, 0] as [number, number, number] };
   try {
@@ -92,7 +93,7 @@ test('a failed anchor does not discard a verified target approach or poison late
 });
 
 test('batch lanes overlap and close drains every accepted query in input order', async () => {
-  const { starts, resources, scene, config } = fixture();
+  const { starts, resources, scene, config, locomotion } = fixture();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -110,7 +111,10 @@ test('batch lanes overlap and close drains every accepted query in input order',
       running--;
     }
   };
-  const solver = prepareSceneRouteSolver(scene, resources, { ...config, batchConcurrency: 2 });
+  const solver = await prepareRouteSolver(
+    { ...config, batchConcurrency: 2 },
+    { kind: 'scene', scene, resources, locomotion },
+  );
   const queries = [18, 19, 20].map((x) => ({
     starts: [starts[1]],
     goal: [x, 0, 0] as [number, number, number],
@@ -130,8 +134,11 @@ test('batch lanes overlap and close drains every accepted query in input order',
   await assert.rejects(solver.solve(queries[0]), /closed/);
 });
 test('exhausting the retry budget retains partial evidence and reports truncation', async () => {
-  const { starts, resources, scene, config } = fixture();
-  const solver = prepareSceneRouteSolver(scene, resources, { ...config, maxAttempts: 1 });
+  const { starts, resources, scene, config, locomotion } = fixture();
+  const solver = await prepareRouteSolver(
+    { ...config, maxAttempts: 1 },
+    { kind: 'scene', scene, resources, locomotion },
+  );
   try {
     const result = await solver.solve({ starts, goal: [20, 0, 0] });
     assert.equal(result.partial, true);
@@ -143,7 +150,7 @@ test('exhausting the retry budget retains partial evidence and reports truncatio
   }
 });
 test('cancellation after candidate preparation stops before physical work', async () => {
-  const { starts, resources, scene, config } = fixture();
+  const { starts, resources, scene, config, locomotion } = fixture();
   const controller = new AbortController();
   const plan = resources.plan;
   resources.plan = async (...args) => {
@@ -153,7 +160,7 @@ test('cancellation after candidate preparation stops before physical work', asyn
   resources.query = async () => {
     throw new Error('Cancelled query must not load physics');
   };
-  const solver = prepareSceneRouteSolver(scene, resources, config);
+  const solver = await prepareRouteSolver(config, { kind: 'scene', scene, resources, locomotion });
   try {
     const result = await solver.solve({ starts, goal: [20, 0, 0] }, { signal: controller.signal });
     assert.equal(result.reason, 'aborted');
@@ -164,7 +171,7 @@ test('cancellation after candidate preparation stops before physical work', asyn
 });
 
 test('a rejected transfer is scoped to its query while another candidate can complete', async () => {
-  const { starts, resources, scene, config } = fixture();
+  const { starts, resources, scene, config, locomotion } = fixture();
   resources.plan = async (arrivals, goal, rejected) => {
     const blocked = arrivals.find((a) => a.id === 'blocked');
     if (!blocked) throw new Error('A failed transfer must not discard its arrival');
@@ -176,7 +183,7 @@ test('a rejected transfer is scoped to its query while another candidate can com
       path: [{ index: 1, key: 'bridge', unresolved: true, points: [blocked.position, goal] }],
     };
   };
-  const solver = prepareSceneRouteSolver(scene, resources, config);
+  const solver = await prepareRouteSolver(config, { kind: 'scene', scene, resources, locomotion });
   try {
     const result = await solver.solve({ starts, goal: [20, 0, 0] });
     assert.equal(result.route.status, 'complete');
@@ -187,7 +194,7 @@ test('a rejected transfer is scoped to its query while another candidate can com
   }
 });
 test('terminal assets are ranked by complete approach cost and joined at their proven entry', async () => {
-  const { starts, resources, scene, config } = fixture();
+  const { starts, resources, scene, config, locomotion } = fixture();
   const tail = (entry: number, cost: number) => ({
     status: 'complete' as const,
     start: 'entry',
@@ -214,7 +221,7 @@ test('terminal assets are ranked by complete approach cost and joined at their p
     { id: 'expensive', route: tail(15, 100) },
     { id: 'cheap', route: tail(18, 1) },
   ];
-  const solver = prepareSceneRouteSolver(scene, resources, config);
+  const solver = await prepareRouteSolver(config, { kind: 'scene', scene, resources, locomotion });
   try {
     const result = await solver.solve({
       starts: [starts[1]],
@@ -234,13 +241,34 @@ test('terminal assets are ranked by complete approach cost and joined at their p
 });
 
 test('local discovery truncation survives retained partial output and arrival exhaustion', async () => {
-  const { starts, resources, scene, config } = fixture();
+  const { starts, resources, scene, config, locomotion } = fixture();
   resources.route = (job) => ({ route: job.route, diagnostics: { truncated: true } });
-  const solver = prepareSceneRouteSolver(scene, resources, config);
+  const solver = await prepareRouteSolver(config, { kind: 'scene', scene, resources, locomotion });
   try {
     const result = await solver.solve({ starts: [starts[0]], goal: [20, 0, 0] });
     assert.equal(result.partial, true);
     assert.equal(result.diagnostics.truncated, true);
+  } finally {
+    await solver.close();
+  }
+});
+
+test('the fixed scene policy reaches every physical resource request', async () => {
+  const { starts, resources, scene, config, locomotion } = fixture();
+  const solve = resources.solve;
+  resources.solve = async (job, request, start, work) => {
+    assert.equal(request.solverConfig?.algorithm, 'ganglia-v1');
+    assert.equal(request.solverConfig?.maxCandidates, 17);
+    return solve(job, request, start, work);
+  };
+  const policy = { ...config, maxCandidates: 17 };
+  const solver = await prepareRouteSolver(policy, { kind: 'scene', scene, resources, locomotion });
+  policy.maxCandidates = 0;
+  try {
+    const result = await solver.solve({ starts, goal: [20, 0, 0] });
+    assert.equal(result.route.status, 'complete');
+    assert.equal(result.partial, false);
+    assert.equal(result.route.start, 'open');
   } finally {
     await solver.close();
   }

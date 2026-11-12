@@ -1,8 +1,10 @@
-export { prepareSurfaceActionSolver } from '#@/src/solver/adapters/surface-action.ts';
+export { prepareRouteSolver } from '#@/src/solver/prepare.ts';
+export type { SolverInput } from '#@/src/solver/prepare.ts';
+export { gangliaV1Defaults } from '#@/src/solver/ganglia-v1.ts';
+export type { GangliaV1Config } from '#@/src/solver/ganglia-v1.ts';
 export type {
   SceneInput,
   SolverConfig,
-  SearchBudget,
   RouteQuery,
   RouteResult,
   PreparedRouteSolver,
@@ -19,7 +21,7 @@ export type {
   Corridor,
 } from '#@/src/solver/window-route.ts';
 export { refineGoalGround } from '#@/src/solver/ground-refinement.ts';
-export type { PhysicalInput, PhysicalConfig } from '#@/src/solver/physical/solve.ts';
+export type { PhysicalInput, PhysicalMovement } from '#@/src/solver/physical/solve.ts';
 export { createDeviceConnections } from '#@/src/solver/physical/devices.ts';
 export type { DeviceFacts } from '#@/src/solver/physical/devices.ts';
 export type {
@@ -29,11 +31,4 @@ export type {
   PoseSpan,
 } from '#@/src/solver/physical/supports.ts';
 export { sweepSupports, supportBounds, supportEndpoints } from '#@/src/solver/physical/supports.ts';
-export { preparePhysicalRouteSolver } from '#@/src/solver/physical/prepared.ts';
-export { prepareSceneRouteSolver } from '#@/src/solver/scene/prepared.ts';
-export type {
-  SceneResources,
-  SceneConfig,
-  SceneProposal,
-  SceneTerminal,
-} from '#@/src/solver/scene/prepared.ts';
+export type { SceneResources, SceneProposal, SceneTerminal } from '#@/src/solver/scene/prepared.ts';

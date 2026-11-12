@@ -1300,3 +1300,48 @@ Atlos game adapter. All three results are complete, match their prewarm outcomes
 and truncation flags, and retain the corresponding alpha.81 outcome hashes. This
 run validates import/packaging integration, not a 50-query throughput comparison.
 Data loading and the full prewarm batch remain outside the measurement.
+
+
+## Fixed ganglia-v1 solver policy, 2026-11-12
+
+Alpha.83 introduces the algorithm-discriminated prepareRouteSolver factory for
+scene, physical and surface inputs. GangliaV1Config explicitly declares the current
+search, corridor, coverage and scheduling settings without nested search objects
+or Pick/Omit-derived policy types. The factory copies, validates and freezes the
+policy; the solver exposes it as a read-only property. Queries cannot override
+policy. Movement models remain immutable input facts, including PhysicalMovement
+in place of the ambiguously named PhysicalConfig.
+
+Scene orchestration carries its fixed solverConfig into resource jobs, and Atlos's
+maintained game adapter passes it to physical preparation outside the query.
+Atlos and the headless benchmark use the same public factory. The benchmark can
+load a complete configuration from --config and records the effective policy.
+This does not introduce an alternative algorithm or make v1's phase order,
+ranking and internal budget sharing configurable. Its default full-scene settings
+retain their existing values. A surface-only solver now uses the same explicit
+policy as other adapters, rather than separate implicit defaults.
+
+Ganglia format, lint, type checks and 331 tests pass. Regression coverage includes
+caller-config mutation isolation, different fixed budgets across solvers, absence
+of query policy fields, and policy propagation through scene resource requests.
+Atlos source-only checks and World production build pass; the final archive also
+passes all 10 worker/HTTP integration tests. Generated noclip source was refreshed
+through its owning patch and preparation command. Evidence uses
+.local/research/v1-*; no full 50-query throughput comparison is implied.
+
+The final default-policy three-query full-scene batch returns three complete
+routes. Every outcome and truncation flag matches prewarm, and all three outcome
+hashes match the corresponding alpha.82 control. The report records the full
+fixed ganglia-v1 policy. This is a correctness/integration replay rather than a
+50-query throughput comparison. Source SHA-256 is
+9a7d3f6d1cf861a67c5365e64a65f8dbf8b0d00b4efb79fc54bf825343ed4041 and resolved kernel SHA-256 is
+34ba655ae890945174ccdd6ad20095f86b04c471412625659c3b7114018ac29e.
+
+A second replay loads an explicit JSON policy with zero discovery/improvement
+candidates and one global attempt. The effective settings are recorded in
+.local/research/v1-no-discovery-result.json; this run is a budget-propagation
+check, not a quality-preserving speed comparison.
+The zero-budget query returns no-verified-route with truncation, while the default
+policy completes the same jumping query. Its measured outcome and truncation flag
+also match prewarm. Geometry preparation and walking work still run at zero
+discovery budget.

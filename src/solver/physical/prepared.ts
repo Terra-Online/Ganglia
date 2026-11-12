@@ -4,6 +4,7 @@ import type {
   RouteQuery,
   RouteResult,
   SolveOptions,
+  SolverConfig,
 } from '#@/src/solver/contract.ts';
 import { createPhysicalCache } from '#@/src/solver/physical/preparation.ts';
 import {
@@ -15,6 +16,7 @@ import {
 
 export async function preparePhysicalSolver(
   input: PhysicalInput,
+  config: SolverConfig,
   context: Omit<PhysicalContext, 'emit'> & {
     observe?: (
       result: RouteResult,
@@ -110,12 +112,15 @@ export async function preparePhysicalSolver(
             );
           },
         },
-        query.config?.search,
+        config,
       );
     }
     return { ...best, diagnostics: { truncated } };
   };
   return {
+    get config() {
+      return config;
+    },
     solve,
     async solveBatch(queries, options) {
       if (!scene) throw new Error('Route solver is closed');
@@ -129,10 +134,4 @@ export async function preparePhysicalSolver(
       cache = null;
     },
   };
-}
-
-export async function preparePhysicalRouteSolver(
-  input: PhysicalInput,
-): Promise<PreparedRouteSolver> {
-  return preparePhysicalSolver(input);
 }

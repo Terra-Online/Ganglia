@@ -17,7 +17,7 @@ import {
   type Vec3,
   type Wall,
 } from '#@/src/index.ts';
-import type { SearchBudget } from '#@/src/solver/contract.ts';
+import type { SolverConfig } from '#@/src/solver/contract.ts';
 import { refineGoalGround } from '#@/src/solver/ground-refinement.ts';
 import {
   createDeviceConnections as deviceConnections,
@@ -51,7 +51,7 @@ export interface PhysicalCache {
   ): Promise<{ value: T; reused: boolean }>;
   release(slot: 'ground' | 'moving'): void;
 }
-export interface PhysicalConfig {
+export interface PhysicalMovement {
   model: {
     gravity: number;
     fallingGravity: number;
@@ -73,7 +73,7 @@ export interface PhysicalInput {
   ground: PhysicalGround;
   collision: CollisionGeometry;
   roundedWalls?: Wall[];
-  config: PhysicalConfig;
+  movement: PhysicalMovement;
   locomotion: LocomotionOptions;
   devices?:
     | (DeviceFacts & { movingSupports?: SweptSupport[]; followingSupports?: FollowingSupport[] })
@@ -121,9 +121,9 @@ export const solvePhysicalRoute = async (
   input: PhysicalInput,
   request: PhysicalQuery,
   context: PhysicalContext,
-  budget?: SearchBudget,
+  policy: SolverConfig,
 ): Promise<void> => {
-  const { ground, collision, config, devices: deviceInput } = input;
+  const { ground, collision, movement: config, devices: deviceInput } = input;
   const started = performance.now();
   const progress = context.progress ?? (() => {});
   const generation = context.generation ?? '';
@@ -143,7 +143,11 @@ export const solvePhysicalRoute = async (
     locomotion: input.locomotion,
   };
   const timing: Record<string, number> = {};
-  const limits = { maxCandidates: 8000, maxLinks: 64, sampleSpacing: 1, ...budget };
+  const limits = {
+    maxCandidates: policy.maxCandidates,
+    maxLinks: policy.maxLinks,
+    sampleSpacing: policy.sampleSpacing,
+  };
   const prepareReuse: Record<string, boolean> = {};
   const diagnostics: Record<string, unknown> = {
     prepareReuse,
@@ -690,7 +694,7 @@ export const solvePhysicalRoute = async (
     maxDrop,
     maxHorizontalDistance,
     ...limits,
-    maxShortcutCandidates: budget?.maxShortcutCandidates ?? 512,
+    maxShortcutCandidates: policy.maxShortcutCandidates,
     waypoints: request.waypoints,
     onProgress: progress,
     model,

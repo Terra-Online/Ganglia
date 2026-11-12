@@ -48,6 +48,7 @@ export async function runBenchmark(
     if (batch.length !== cases.length)
       throw new Error('Batch returned a different number of results');
     return {
+      config: solver.config,
       prewarmMs,
       batch: {
         wallMs,

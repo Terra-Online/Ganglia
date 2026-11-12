@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import type { Surface } from '#@/src/geo/geometry.ts';
 import type { GroundConnection } from '#@/src/route/ground.ts';
 import type { RouteQuery } from '#@/src/solver/contract.ts';
-import { prepareSurfaceActionSolver } from '#@/src/solver/index.ts';
+import { prepareRouteSolver, gangliaV1Defaults } from '#@/src/solver/index.ts';
 
 const surfaces: Surface[] = [0, 7, 14].map((x, i) => ({
   id: `floor/${i}`,
@@ -45,6 +45,7 @@ const options = {
     maxHorizontalSpeed: 6.5,
   },
 };
+const policy = { ...gangliaV1Defaults, maxCandidates: 600, maxShortcutCandidates: 0, maxLinks: 32 };
 const query: RouteQuery = {
   starts: [{ id: 'player', position: [2, 0, 0], state: 'available', cost: 0 }],
   goal: [16, 0, 0],
@@ -62,13 +63,19 @@ test('supplied traversal semantics survive solving without interpreting connecti
     ],
     times: [0, 1],
   };
-  const solver = await prepareSurfaceActionSolver({
-    surfaces,
-    collision,
-    walls: [],
-    connections: [connection],
-    config: { movement: options, search: { ...options, maxCandidates: 0 } },
-  });
+  const solver = await prepareRouteSolver(
+    { ...policy, maxCandidates: 0 },
+    {
+      kind: 'surfaces',
+      input: {
+        surfaces,
+        collision,
+        walls: [],
+        connections: [connection],
+        movement: options,
+      },
+    },
+  );
   try {
     const result = await solver.solve({ ...query, goal: [9, 0, 0] });
     assert.equal(result.route.status, 'complete');
@@ -85,18 +92,20 @@ test('supplied traversal semantics survive solving without interpreting connecti
 test('a same-scene batch preserves order, budgets and independent search state', async () => {
   const queries: readonly RouteQuery[] = [
     query,
-    { ...query, config: { search: { maxCandidates: 0 } } },
     { starts: [{ ...query.starts[0], position: query.goal }], goal: query.starts[0].position },
     { ...query, goal: [102, 0, 0] },
     query,
   ];
   const expected = [];
   for (const item of queries) {
-    const isolated = await prepareSurfaceActionSolver({
-      surfaces,
-      collision,
-      walls: options.walls,
-      config: { movement: options, search: options },
+    const isolated = await prepareRouteSolver(policy, {
+      kind: 'surfaces',
+      input: {
+        surfaces,
+        collision,
+        walls: options.walls,
+        movement: options,
+      },
     });
     try {
       expected.push(await isolated.solve(item));
@@ -106,15 +115,18 @@ test('a same-scene batch preserves order, budgets and independent search state',
   }
   assert.deepEqual(
     expected.map((r) => r.route.status),
-    ['complete', 'no-verified-route', 'complete', 'unmapped', 'complete'],
+    ['complete', 'complete', 'unmapped', 'complete'],
   );
   assert.equal(expected[0].route.status, 'complete');
   assert.equal(expected[0].route.segments.filter((segment) => segment.mode === 'jump').length, 2);
-  const solver = await prepareSurfaceActionSolver({
-    surfaces,
-    collision,
-    walls: options.walls,
-    config: { movement: options, search: options },
+  const solver = await prepareRouteSolver(policy, {
+    kind: 'surfaces',
+    input: {
+      surfaces,
+      collision,
+      walls: options.walls,
+      movement: options,
+    },
   });
   try {
     assert.deepEqual(await solver.solveBatch(queries), expected);
@@ -126,4 +138,29 @@ test('a same-scene batch preserves order, budgets and independent search state',
   await solver.close();
   await assert.rejects(solver.solve(query), /closed/);
   await assert.rejects(solver.solveBatch(queries), /closed/);
+});
+
+test('factory snapshots a fixed policy and separate solvers can run different budgets', async () => {
+  const config = { ...policy };
+  const input = { surfaces, collision, walls: [], movement: options };
+  await assert.rejects(
+    prepareRouteSolver({ ...config, maxCandidates: -1 }, { kind: 'surfaces', input }),
+    /search budget/,
+  );
+  const solver = await prepareRouteSolver(config, { kind: 'surfaces', input });
+  config.maxCandidates = 0;
+  const limited = await prepareRouteSolver(config, { kind: 'surfaces', input });
+  try {
+    assert.equal(solver.config.algorithm, 'ganglia-v1');
+    assert.equal(solver.config.maxCandidates, 600);
+    assert.equal(limited.config.maxCandidates, 0);
+    assert.equal((await limited.solve(query)).route.status, 'no-verified-route');
+    assert.deepEqual(
+      (await solver.solveBatch([query, query])).map((r) => r.route.status),
+      ['complete', 'complete'],
+    );
+    assert.equal((await limited.solve(query)).route.status, 'no-verified-route');
+  } finally {
+    await Promise.all([solver.close(), limited.close()]);
+  }
 });

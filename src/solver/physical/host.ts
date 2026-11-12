@@ -1,4 +1,5 @@
-import type { RouteQuery, RouteResult } from '#@/src/solver/contract.ts';
+import type { RouteQuery, RouteResult, SolverConfig } from '#@/src/solver/contract.ts';
+import { snapshotGangliaV1Config } from '#@/src/solver/ganglia-v1.ts';
 import { createPhysicalCache } from '#@/src/solver/physical/preparation.ts';
 import { preparePhysicalSolver } from '#@/src/solver/physical/prepared.ts';
 import type { PhysicalInput } from '#@/src/solver/physical/solve.ts';
@@ -18,6 +19,7 @@ export function createPhysicalPreparation() {
       query: RouteQuery,
       options: {
         binding: string;
+        config: SolverConfig;
         work?: PhysicalWork;
         signal?: AbortSignal;
         onProgress?: (progress: { phase: string; completed?: number; total?: number }) => void;
@@ -29,7 +31,7 @@ export function createPhysicalPreparation() {
       },
     ): Promise<RouteResult> {
       physicalWorkPlan(options.work);
-      const solver = await preparePhysicalSolver(input, {
+      const solver = await preparePhysicalSolver(input, snapshotGangliaV1Config(options.config), {
         cache,
         generation: options.binding,
         effort: options.work?.step === 0 ? 'walking' : options.work?.step === 1 ? 'devices' : 'all',

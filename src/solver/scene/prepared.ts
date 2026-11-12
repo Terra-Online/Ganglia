@@ -1,5 +1,6 @@
 import type { Vec3 } from '#@/src/geo/geometry.ts';
 import type { Wall } from '#@/src/geo/walls.ts';
+import type { LocomotionOptions } from '#@/src/resource/locomotion.ts';
 import type { GroundArrival } from '#@/src/route/ground.ts';
 import { validateWaypoints } from '#@/src/route/jump-planner.ts';
 import type { Route } from '#@/src/route/routes.ts';
@@ -9,10 +10,10 @@ import type {
   RouteResult,
   SolveOptions,
 } from '#@/src/solver/contract.ts';
+import type { GangliaV1Config } from '#@/src/solver/ganglia-v1.ts';
 import { composeRoutes } from '#@/src/solver/route-result.ts';
 import {
   createWindowRoute,
-  type WindowConfig,
   type WindowJob,
   type WindowRequest,
   type WindowResources,
@@ -48,10 +49,6 @@ export interface SceneResources<Source, Job extends WindowJob> extends WindowRes
   wait(signal?: AbortSignal): Promise<void>;
   close?(): Promise<void>;
 }
-export type SceneConfig = Omit<WindowConfig, 'transfers'> & {
-  maxAttempts?: number;
-  batchConcurrency?: number;
-};
 
 function selectSceneTerminal(
   terminals: readonly SceneTerminal[],
@@ -85,12 +82,11 @@ const contacts = (evidence: unknown[]): NonNullable<RouteResult['supportBoxes']>
 export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
   scene: { scene: string; source: Source; walls: Wall[] },
   resources: SceneResources<Source, Job>,
-  config: SceneConfig,
+  config: GangliaV1Config,
+  locomotion: LocomotionOptions,
 ): PreparedRouteSolver {
-  const maxAttempts = config.maxAttempts ?? 6,
-    concurrency = config.batchConcurrency ?? 1;
-  if (![maxAttempts, concurrency].every((v) => Number.isSafeInteger(v) && v > 0))
-    throw new Error('Invalid scene query budget');
+  const maxAttempts = config.maxAttempts,
+    concurrency = config.batchConcurrency;
   let closed = false;
   let closing: Promise<void> | undefined;
   const batches = new Set<Promise<readonly RouteResult[]>>();
@@ -126,7 +122,7 @@ export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
       const terminal = selectSceneTerminal(
         terminals ?? [],
         query.starts,
-        config.locomotion.sprintSpeed ?? config.locomotion.speed,
+        locomotion.sprintSpeed ?? locomotion.speed,
       );
       const goal = terminal?.route.points[0] ?? query.goal;
       for (; attempts < maxAttempts;) {
@@ -149,11 +145,12 @@ export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
             interaction: terminal ? undefined : query.interaction,
             walls: scene.walls,
             waypoints: query.waypoints,
-            config: query.config,
+            solverConfig: config,
           },
           proposal.points,
           {
             ...config,
+            locomotion,
             transfers: proposal.path?.filter((edge) => edge.unresolved).map((edge) => edge.points),
           },
         );
@@ -196,7 +193,7 @@ export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
           truncated ||= result.diagnostics.truncated;
           if (result.status === 'complete') {
             const route = terminal
-              ? composeRoutes([result.route, terminal.route], config.locomotion)
+              ? composeRoutes([result.route, terminal.route], locomotion)
               : result.route;
             if (route.status !== 'complete') return stopped('terminal-resource-schedule');
             return publish(
@@ -244,6 +241,9 @@ export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
     return task;
   };
   return {
+    get config() {
+      return config;
+    },
     solve(query, options) {
       return closed ? Promise.reject(new Error('Scene solver is closed')) : submit(query, options);
     },

@@ -10,9 +10,9 @@ import type { GroundOptions } from '#@/src/route/ground.ts';
 import type { Route } from '#@/src/route/routes.ts';
 import { createCandidatePlanner } from '#@/src/search/candidate-planner.ts';
 import type { RouteResult } from '#@/src/solver/contract.ts';
+import { prepareRouteSolver, type SceneResources, type SolverConfig } from '#@/src/solver/index.ts';
 import { createPhysicalPreparation } from '#@/src/solver/physical/host.ts';
 import type { PhysicalWork } from '#@/src/solver/physical/work.ts';
-import { prepareSceneRouteSolver, type SceneResources } from '#@/src/solver/scene/prepared.ts';
 import type { WindowRequest } from '#@/src/solver/window-route.ts';
 
 type Source = { buildGuid: string; contentHash: string };
@@ -39,7 +39,7 @@ type GameAdapter = {
   ): Promise<{ solve(options: { work: PhysicalWork }): Promise<Report> }>;
 };
 
-export async function loadFileScene(dataRoot: string, extractor: string, concurrency: number) {
+export async function loadFileScene(dataRoot: string, extractor: string, config: SolverConfig) {
   const files: { ground: string; collision: string; movement: string; devices?: string } = {
     ground: resolve(dataRoot, 'scene-map02/ground.json'),
     collision: resolve(dataRoot, 'scene-map02/collision.json'),
@@ -116,7 +116,7 @@ export async function loadFileScene(dataRoot: string, extractor: string, concurr
     const binding = JSON.stringify(hashes);
     // Input bytes and decoding are owned by loadFileScene. Physical preparation
     // remains lane-local, while timed queries read only this immutable memory snapshot.
-    const caches = Array.from({ length: concurrency }, () => {
+    const caches = Array.from({ length: config.batchConcurrency }, () => {
       const preparation = createPhysicalPreparation();
       return {
         begin: async () => binding,
@@ -188,18 +188,12 @@ export async function loadFileScene(dataRoot: string, extractor: string, concurr
         for (const cache of caches) cache.clear();
       },
     };
-    return prepareSceneRouteSolver(
-      { scene: ground.scene, source: ground.source, walls: [] },
+    return prepareRouteSolver(config, {
+      kind: 'scene',
+      scene: { scene: ground.scene, source: ground.source, walls: [] },
       resources,
-      {
-        tileSpan: 38.4,
-        gridSpan: 32,
-        maxTiles: 16,
-        margin: 8,
-        locomotion,
-        batchConcurrency: concurrency,
-      },
-    );
+      locomotion,
+    });
   };
   return {
     prepare,

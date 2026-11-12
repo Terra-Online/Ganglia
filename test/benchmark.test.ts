@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import { runBenchmark } from '#@/bench/run.ts';
 import type { RouteQuery, RouteResult } from '#@/src/solver/contract.ts';
+import { gangliaV1Defaults } from '#@/src/solver/index.ts';
 
 test('prewarm and measurement submit whole batches on one solver with ordered results', async () => {
   const cases: readonly { id: string; query: RouteQuery }[] = [1, 2, 3].map((id) => ({
@@ -17,6 +18,7 @@ test('prewarm and measurement submit whole batches on one solver with ordered re
     async () => {
       preparations++;
       return {
+        config: gangliaV1Defaults,
         async solve() {
           throw new Error('Benchmark must submit whole batches');
         },
@@ -70,6 +72,7 @@ test('the benchmark closes the adapter after a failed batch', async () => {
   await assert.rejects(
     runBenchmark(
       async () => ({
+        config: gangliaV1Defaults,
         async solve() {
           throw new Error('worker failed');
         },
@@ -107,6 +110,7 @@ test('partial geometry from prewarm cannot count as a complete measured outcome'
   let batch = 0;
   const report = await runBenchmark(
     async () => ({
+      config: gangliaV1Defaults,
       solve: async () => {
         throw new Error('Unexpected single solve');
       },
