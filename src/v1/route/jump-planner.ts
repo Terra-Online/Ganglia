@@ -423,11 +423,17 @@ function solveJumpRoute(
           bestConnections = localConnections;
         }
         connections = [...connections, ...additions];
-        const candidate = planner.plan([arrival], goal, {
-          interaction,
-          endpointTolerance: options.endpointTolerance,
-          connections,
-        });
+        // Without a separate broad overlay, both local comparisons contain the
+        // same action objects in the same order. Keep the first physical proof.
+        const candidate =
+          localConnections.length === connections.length &&
+          localConnections.every((connection, index) => connection === connections[index])
+            ? localRoute
+            : planner.plan([arrival], goal, {
+                interaction,
+                endpointTolerance: options.endpointTolerance,
+                connections,
+              });
         if (candidate.status === 'complete' && candidate.cost < incumbent.cost - 1e-7)
           incumbent = candidate;
         if (incumbent.cost < best.cost - 1e-7) {

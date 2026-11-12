@@ -355,3 +355,58 @@ test('native locomotion preserves clock-boundary and resource-dominance choices'
     }
   }
 });
+
+test('native locomotion retains the last emitted sprint sample at an epsilon tail', () => {
+  for (const tail of [0, 2e-9, 6e-9, 8e-9]) {
+    const length = 6 + tail;
+    const options: LocomotionOptions = {
+      speed: 5,
+      sprintSpeed: 7,
+      sprintAcceleration: 2,
+      stamina: {
+        capacity: 2,
+        initial: 1 + (length - 6) / 7,
+        sprintDrain: 1,
+        recoveryRate: 0,
+        recoveryDelay: 0,
+        reserve: 0,
+      },
+    };
+    const blocks: Segment[][] = [
+      [
+        {
+          mode: 'walk',
+          points: [
+            [0, 0, 0],
+            [length, 0, 0],
+          ],
+          times: [0, 2],
+        },
+      ],
+      [
+        {
+          mode: 'jump',
+          requiredGait: 'sprint',
+          points: [
+            [length, 0, 0],
+            [length + 1, 0, 0],
+          ],
+          times: [0, 0.25],
+        },
+      ],
+    ];
+    // Acceleration reaches 6m at 1s. An omitted final sample leaves a >epsilon
+    // span after stamina is exhausted, forcing running before the required jump.
+    // At zero tail, or with a final sample, the jump retains its entry gait.
+    const feasible = tail === 0 || tail === 8e-9;
+    for (const maxLabels of [64, 256]) {
+      const expected = chooseTypeScriptSchedule(blocks, options, maxLabels);
+      assert.equal(expected !== null, feasible, `TypeScript tail=${tail}`);
+      assert.deepEqual(
+        createRustScheduleChooser(maxLabels)(blocks, options),
+        expected,
+        `tail=${tail} maxLabels=${maxLabels}`,
+      );
+    }
+  }
+});

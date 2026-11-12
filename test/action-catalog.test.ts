@@ -160,9 +160,18 @@ test('fresh starts discover cheaper actions away from the trained route without 
     const selected = selectCatalogActions(world, surfaces, starts, goal, settings);
     const incumbent = planner.plan(starts, goal, { connections: selected });
     assert.equal(incumbent.status, 'complete');
+    const plan = planner.plan;
+    const overlays: string[] = [];
+    planner.plan = (...args) => {
+      overlays.push(JSON.stringify(args[2]?.connections?.map((connection) => connection.id)));
+      return plan(...args);
+    };
     const result = planJumpRoute(surfaces, world, starts, goal, settings);
+    planner.plan = plan;
     assert.equal(result.route.status, 'complete');
     assert.ok(result.route.cost < incumbent.cost - 1);
+    assert.ok(overlays.length > 1);
+    assert.equal(new Set(overlays).size, overlays.length);
     assert.deepEqual(result.route, planner.plan(starts, goal, { connections: result.connections }));
     assert.equal(actionCatalogStats().added, before);
   } finally {

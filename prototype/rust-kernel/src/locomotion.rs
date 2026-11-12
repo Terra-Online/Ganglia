@@ -532,11 +532,6 @@ fn schedule(
                 let initial_distance = travelled;
                 let mut previous_time = 0.0;
                 let mut advance_sample = |sample, previous_time: &mut f64| {
-                    travelled = minimum([
-                        length,
-                        initial_distance
-                            + sprint_distance(sample, state.velocity, sprint_speed, acceleration),
-                    ]);
                     clocks.append(Gait::Sprint, sample - *previous_time);
                     *previous_time = sample;
                 };
@@ -548,6 +543,19 @@ fn schedule(
                 if sample == 1.0 || duration - previous_time > EPSILON {
                     advance_sample(duration, &mut previous_time);
                 }
+                // Only the last sample's position survives this phase. Keep all
+                // clock additions and use its emitted time: epsilon can omit
+                // the duration sample, leaving a short span still to traverse.
+                travelled = minimum([
+                    length,
+                    initial_distance
+                        + sprint_distance(
+                            previous_time,
+                            state.velocity,
+                            sprint_speed,
+                            acceleration,
+                        ),
+                ]);
                 state.dash_cooldown = maximum([0.0, state.dash_cooldown - duration]);
                 state.velocity = minimum([sprint_speed, state.velocity + acceleration * duration]);
                 if let Some(stamina) = stamina {
@@ -636,8 +644,8 @@ pub fn choose_schedule(
     let mut labels = vec![0];
     let mut truncated = false;
     let mut removals = Vec::new();
+    let mut next: Vec<Label> = Vec::new();
     for block in &blocks {
-        let mut next: Vec<Label> = Vec::new();
         let walk = block.segments[0].mode == Mode::Walk;
         let sprint_choices: &[bool] = if walk { &[true, false] } else { &[true] };
         for &parent in &labels {
@@ -705,8 +713,7 @@ pub fn choose_schedule(
             // Persist only survivors: discarded candidates never enter the arena.
             next.sort_by(|a, b| numeric_order(a.duration - b.duration));
             let half = max_labels / 2;
-            let mut remainder = next.split_off(half);
-            remainder.sort_by(|a, b| {
+            next[half..].sort_by(|a, b| {
                 let energy = b.state.energy - a.state.energy;
                 if energy != 0.0 && !energy.is_nan() {
                     numeric_order(energy)
@@ -714,12 +721,11 @@ pub fn choose_schedule(
                     numeric_order(a.duration - b.duration)
                 }
             });
-            remainder.truncate(half);
-            next.extend(remainder);
+            next.truncate(max_labels);
             truncated = true;
         }
         labels.clear();
-        for label in next {
+        for label in next.drain(..) {
             labels.push(arena.len());
             arena.push(label);
         }
