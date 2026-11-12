@@ -18,16 +18,10 @@ function fixture() {
       id: 'open',
       position: [10, 0, 0] as [number, number, number],
       state: 'available' as const,
-      cost: 0,
+      cost: 100,
     },
   ];
   const resources: SceneResources<null, Job> = {
-    plan: async (arrivals, goal) => ({
-      status: 'candidate',
-      arrival: arrivals[0],
-      points: [arrivals[0].position, goal],
-      path: [],
-    }),
     query: async () => ({ status: 'ready' }),
     solve: async (_job, request) => ({
       status: 'ready',
@@ -64,7 +58,21 @@ function fixture() {
     route: (job) => ({ route: job.route }),
     wait: async () => {},
   };
-  const scene = { scene: 'fixture', source: null, walls: [] };
+  const navigation = {
+    surfaces: [
+      {
+        id: 'floor',
+        vertices: [
+          [-1, 0, -1],
+          [21, 0, -1],
+          [21, 0, 1],
+          [-1, 0, 1],
+        ] as [number, number, number][],
+      },
+    ],
+    options: { speed: 5, maxVertical: 0.1 },
+  };
+  const scene = { scene: 'fixture', source: null, walls: [], navigation };
   const config = {
     ...gangliaV1Defaults,
     tileSpan: 38.4,
@@ -100,13 +108,13 @@ test('batch lanes overlap and close drains every accepted query in input order',
   });
   let running = 0,
     peak = 0;
-  const plan = resources.plan;
-  resources.plan = async (...args) => {
+  const query = resources.query;
+  resources.query = async (...args) => {
     running++;
     peak = Math.max(peak, running);
     await gate;
     try {
-      return await plan(...args);
+      return await query(...args);
     } finally {
       running--;
     }
@@ -149,20 +157,23 @@ test('exhausting the retry budget retains partial evidence and reports truncatio
     await solver.close();
   }
 });
-test('cancellation after candidate preparation stops before physical work', async () => {
+test('cancellation at the search checkpoint stops before physical work', async () => {
   const { starts, resources, scene, config, locomotion } = fixture();
   const controller = new AbortController();
-  const plan = resources.plan;
-  resources.plan = async (...args) => {
-    controller.abort();
-    return plan(...args);
-  };
   resources.query = async () => {
     throw new Error('Cancelled query must not load physics');
   };
   const solver = await prepareRouteSolver(config, { kind: 'scene', scene, resources, locomotion });
   try {
-    const result = await solver.solve({ starts, goal: [20, 0, 0] }, { signal: controller.signal });
+    const result = await solver.solve(
+      { starts, goal: [20, 0, 0] },
+      {
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (event.type === 'progress' && event.phase === 'search') controller.abort();
+        },
+      },
+    );
     assert.equal(result.reason, 'aborted');
     assert.equal(result.diagnostics.truncated, true);
   } finally {
@@ -172,23 +183,15 @@ test('cancellation after candidate preparation stops before physical work', asyn
 
 test('a rejected transfer is scoped to its query while another candidate can complete', async () => {
   const { starts, resources, scene, config, locomotion } = fixture();
-  resources.plan = async (arrivals, goal, rejected) => {
-    const blocked = arrivals.find((a) => a.id === 'blocked');
-    if (!blocked) throw new Error('A failed transfer must not discard its arrival');
-    const arrival = rejected.includes('bridge') ? arrivals.find((a) => a.id === 'open')! : blocked;
-    return {
-      status: 'candidate',
-      arrival,
-      points: [arrival.position, goal],
-      path: [{ index: 1, key: 'bridge', unresolved: true, points: [blocked.position, goal] }],
-    };
-  };
+  starts[0].position = [0, 2, 0];
+  starts[1].cost = 100000;
   const solver = await prepareRouteSolver(config, { kind: 'scene', scene, resources, locomotion });
   try {
     const result = await solver.solve({ starts, goal: [20, 0, 0] });
     assert.equal(result.route.status, 'complete');
     if (result.route.status === 'complete') assert.equal(result.route.start, 'open');
     assert.equal(result.diagnostics.candidateAttempts, 2);
+    assert.deepEqual(await solver.solve({ starts, goal: [20, 0, 0] }), result);
   } finally {
     await solver.close();
   }

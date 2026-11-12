@@ -11,7 +11,6 @@ export {
   validateWaypoints,
 } from '#@/src/v1/solver/physical/host.ts';
 export type { PhysicalWork } from '#@/src/solver/resources.ts';
-export { createCandidatePlanner } from '#@/src/v1/search/candidate-planner.ts';
 export { createGroundPlanner } from '#@/src/v1/route/ground.ts';
 export { routeFrom } from '#@/src/v1/route/routes.ts';
 export { createGoalProjector } from '#@/src/v1/motion/goals.ts';

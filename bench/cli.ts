@@ -51,7 +51,7 @@ else {
     const report = await runBenchmark(solver, selected, (phase) => {
       console.error(JSON.stringify({ phase, queries: selected.length }));
       if (phase === 'batch') {
-        timings.normalizationMs = timings.candidateMs = timings.localSolveMs = 0;
+        timings.normalizationMs = timings.localSolveMs = 0;
       }
     });
     const hash = createHash('sha256');
@@ -63,7 +63,7 @@ else {
             .update(await readFile(resolve(root, directory, name)));
       }
     const output = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       adapter: 'scene-files',
       node: process.version,
       execArgv: process.execArgv,

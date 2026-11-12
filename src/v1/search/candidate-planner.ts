@@ -1,5 +1,6 @@
-import type { Surface, Vec3 } from '#@/src/geometry.ts';
-import type { GroundArrival, GroundOptions } from '#@/src/route.ts';
+import type { Vec3 } from '#@/src/geometry.ts';
+import type { GroundArrival } from '#@/src/route.ts';
+import type { SceneNavigation } from '#@/src/solver/resources.ts';
 import { createBoundsIndex } from '#@/src/v1/geo/bounds.ts';
 import { surfaceGraph, surfacePortals } from '#@/src/v1/geo/surfaces.ts';
 import { type GoalProjection, closestOnSurface } from '#@/src/v1/motion/goals.ts';
@@ -20,11 +21,6 @@ export interface CandidateEdge {
   unresolved: boolean;
 }
 
-export interface CandidatePlannerInput {
-  surfaces: Surface[];
-  options: Pick<GroundOptions, 'speed' | 'maxVertical' | 'portals'> &
-    Partial<Pick<GroundOptions, 'walls' | 'profile'>>;
-}
 export interface CandidatePlannerOptions {
   radius?: number;
   verticalRange?: number;
@@ -63,7 +59,7 @@ const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((v, i) => v - b[i]));
  * requires physical validation. Scores prioritize fewer unresolved transfers and
  * are deliberately separate from travel time. Input geometry is immutable. */
 export function createCandidatePlanner(
-  data: CandidatePlannerInput,
+  data: SceneNavigation,
   {
     radius = 16,
     verticalRange = 50,

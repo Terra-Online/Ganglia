@@ -44,14 +44,17 @@ export interface WindowResources<Request extends WindowRequest, Job extends Wind
   route(job: Job): { route?: Route; reason?: string; diagnostics?: unknown };
 }
 
-export type SceneProposal =
-  | {
-      status: 'candidate';
-      arrival: GroundArrival;
-      points: Vec3[];
-      path: { index: number; key?: string; points: Vec3[]; unresolved: boolean }[];
-    }
-  | { status: 'unmapped' | 'no-candidate' | 'cancelled'; reason?: string };
+/** Immutable coarse navigation facts. Proposal strategy belongs to the selected solver. */
+export interface SceneNavigation {
+  surfaces: Surface[];
+  options: {
+    speed: number;
+    maxVertical: number;
+    portals?: GroundOptions['portals'];
+    walls?: Wall[];
+    profile?: { radius: number; height: number };
+  };
+}
 
 /** The adapter supplies only assets validated against this scene and movement snapshot. */
 export interface SceneTerminal {
@@ -64,12 +67,6 @@ export interface SceneResources<Source, Job extends WindowJob> extends WindowRes
   WindowRequest & { source: Source },
   Job
 > {
-  plan(
-    starts: GroundArrival[],
-    goal: Vec3,
-    excludedEdges: (number | string)[],
-    signal?: AbortSignal,
-  ): Promise<SceneProposal>;
   terminals?(query: RouteQuery): Promise<readonly SceneTerminal[]>;
   /** Wait for resource work to change, without requiring another client request. */
   wait(signal?: AbortSignal): Promise<void>;

@@ -1401,3 +1401,49 @@ setup timing and a single timing object. This validates setup/integration and
 correctness; no full 50-query throughput comparison is claimed. Source SHA-256:
 d837cfe58abbc37c76835a265ff0e3a23d98d62c0421bd783f302975ceb34d30; resolved kernel SHA-256:
 4e055a26ddd595ea8354a96a3ad5de1f3c20b885c04339baecec44f35f47a6f0.
+
+
+## Solver-owned global candidate planning, 2026-11-12
+
+Alpha.86 moves candidate-planner creation and invocation behind the prepared scene
+solver. Immutable SceneNavigation facts replace SceneResources.plan; SceneProposal
+and the host createCandidatePlanner export are removed. Atlos caches a prepared
+solver per immutable scene snapshot and closes it on server shutdown. Its separate
+candidate process and candidate-job plumbing are removed. Candidate search now runs
+synchronously in the solver's execution context; cancellation remains cooperative
+at search checkpoints. Dedicated candidate-process isolation is not retained.
+Physical jobs continue through the existing worker/resource adapter.
+
+Scene behavior tests use real navigation geometry, with concurrency gated at the
+resource seam rather than an injected algorithm callback. The two Atlos tests that
+only exercised the removed candidate worker are removed; candidate reachability
+and rejection remain covered by Ganglia's navigation/scene tests. The maintained
+stage profiler drops the removed command and recognizes v1 source locations.
+Benchmark schema 4 removes the host candidate timer while total measured batch
+wall time still includes global candidate planning. setupMs includes preparation;
+input loading and one complete prewarm batch remain excluded from measurement.
+
+The user limited validation to 10 fixed ground queries. On Node v26.13.0, with
+identical input hashes, game adapter SHA-256 and fixed policy, before/after measured
+batches take 180512.988167/172458.109833 ms and deliver
+0.055397675821/0.057985095683 queries/s. Both complete all 10 requests with 19 jumps
+and 10 truncated discovery flags. Every ordered outcome hash and truncation flag
+matches the control and each run's prewarm. A complete route does not establish
+exhaustive discovery. The observed throughput difference is +4.67%; this single
+paired measurement establishes no stable speedup. Evidence:
+.local/research/planner-owner-{before,after}-10.json. Before source/kernel hashes:
+d837cfe58abbc37c76835a265ff0e3a23d98d62c0421bd783f302975ceb34d30 /
+4e055a26ddd595ea8354a96a3ad5de1f3c20b885c04339baecec44f35f47a6f0.
+After source/kernel hashes:
+0243acfa5c45517b06d80c92c6b034ef193a4929c32ab9923d13cc8ae1632154 /
+79ab2d3a6964a11555e33a41a46594ec2d3b3e8f556a82b45ed111d0eb453978.
+Game adapter SHA-256:
+2c932f2ca8e668f8f4ee6937633d9c77e240986241e2a530f908fbb2cc88c623.
+
+Ganglia checks pass all 331 tests. Atlos type checks and lint pass; World passes
+56 UI/behavior tests, 8 HTTP/worker/network tests and its source-only production
+build, with the existing large-chunk warning. Five stage-profiler tests pass.
+The broad Atlos source-only check stopped at a filter test because a sequential
+shell command used the system Node lacking Uint8Array.fromBase64; the complete
+World suite and worker integration pass when rerun with Node 26. Other app suites
+following World in the broad check were not executed by that interrupted command.

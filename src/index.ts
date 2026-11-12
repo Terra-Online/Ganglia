@@ -22,6 +22,6 @@ export type {
   SolveOptions,
   RouteEvent,
   SceneResources,
-  SceneProposal,
+  SceneNavigation,
   SceneTerminal,
 } from '#@/src/solver/index.ts';

@@ -4,7 +4,7 @@ import type { InteractionGoal, JumpModel, LocomotionOptions, SpeedBoost } from '
 import type { GroundArrival, GroundConnection, Route } from '#@/src/route.ts';
 import type { GangliaV1Config } from '#@/src/solver/ganglia-v1.ts';
 import type { PhysicalInput } from '#@/src/solver/physical.ts';
-import type { WindowJob, SceneResources } from '#@/src/solver/resources.ts';
+import type { WindowJob, SceneResources, SceneNavigation } from '#@/src/solver/resources.ts';
 
 /** One immutable physical snapshot. Keep inputs unchanged until close(). */
 export interface SceneInput {
@@ -91,7 +91,7 @@ export type SolverInput<Source, Job extends WindowJob> =
   | { kind: 'physical'; input: PhysicalInput }
   | {
       kind: 'scene';
-      scene: { scene: string; source: Source; walls: Wall[] };
+      scene: { scene: string; source: Source; walls: Wall[]; navigation: SceneNavigation };
       resources: SceneResources<Source, Job>;
       locomotion: LocomotionOptions;
     };

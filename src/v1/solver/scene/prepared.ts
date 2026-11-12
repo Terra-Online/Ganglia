@@ -8,8 +8,14 @@ import type {
   SolveOptions,
 } from '#@/src/solver/contract.ts';
 import type { GangliaV1Config } from '#@/src/solver/ganglia-v1.ts';
-import type { SceneTerminal, SceneResources, WindowJob } from '#@/src/solver/resources.ts';
+import type {
+  SceneTerminal,
+  SceneResources,
+  SceneNavigation,
+  WindowJob,
+} from '#@/src/solver/resources.ts';
 import { validateWaypoints } from '#@/src/v1/route/jump-planner.ts';
+import { createCandidatePlanner } from '#@/src/v1/search/candidate-planner.ts';
 import { composeRoutes } from '#@/src/v1/solver/route-result.ts';
 import { createWindowRoute } from '#@/src/v1/solver/window-route.ts';
 
@@ -45,11 +51,13 @@ const contacts = (evidence: unknown[]): NonNullable<RouteResult['supportBoxes']>
 
 /** Full query orchestration. Only immutable input preparation may be shared between solves. */
 export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
-  scene: { scene: string; source: Source; walls: Wall[] },
+  input: { scene: string; source: Source; walls: Wall[]; navigation: SceneNavigation },
   resources: SceneResources<Source, Job>,
   config: GangliaV1Config,
   locomotion: LocomotionOptions,
 ): PreparedRouteSolver {
+  const { navigation, ...scene } = input;
+  const planner = createCandidatePlanner(navigation);
   const maxAttempts = config.maxAttempts,
     concurrency = config.batchConcurrency;
   let closed = false;
@@ -96,10 +104,10 @@ export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
         if (!starts.length) return stopped(lastReason ?? 'no-available-arrival');
         attempts++;
         progress('search');
-        const proposal = await resources.plan(starts, goal, excludedEdges, options.signal);
         if (cancelled()) return stopped('aborted', true);
-        if (proposal.status !== 'candidate')
-          return stopped(proposal.reason ?? 'no-global-candidate');
+        const proposal = planner.plan(starts, goal, { excludedEdges });
+        if (cancelled()) return stopped('aborted', true);
+        if (proposal.status !== 'candidate') return stopped('no-global-candidate');
         const arrival = proposal.arrival;
         const window = createWindowRoute(
           resources,

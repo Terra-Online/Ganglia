@@ -11,11 +11,7 @@ import {
   type RouteResult,
   type WindowRequest,
 } from '@opendfieldmap/ganglia/solver';
-import {
-  createCandidatePlanner,
-  createPhysicalPreparation,
-  type PhysicalWork,
-} from '@opendfieldmap/ganglia/solver/host';
+import { createPhysicalPreparation, type PhysicalWork } from '@opendfieldmap/ganglia/solver/host';
 
 type Source = { buildGuid: string; contentHash: string };
 type Ground = {
@@ -130,22 +126,12 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
       ? Promise.resolve(cache)
       : new Promise<(typeof caches)[number]>((resolve) => waiting.push(resolve));
   };
-  const planner = createCandidatePlanner(navigation);
   const timings = {
     preparationMs: performance.now() - preparationStarted,
     normalizationMs: 0,
-    candidateMs: 0,
     localSolveMs: 0,
   };
   const resources: SceneResources<Source, Job> = {
-    plan: async (starts, goal, excludedEdges) => {
-      const started = performance.now();
-      try {
-        return planner.plan(starts, goal, { excludedEdges });
-      } finally {
-        timings.candidateMs += performance.now() - started;
-      }
-    },
     query: async (_scene, _source, _start, _target, options) => {
       const bounds = options.corridor.bounds;
       if (
@@ -187,7 +173,7 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
   return {
     input: {
       kind: 'scene' as const,
-      scene: { scene: ground.scene, source: ground.source, walls: [] },
+      scene: { scene: ground.scene, source: ground.source, walls: [], navigation },
       resources,
       locomotion,
     },

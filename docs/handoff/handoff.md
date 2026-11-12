@@ -24,7 +24,6 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 | Airborne objectives and boosts | [`src/v1/route/airborne-goal.ts`](../../src/v1/route/airborne-goal.ts), [`src/v1/route/boosted-route.ts`](../../src/v1/route/boosted-route.ts), [`src/v1/motion/goals.ts`](../../src/v1/motion/goals.ts) |
 | Collision and resources | [`src/v1/geo/collision.ts`](../../src/v1/geo/collision.ts), [`src/v1/resource/locomotion.ts`](../../src/v1/resource/locomotion.ts), [`src/v1/resource/resource-search.ts`](../../src/v1/resource/resource-search.ts) |
 | Atlos ordinary request | [`dev-route-server.ts`](../../../Atlos/talos/apps/world/dev-route-server.ts), [`travel-arrivals.ts`](../../../Atlos/talos/apps/world/travel-arrivals.ts) |
-| Atlos corridor worker | [`candidate-job.ts`](../../../Atlos/talos/apps/world/candidate-job.ts), [`candidate-worker.ts`](../../../Atlos/talos/apps/world/candidate-worker.ts) |
 | Atlos resource scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |
 | Atlos terminal assets | [`terminal-routes.ts`](../../../Atlos/talos/apps/world/terminal-routes.ts) |
 
@@ -136,7 +135,11 @@ Atlos runs an owned worker against that resource adapter instead of invoking the
 extractor command for online solving. Browser resource and routing clients expose
 transfer accounting separately from algorithm timing. The factory snapshots one immutable algorithm policy alongside immutable scene/movement inputs. The current policy is `GangliaV1Config` with `algorithm: ganglia-v1`; its explicit flat fields and fixed-policy constraints are documented in `src/solver/ganglia-v1.ts`. Queries carry starts, goal, interaction and waypoints, with no policy overrides. A prepared solver exposes the frozen policy as `config`. Per-query options carry typed progress/candidate events and cooperative cancellation; returned results retain grounded targets and display support boxes. Resource integration uses the separate `solver/host` seam: Ganglia selects serialized work and owns preparation-slot invalidation, while hosts consume its resource/scheduling plan. Coverage estimates and the active window strategy belong to Ganglia; unused legacy attempt/proposal helpers and their isolated tests have been removed. Online IPC carries a structured query. The game adapter prepares validated inputs and reports; CLI and worker adapters own atomic output. The owned noclip routing adaptation is maintained in `routing-adapter.patch`. Browser requests and results bind the catalog generation, source and fully-enabled state. Scene state changes invalidate the current request/result. The resource adapter shares preparation-slot invalidation with Ganglia, while retaining file identity and memory-budget policy.
 
-The scene-level prepared solver owns global candidate selection, query-scoped failed
+The scene input supplies immutable `SceneNavigation` geometry. Ganglia-v1 creates
+and retains its candidate planner during solver preparation; hosts do not select
+a planner or provide a planning callback. `SceneResources` supplies physical
+resources and optional terminal assets. The scene-level prepared solver owns
+global candidate selection, query-scoped failed
 transfer/arrival exclusions, physical-window retries, partial target-approach retention
 and terminal-route composition. Atlos supplies normalized game facts and resource
 operations, then formats solver events/results for display. HTTP polling reads ongoing
@@ -151,7 +154,7 @@ pass and serves a fixed in-memory snapshot to lane-local physical preparation ca
 No frontend, resource HTTP process or completed-route cache participates. Timed work
 includes query-specific normalization, search, physical windows, retries and any
 remaining lazy computation. Preparation and prewarm durations are reported separately;
-measured inclusive phase timers may overlap across concurrent lanes. `--config` selects a complete serialized solver configuration; the report records the effective frozen policy. Warm/measured
+measured inclusive resource-adapter phase timers may overlap across concurrent lanes. JSON schema 4 removes the host-owned candidate timer; candidate search remains included in total batch wall time. `--config` selects a complete serialized solver configuration; the report records the effective frozen policy. Warm/measured
 outcomes and truncation flags are compared per input. The resolved game-adapter kernel
 must match the benchmark checkout. Missing coverage requires offline preparation.
 
@@ -171,7 +174,7 @@ The retained vortex interpretation comes from build `2954fa80-23c1-1579-2b22-4ec
 
 1. World resolves the marker, source-bound interaction rules and scene assumptions. `travelArrivals` creates eligible teleport/base arrivals, including source height ranges for centres requiring ground projection.
 2. For matching airborne terminal assets, `selectTerminal` chooses a physically revalidated tail. The ordinary prefix then targets its grounded entry.
-3. A serial candidate worker loads `${scene}-ground-all.json`, prepares the candidate planner and searches across eligible origins. Its points guide physical coverage selection.
+3. World loads `${scene}-ground-all.json` and passes its navigation facts into the scene solver factory. World reuses that prepared solver for the immutable scene snapshot. Ganglia-v1 constructs its candidate planner and searches across eligible origins; its points guide physical coverage selection. Candidate planning runs synchronously inside the solver, with cooperative cancellation at search checkpoints. Dedicated candidate-process isolation is no longer supplied by World.
 4. `createWindowRoute` divides the corridor into bounded physical windows. Unknown/device transfer trajectories remain indivisible. Long straight ground spans receive intermediate coverage points.
 5. `physicalRouteBuilder` obtains source-bound collision and ground inputs, constructs missing tiles, and schedules walking, known-device and full-action stages. Failures can widen coverage or shorten a window. Pending results retain explicit partial scope.
 6. The World worker reads physical scene resources through the game adapter, which prepares Ganglia's physical solver. Ganglia projects endpoints, prepares collision and ground, compares walking/device/action candidates, refines missing goal support and applies following-support fallback under its declared model.

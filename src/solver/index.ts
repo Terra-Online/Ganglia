@@ -22,7 +22,7 @@ export type {
 } from '#@/src/solver/physical.ts';
 export type {
   SceneResources,
-  SceneProposal,
+  SceneNavigation,
   SceneTerminal,
   WindowRequest,
   WindowJob,
