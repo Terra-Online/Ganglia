@@ -731,3 +731,24 @@ catalogue request with an unknown complete length, so those network figures are
 lower bounds. Backend prewarming is recorded separately (58.430 s); it does
 not measure fresh-query throughput. The input-cache adapter releases opaque
 preparation after oversized/non-retained queries, preserving its memory policy.
+
+
+## 2026-11-12: Atlos lint acceptance
+
+World's backend, candidate worker and Vite/Vitest configurations now share type-check
+coverage. Exporter JSON boundaries use declared artifact types; progress/cache objects
+are narrowed before use. Async test fixtures and closure-owned renderer cleanup retain
+their behavior. Lint also exposed stale font-scope ownership during ref replacement;
+a behavior test reproduced the failure and passes with the current scope captured.
+No lint rules were disabled and no Ganglia algorithm or dependency version changed.
+
+Full Atlos `check --source-only --skip-subset` passed 1,236 tests, browser/worker,
+extractor and other workspace type checks, ESLint (747 files, zero errors/warnings)
+and Stylelint (97 files). Source-only World build passed. One cold and one warm
+map02 browser replay completed with route cost 2.3161737031566245, no failed streamed
+resources and drained stream queues. This checks integration, not fresh-query throughput.
+Source binding: `04f43d8c58c4098a157526c344318e473980c41766548e0d253e248f5704e268`.
+Local evidence: `atlos-lint-check.log`, `atlos-lint-build.log`, `atlos-lint-world.json`
+and paired screenshots under `.local/research/`. Full private-font packaging remains
+outside source-only validation. This resolves the earlier full-lint acceptance gap.
+The implementation and ownership record remains accurate without a behavior update.
