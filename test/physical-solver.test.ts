@@ -5,7 +5,11 @@ import { prepareRouteSolver, gangliaV1Defaults, type PhysicalInput } from '#@/sr
 import type { GroundPlanner } from '#@/src/v1/route/ground.ts';
 import { createPhysicalCache } from '#@/src/v1/solver/physical/preparation.ts';
 import { preparePhysicalSolver } from '#@/src/v1/solver/physical/prepared.ts';
-import type { PhysicalCache } from '#@/src/v1/solver/physical/solve.ts';
+import {
+  type PhysicalCache,
+  type PhysicalResult,
+  solvePhysicalRoute,
+} from '#@/src/v1/solver/physical/solve.ts';
 
 const input: PhysicalInput = {
   ground: {
@@ -43,6 +47,49 @@ const input: PhysicalInput = {
   },
   locomotion: { speed: 1, sprintSpeed: 2, sprintAcceleration: 1 },
 };
+
+test('physical vertical candidates preserve arrival ranges and the highest target support below', async () => {
+  const surfaces = [0, 0.25, 3].map((height, index) => ({
+    id: `floor-${index}`,
+    vertices: input.ground.surfaces[0].vertices.map(([x, , z]): [number, number, number] => [
+      x,
+      height,
+      z,
+    ]),
+  }));
+  const snapshot = { ...input, ground: { ...input.ground, surfaces } };
+  for (const [height, targetHeight] of [
+    [0, 0],
+    [0.25, 2],
+  ]) {
+    const results: PhysicalResult[] = [];
+    await solvePhysicalRoute(
+      snapshot,
+      {
+        arrival: {
+          id: 'start',
+          position: [1, 0.4, 1],
+          groundRange: [height, height],
+          state: 'available',
+          cost: 0,
+        },
+        target: [9, targetHeight, 1],
+        walls: [],
+      },
+      {
+        effort: 'walking',
+        emit(result) {
+          results.push(result);
+        },
+      },
+      gangliaV1Defaults,
+    );
+    const result = results.at(-1)!;
+    assert.equal(result.route?.status, 'complete', JSON.stringify(result));
+    assert.deepEqual(result.route.points[0], [1, height, 1]);
+    assert.deepEqual(result.groundedTarget, [9, height, 1]);
+  }
+});
 test('physical jump planning continues its raw ground solve without repeating the same query', async () => {
   const cache = createPhysicalCache();
   let calls = 0;

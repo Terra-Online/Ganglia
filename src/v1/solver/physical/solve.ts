@@ -4,6 +4,7 @@ import type { GroundArrival, GroundConnection, GroundOptions, Route } from '#@/s
 import type { SolverConfig } from '#@/src/solver/contract.ts';
 import type { PhysicalInput } from '#@/src/solver/physical.ts';
 import { createCollisionWorld } from '#@/src/v1/geo/collision.ts';
+import { verticalProjectionCandidates } from '#@/src/v1/geo/support-projector.ts';
 import { projectPoint } from '#@/src/v1/geo/surfaces.ts';
 import { jumpDuration } from '#@/src/v1/motion/jumps.ts';
 import { pruneGroundDetours } from '#@/src/v1/route/ground-detours.ts';
@@ -53,12 +54,14 @@ export interface PhysicalContext {
   effort?: 'walking' | 'devices' | 'all';
 }
 const targetSupport = (surfaces: Surface[], target: Vec3) => {
-  const nearest = projectPoint(surfaces, target, { maxVertical: 0.5 });
+  const nearest = projectPoint(verticalProjectionCandidates(surfaces, target, 0.5), target, {
+    maxVertical: 0.5,
+  });
   if (nearest) {
     return nearest;
   }
   let below: ReturnType<typeof projectPoint> = null;
-  for (const surface of surfaces) {
+  for (const surface of verticalProjectionCandidates(surfaces, target, 4)) {
     const support = projectPoint([surface], target, { maxVertical: 4 });
     if (
       support &&
@@ -162,7 +165,11 @@ export const solvePhysicalRoute = async (
     ...range.map((height) => Math.abs(height - request.arrival.position[1])),
   );
   let supportedStart: ReturnType<typeof projectPoint> = null;
-  for (const surface of ground.surfaces) {
+  for (const surface of verticalProjectionCandidates(
+    ground.surfaces,
+    request.arrival.position,
+    maxVertical,
+  )) {
     const start = projectPoint([surface], request.arrival.position, { maxVertical });
     if (
       start &&
