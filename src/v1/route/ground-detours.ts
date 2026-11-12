@@ -265,11 +265,13 @@ export function pruneGroundDetours(
     for (const { from, to } of pairs) {
       if (queries >= maxQueries) break;
       queries++;
-      const walk = planner.plan(
-        [{ id: '@detour', position: from.point, state: 'available', cost: 0 }],
-        to.point,
-        { connections: [] },
-      );
+      const walk = preparation
+        ? preparation.planWalkingGeometry(from.point, to.point)
+        : planner.plan(
+            [{ id: '@detour', position: from.point, state: 'available', cost: 0 }],
+            to.point,
+            { connections: [] },
+          );
       if (
         walk.status !== 'complete' ||
         distance(walk.points[0], from.point) > 1e-7 ||

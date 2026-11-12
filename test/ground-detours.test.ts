@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { Surface, Vec3, Wall } from '#@/src/geometry.ts';
-import type { MovementMode, Segment } from '#@/src/movement.ts';
+import type { LocomotionOptions, MovementMode, Segment } from '#@/src/movement.ts';
 import type { Route } from '#@/src/route.ts';
 import { blockedByWalls } from '#@/src/v1/geo/walls.ts';
 import {
@@ -11,7 +11,7 @@ import {
   retimeGroundRoute,
 } from '#@/src/v1/resource/locomotion.ts';
 import { pruneGroundDetours } from '#@/src/v1/route/ground-detours.ts';
-import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
+import { createGroundPlanner, groundPreparation } from '#@/src/v1/route/ground.ts';
 import { expectStatus } from '#@/test/assertions.ts';
 
 const locomotion = { speed: 2, sprintSpeed: 4, sprintAcceleration: 2 };
@@ -120,9 +120,9 @@ test('a supported replacement that cannot beat the incumbent avoids the full can
     assert.equal(result.queries, 1);
     assert.equal(result.replacements, 0);
     assert.deepEqual(result.route, original);
-    // The incumbent and supported walk each need one schedule. The complete
-    // stitched candidate is already too long even at unlimited sprint speed.
-    assert.equal(schedules, 2);
+    // Geometry alone rejects the supported walk before scheduling a stitched
+    // candidate. Only the incumbent needs a resource schedule.
+    assert.equal(schedules, 1);
   } finally {
     installSchedulePrototype(previous);
   }
@@ -159,6 +159,7 @@ test('a dash-fast supported replacement remains eligible when sprint alone canno
   assert.equal(result.route.status, 'complete');
   assert.ok(result.route.cost < scheduled.cost - 0.01);
   assert.ok(result.route.segments.every((part) => part.mode === 'walk'));
+  assert.ok(result.route.segments.some((part) => part.gait === 'dash'));
 });
 
 test('rounding near the detour acceptance threshold still reaches exact scheduling', () => {
@@ -254,6 +255,9 @@ test('the complete resource schedule and a later collection event survive a prec
   assert.equal(result.route.segments[result.route.goalHit!.segment].mode, 'jump');
   assert.deepEqual(result.route.goalHit!.position, [7, 2, 0.5]);
   assert.ok(result.route.locomotion!.final >= 0);
+  const checked = expectStatus(retimeGroundRoute(result.route, resource), 'complete');
+  assert.ok(Math.abs(checked.cost - result.route.cost) < 1e-8);
+  assert.ok(Math.abs(checked.locomotion!.final - result.route.locomotion!.final) < 1e-8);
 });
 
 test('a closed excursion may simplify to a stationary route', () => {
@@ -493,4 +497,74 @@ test('detour removal preserves a grounded endpoint event without blocking the im
   assert.equal(result.route.goalHit.time, result.route.segments.at(-1)!.times.at(-1));
   assert.deepEqual(result.route.goalHit.position, original.goalHit.position);
   assert.deepEqual(result.route.points.at(-1), original.points.at(-1));
+});
+
+test('walking geometry defers resources to the complete gait-dependent continuation', () => {
+  const policy: LocomotionOptions = {
+    speed: 2,
+    sprintSpeed: 4,
+    sprintAcceleration: 2,
+    stamina: {
+      capacity: 3,
+      initial: 3,
+      sprintDrain: 1,
+      recoveryRate: 1,
+      recoveryDelay: 0.5,
+      reserve: 0,
+    },
+  };
+  const original = excursion();
+  original.segments.push({
+    ...segment(
+      'jump',
+      [
+        [6, 0, 0.5],
+        [7, 2, 0.5],
+        [8, 0, 0.5],
+      ],
+      2,
+    ),
+    requiredGait: 'sprint',
+  });
+  const complete = {
+    ...routeOf(original.segments),
+    goalHit: { segment: 3, time: 1, position: [7, 2, 0.5] as Vec3 },
+  };
+  const planner = createGroundPlanner([floor('road', 0, 8)], { ...options, locomotion: policy });
+  const geometry = expectStatus(
+    groundPreparation(planner)!.planWalkingGeometry([0.5, 0, 0.5], [6, 0, 0.5]),
+    'complete',
+  );
+  assert.equal(geometry.locomotion, undefined);
+  assert.ok(geometry.segments.every((part) => part.mode === 'walk' && part.gait === undefined));
+  const standalone = expectStatus(
+    planner.plan(
+      [{ id: 'standalone', position: [0.5, 0, 0.5], state: 'available', cost: 0 }],
+      [6, 0, 0.5],
+    ),
+    'complete',
+  );
+  assert.ok(standalone.locomotion);
+  const incumbent = expectStatus(retimeGroundRoute(complete, policy), 'complete');
+  const result = pruneGroundDetours(complete, planner, policy);
+  assert.equal(result.route.status, 'complete');
+  assert.ok(result.replacements > 0);
+  assert.ok(result.route.cost < incumbent.cost - 0.01);
+  const last = result.route.segments.at(-1)!;
+  assert.equal(last.mode, 'jump');
+  assert.equal(last.requiredGait, 'sprint');
+  assert.equal(result.route.segments.at(-2)!.gait, 'sprint');
+  const scheduled = expectStatus(retimeGroundRoute(result.route, policy), 'complete');
+  assert.ok(Math.abs(scheduled.cost - result.route.cost) < 1e-8);
+  assert.ok(scheduled.locomotion!.final >= policy.stamina!.reserve);
+});
+
+test('custom ground planners retain the detour fallback without prepared geometry', () => {
+  const prepared = createGroundPlanner([floor('road', 0, 8)], options);
+  const custom = { project: prepared.project, plan: prepared.plan };
+  assert.equal(groundPreparation(custom), undefined);
+  const result = pruneGroundDetours(excursion(), custom, locomotion);
+  assert.equal(result.route.status, 'complete');
+  assert.ok(result.replacements > 0);
+  assert.ok(result.route.segments.every((part) => part.mode === 'walk'));
 });
