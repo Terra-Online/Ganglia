@@ -82,9 +82,12 @@ test('training stores motion proofs and frozen fresh starts solve through a smal
     assert.equal(proof.status, 'complete');
     const result = planJumpRoute(surfaces, world, starts, goal, settings);
     assert.equal(result.route.status, 'complete');
-    assert.deepEqual(result.route, proof);
+    assert.ok(result.route.cost <= proof.cost);
+    assert.deepEqual(
+      result.route,
+      settings.groundPlanner.plan(starts, goal, { connections: result.connections }),
+    );
     assert.equal(result.route.start, 'fresh');
-    assert.equal(result.diagnostics.searches.length, 0);
     assert.ok(actionCatalogStats().hits > 0);
     selected[0].points[0][0] = 123456;
     const again = selectCatalogActions(world, surfaces, starts, goal, settings);
@@ -131,6 +134,36 @@ test('a frozen catalog miss retains original physical discovery', () => {
     );
     assert.equal(result.route.status, 'complete');
     assert.ok(result.diagnostics.searches.length > 0);
+    assert.equal(actionCatalogStats().added, before);
+  } finally {
+    setActionCatalogPhase('disabled');
+  }
+});
+
+test('fresh starts discover cheaper actions away from the trained route without growing the frozen bank', () => {
+  const surfaces = [floor('start', 0, 4, 0, -10, 10), floor('goal', 7, 11, 0, -10, 10)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const planner = createGroundPlanner(surfaces, options);
+  const settings = { ...options, groundPlanner: planner };
+  try {
+    setActionCatalogPhase('training');
+    const training = planJumpRoute(surfaces, world, arrival([2, 0, -8]), [9, 0, -8], {
+      ...settings,
+      maxCandidates: 16,
+      maxShortcutCandidates: 0,
+    });
+    assert.equal(training.route.status, 'complete');
+    setActionCatalogPhase('frozen');
+    const before = actionCatalogStats().added;
+    const starts = arrival([2, 0, 8]),
+      goal: Vec3 = [9, 0, 8];
+    const selected = selectCatalogActions(world, surfaces, starts, goal, settings);
+    const incumbent = planner.plan(starts, goal, { connections: selected });
+    assert.equal(incumbent.status, 'complete');
+    const result = planJumpRoute(surfaces, world, starts, goal, settings);
+    assert.equal(result.route.status, 'complete');
+    assert.ok(result.route.cost < incumbent.cost - 1);
+    assert.deepEqual(result.route, planner.plan(starts, goal, { connections: result.connections }));
     assert.equal(actionCatalogStats().added, before);
   } finally {
     setActionCatalogPhase('disabled');

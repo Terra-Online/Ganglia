@@ -128,7 +128,7 @@ export interface InitialGroundProof {
   connections: GroundConnection[];
   route: Route;
 }
-type Stage = 'direction' | 'relations' | 'entry' | 'final';
+type Stage = 'direction' | 'relations' | 'entry' | 'final' | 'catalog';
 
 /** Solve directed ground/jump/drop action combinations for arbitrary arrivals.
  * Geometry, collision, state, walls and body must belong to one immutable snapshot.
@@ -341,38 +341,44 @@ function solveJumpRoute(
       best = incumbent;
       bestConnections = connections;
     }
-    const improvementBudget = Math.min(remaining, options.maxShortcutCandidates ?? remaining);
-    if (improvementBudget <= 0) {
+    const improvementBudget =
+      stage === 'catalog'
+        ? Math.min(128, remaining)
+        : Math.min(remaining, options.maxShortcutCandidates ?? remaining);
+    if (improvementBudget <= 0 && stage !== 'catalog') {
       unspent = Math.min(unspent, Math.max(0, remaining));
       continue;
     }
     const localBaseline = incumbent,
       localBaseConnections = connections;
-    const localBudget = Math.min(
-      128,
-      Math.floor(improvementBudget / 4),
-      remaining - improvementBudget,
-    );
-    const refinementBudget = Math.min(localBudget, remaining - improvementBudget - localBudget);
+    const localBudget =
+      stage === 'catalog'
+        ? Math.min(128, remaining - improvementBudget)
+        : Math.min(128, Math.floor(improvementBudget / 4), remaining - improvementBudget);
+    const refinementBudget =
+      stage === 'catalog' ? 0 : Math.min(localBudget, remaining - improvementBudget - localBudget);
     unspent = Math.min(
       unspent,
       Math.max(0, remaining - improvementBudget - localBudget - refinementBudget),
     );
     // Reserve the broad comparison before refining its verified incumbent.
-    const alternatives = search(
-      findJumpShortcuts(
-        surfaces,
-        world,
-        {
-          ...discoveryOptions,
-          connections,
-          maxCandidates: improvementBudget,
-          baseline: incumbent,
-          speed: options.locomotion?.sprintSpeed ?? options.speed,
-        },
-        cache,
-      ),
-    );
+    const alternatives =
+      improvementBudget > 0
+        ? search(
+            findJumpShortcuts(
+              surfaces,
+              world,
+              {
+                ...discoveryOptions,
+                connections,
+                maxCandidates: improvementBudget,
+                baseline: incumbent,
+                speed: options.locomotion?.sprintSpeed ?? options.speed,
+              },
+              cache,
+            ),
+          )
+        : [];
     if (alternatives.length) {
       connections = [...connections, ...alternatives];
       const candidate = planner.plan([arrival], goal, {
@@ -859,19 +865,25 @@ export function planJumpRoute(
       connections,
     });
     noteActionCatalogResult(route.status === 'complete');
-    if (route.status === 'complete')
-      return {
+    if (route.status === 'complete') {
+      // A reused feasible chain may miss a better departure near a fresh start.
+      // Compare new action regions and refine its selected incumbent with bounded work.
+      const arrival = starts.find((start) => start.id === route.start)!;
+      const result = solveJumpRoute(
+        surfaces,
+        world,
+        [arrival],
+        goal,
+        { ...options, connections },
+        {},
+        'catalog',
         route,
-        connections,
-        diagnostics: {
-          strategy: 'surface-action-graph',
-          groundStatus: route.status,
-          baselineCost: route.cost,
-          selectedCost: route.cost,
-          truncated: Boolean(route.search?.truncated || route.locomotion?.search?.truncated),
-          searches: [],
-        },
-      };
+      );
+      result.diagnostics.truncated ||= Boolean(
+        route.search?.truncated || route.locomotion?.search?.truncated,
+      );
+      return result;
+    }
   }
   const connections = options.connections ?? [];
   const unchanged =
