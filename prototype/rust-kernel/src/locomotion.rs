@@ -296,17 +296,31 @@ fn sprint_distance(seconds: f64, speed: f64, cap: f64, acceleration: f64) -> f64
         + cap * (seconds - accelerated)
 }
 
-fn append(clocks: &mut Vec<f64>, output: &mut Option<(Gait, usize)>, gait: Gait, elapsed: f64) {
-    let index = match *output {
-        Some((previous, index)) if previous == gait => index,
-        _ => {
-            let index = clocks.len();
-            clocks.push(0.0);
-            *output = Some((gait, index));
-            index
+#[derive(Default)]
+struct Clocks {
+    completed: f64,
+    output: Option<(Gait, f64)>,
+}
+
+impl Clocks {
+    fn end_output(&mut self) {
+        if let Some((_, duration)) = self.output.take() {
+            self.completed += duration;
         }
-    };
-    clocks[index] += elapsed;
+    }
+
+    fn append(&mut self, gait: Gait, elapsed: f64) {
+        if self.output.is_some_and(|(previous, _)| previous != gait) {
+            self.end_output();
+        }
+        let output = self.output.get_or_insert((gait, 0.0));
+        output.1 += elapsed;
+    }
+
+    fn finish(mut self) -> f64 {
+        self.end_output();
+        self.completed
+    }
 }
 
 fn schedule(
@@ -342,15 +356,16 @@ fn schedule(
     }
     // Keep each output's clock, including zero-time additions and original
     // segment/dash boundaries. Summing phase durations changes rounding and ties.
-    let mut clocks = Vec::new();
+    let mut clocks = Clocks::default();
     for segment in &block.segments {
+        clocks.end_output();
         if segment.mode != Mode::Walk {
             if segment.required_sprint && !state.sprinting {
                 return None;
             }
             state.dash_cooldown = maximum([0.0, state.dash_cooldown - segment.duration]);
             state.dash_remaining = 0.0;
-            clocks.push(segment.duration);
+            clocks.completed += segment.duration;
             if stamina
                 .and_then(|s| s.recovery_during_non_walk)
                 .unwrap_or(false)
@@ -376,7 +391,6 @@ fn schedule(
             state.previous_direction = None;
             continue;
         }
-        let mut output = None;
         for span in &segment.spans {
             let length = span.length;
             if let Some(previous) = state.previous_direction {
@@ -406,14 +420,14 @@ fn schedule(
                     state.dash_remaining = dash.duration;
                     state.sprinting = true;
                     state.has_activated = true;
-                    output = None;
+                    clocks.end_output();
                 }
                 if state.dash_remaining > EPSILON {
                     let dash_speed = dash.expect("active dash").speed * segment.multiplier;
                     let duration =
                         minimum([state.dash_remaining, (length - travelled) / dash_speed]);
                     travelled = minimum([length, travelled + dash_speed * duration]);
-                    append(&mut clocks, &mut output, Gait::Dash, duration);
+                    clocks.append(Gait::Dash, duration);
                     state.dash_remaining = maximum([0.0, state.dash_remaining - duration]);
                     state.dash_cooldown = maximum([0.0, state.dash_cooldown - duration]);
                     state.delay = maximum([0.0, state.delay - duration]);
@@ -480,7 +494,7 @@ fn schedule(
                         duration = minimum([duration, recharge_time]);
                     }
                     travelled = minimum([length, travelled + speed * duration]);
-                    append(&mut clocks, &mut output, Gait::Run, duration);
+                    clocks.append(Gait::Run, duration);
                     if let Some(stamina) = stamina {
                         let recovering = maximum([0.0, duration - state.delay]);
                         state.delay = maximum([0.0, state.delay - duration]);
@@ -515,34 +529,24 @@ fn schedule(
                 let acceleration_time =
                     minimum([duration, (sprint_speed - state.velocity) / acceleration]);
                 let count = (acceleration_time / 0.1).ceil();
-                let mut samples = Vec::new();
-                let mut sample = 1.0;
-                while sample <= count {
-                    samples.push((acceleration_time * sample) / count);
-                    sample += 1.0;
-                }
-                if samples
-                    .last()
-                    .map(|&last| duration - last > EPSILON)
-                    .unwrap_or(true)
-                {
-                    samples.push(duration);
-                }
                 let initial_distance = travelled;
                 let mut previous_time = 0.0;
-                for sample in samples {
+                let mut advance_sample = |sample, previous_time: &mut f64| {
                     travelled = minimum([
                         length,
                         initial_distance
                             + sprint_distance(sample, state.velocity, sprint_speed, acceleration),
                     ]);
-                    append(
-                        &mut clocks,
-                        &mut output,
-                        Gait::Sprint,
-                        sample - previous_time,
-                    );
-                    previous_time = sample;
+                    clocks.append(Gait::Sprint, sample - *previous_time);
+                    *previous_time = sample;
+                };
+                let mut sample = 1.0;
+                while sample <= count {
+                    advance_sample((acceleration_time * sample) / count, &mut previous_time);
+                    sample += 1.0;
+                }
+                if sample == 1.0 || duration - previous_time > EPSILON {
+                    advance_sample(duration, &mut previous_time);
                 }
                 state.dash_cooldown = maximum([0.0, state.dash_cooldown - duration]);
                 state.velocity = minimum([sprint_speed, state.velocity + acceleration * duration]);
@@ -566,10 +570,7 @@ fn schedule(
     }
     // Minimum energy and dash count are diagnostics, reconstructed by winner
     // replay. Neither participates in feasibility, dominance or the terminal tie.
-    Some((
-        state,
-        clocks.into_iter().fold(0.0, |sum, clock| sum + clock),
-    ))
+    Some((state, clocks.finish()))
 }
 
 fn same_continuation(a: State, b: State) -> bool {
@@ -591,9 +592,8 @@ fn same_continuation(a: State, b: State) -> bool {
     }
 }
 
-fn dominates(a: &Label, b: &Label) -> bool {
-    same_continuation(a.state, b.state)
-        && a.duration <= b.duration + EPSILON
+fn no_worse_resources(a: &Label, b: &Label) -> bool {
+    a.duration <= b.duration + EPSILON
         && a.state.energy >= b.state.energy - EPSILON
         && a.state.delay <= b.state.delay + EPSILON
 }
@@ -635,8 +635,9 @@ pub fn choose_schedule(
     }];
     let mut labels = vec![0];
     let mut truncated = false;
+    let mut removals = Vec::new();
     for block in &blocks {
-        let mut next = Vec::new();
+        let mut next: Vec<Label> = Vec::new();
         let walk = block.segments[0].mode == Mode::Walk;
         let sprint_choices: &[bool] = if walk { &[true, false] } else { &[true] };
         for &parent in &labels {
@@ -660,13 +661,37 @@ pub fn choose_schedule(
                         allow_sprint,
                         allow_dash,
                     };
-                    if next.iter().any(|other| dominates(other, &candidate)) {
+                    removals.clear();
+                    let mut dominated = false;
+                    for (index, other) in next.iter().enumerate() {
+                        if !same_continuation(other.state, candidate.state) {
+                            continue;
+                        }
+                        if no_worse_resources(other, &candidate) {
+                            dominated = true;
+                            break;
+                        }
+                        if no_worse_resources(&candidate, other) {
+                            removals.push(index);
+                        }
+                    }
+                    if dominated {
                         continue;
                     }
-                    for index in (0..next.len()).rev() {
-                        if dominates(&candidate, &next[index]) {
-                            next.remove(index);
-                        }
+                    // EPS dominance can hold in both directions. Defer removals
+                    // until the candidate survives, retaining the first old tie
+                    // and the exact insertion order used by subsequent labels.
+                    if !removals.is_empty() {
+                        let mut removed = removals.iter().copied().peekable();
+                        let mut index = 0;
+                        next.retain(|_| {
+                            let keep = removed.peek() != Some(&index);
+                            if !keep {
+                                removed.next();
+                            }
+                            index += 1;
+                            keep
+                        });
                     }
                     next.push(candidate);
                 }

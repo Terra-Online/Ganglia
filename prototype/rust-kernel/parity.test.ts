@@ -293,3 +293,65 @@ test('native goal geometry preserves seeded clipping witnesses and surface ties 
     }
   }
 });
+
+import { createRustScheduleChooser } from '#@/prototype/rust-kernel/locomotion-binding.ts';
+import type { LocomotionOptions, Segment } from '#@/src/movement.ts';
+import { chooseTypeScriptSchedule } from '#@/src/v1/resource/locomotion.ts';
+
+test('native locomotion preserves clock-boundary and resource-dominance choices', () => {
+  const blocks: Segment[][] = [];
+  let start: Vec3 = [0, 0, 0];
+  for (let index = 0; index < 18; index++) {
+    const middle: Vec3 = [start[0] + 0.37, start[1], start[2] + (index % 3 ? 0 : 0.19)];
+    const end: Vec3 = [start[0] + 2.8 + (index % 4) * 0.13, start[1], middle[2]];
+    if (index % 5 === 4) {
+      middle[1] += 1;
+      blocks.push([{ mode: 'jump', points: [start, middle, end], times: [0, 0.3, 0.9] }]);
+    } else {
+      const boost = index % 4 === 2 ? { id: 'boost', multiplier: 1.4, duration: 20 } : undefined;
+      blocks.push([
+        { mode: 'walk', points: [start, middle], times: [0, 0.2], boost },
+        { mode: 'walk', points: [middle, end], times: [0, 0.7], boost },
+      ]);
+    }
+    start = end;
+  }
+  const speed = { speed: 5, sprintSpeed: 7, sprintAcceleration: 2 };
+  const policies: LocomotionOptions[] = [
+    speed,
+    {
+      ...speed,
+      stamina: {
+        capacity: 10,
+        initial: 10,
+        activationCost: 1,
+        sprintDrain: 2,
+        recoveryRate: 1,
+        recoveryDelay: 0.9,
+        reserve: 0,
+      },
+    },
+    {
+      ...speed,
+      dash: { speed: 10, duration: 0.3, cooldown: 0.8, cost: 1 },
+      sprintThrough: ['jump'],
+      stamina: {
+        capacity: 8,
+        initial: 8,
+        activationCost: 8,
+        sprintDrain: 0,
+        recoveryRate: 1 / 1.7,
+        recoveryDelay: 0.9,
+        reserve: 0,
+        recoveryDuringSprint: true,
+        recoveryDuringNonWalk: true,
+      },
+    },
+  ];
+  for (const maxLabels of [8, 256]) {
+    const choose = createRustScheduleChooser(maxLabels);
+    for (const policy of policies) {
+      assert.deepEqual(choose(blocks, policy), chooseTypeScriptSchedule(blocks, policy, maxLabels));
+    }
+  }
+});

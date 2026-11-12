@@ -1,6 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, renameSync } from 'node:fs';
+import { copyFileSync, mkdirSync, renameSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { nativeLibraryPath } from '#@/prototype/rust-kernel/native.ts';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const target = `${root}.local/cache/rust-transfers`;
@@ -20,6 +23,7 @@ const library =
       ? 'ganglia_transfer_prototype.dll'
       : 'libganglia_transfer_prototype.so';
 // Renaming preserves any library inode already mapped by another Node isolate.
-const staged = `${target}/transfer-${process.pid}.node`;
+mkdirSync(dirname(nativeLibraryPath), { recursive: true });
+const staged = `${nativeLibraryPath}.${process.pid}.tmp`;
 copyFileSync(`${target}/release/${library}`, staged);
-renameSync(staged, `${target}/transfer.node`);
+renameSync(staged, nativeLibraryPath);

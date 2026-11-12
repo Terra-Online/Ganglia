@@ -1,5 +1,4 @@
-import { createRequire } from 'node:module';
-
+import { loadNativeLibrary } from '#@/prototype/rust-kernel/native.ts';
 import type { LocomotionOptions, Segment } from '#@/src/movement.ts';
 import type { ScheduleChooser } from '#@/src/v1/resource/locomotion.ts';
 
@@ -22,9 +21,7 @@ export type NativeChooseSchedule = (
   options: NativeScheduleOptions,
 ) => Float64Array;
 
-export const { chooseSchedule } = createRequire(import.meta.url)(
-  '../../.local/cache/rust-transfers/transfer.node',
-) as { chooseSchedule: NativeChooseSchedule };
+export const { chooseSchedule } = loadNativeLibrary() as { chooseSchedule: NativeChooseSchedule };
 
 export const chooseRustSchedule = (
   blocks: Segment[][],

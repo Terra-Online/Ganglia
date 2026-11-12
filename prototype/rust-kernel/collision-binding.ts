@@ -1,4 +1,4 @@
-import { createRequire } from 'node:module';
+import { loadNativeLibrary } from '#@/prototype/rust-kernel/native.ts';
 
 export interface NativeCollisionIndex {
   /** Empty result or [original triangle ID, distance from the swept axis]. */
@@ -22,9 +22,7 @@ export interface NativeCollisionIndex {
   trianglesInBounds(rectangle: Float64Array): Uint32Array;
 }
 
-export const { CollisionIndex } = createRequire(import.meta.url)(
-  '../../.local/cache/rust-transfers/transfer.node',
-) as {
+export const { CollisionIndex } = loadNativeLibrary() as {
   CollisionIndex: new (
     positions: Float64Array,
     indices: Uint32Array,

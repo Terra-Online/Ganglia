@@ -1,5 +1,4 @@
-import { createRequire } from 'node:module';
-
+import { loadNativeLibrary } from '#@/prototype/rust-kernel/native.ts';
 import type { Vec3 } from '#@/src/geometry.ts';
 
 export interface NativeGroundTraceSnapshot {
@@ -18,9 +17,7 @@ export interface NativeGroundTraceIndex {
   trace(start: Float64Array, end: Float64Array, supportIds: Uint32Array): Float64Array;
 }
 
-export const { GroundTraceIndex } = createRequire(import.meta.url)(
-  '../../.local/cache/rust-transfers/transfer.node',
-) as {
+export const { GroundTraceIndex } = loadNativeLibrary() as {
   GroundTraceIndex: new (snapshot: NativeGroundTraceSnapshot) => NativeGroundTraceIndex;
 };
 

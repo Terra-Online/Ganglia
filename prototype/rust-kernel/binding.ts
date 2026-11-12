@@ -1,12 +1,9 @@
-import { createRequire } from 'node:module';
-
+import { loadNativeLibrary } from '#@/prototype/rust-kernel/native.ts';
 import type { Vec3 } from '#@/src/geometry.ts';
 import type { TransferQueryFactory } from '#@/src/v1/search/candidate-transfers.ts';
 
 type NativeIndex = { query(component: number): Float64Array };
-const { TransferIndex } = createRequire(import.meta.url)(
-  '../../.local/cache/rust-transfers/transfer.node',
-) as {
+const { TransferIndex } = loadNativeLibrary() as {
   TransferIndex: new (
     points: Float64Array,
     components: Uint32Array,

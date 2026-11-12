@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { benchmarkMarkdown, type MarkdownReport } from '#@/bench/markdown.ts';
 import { sourceHash } from '#@/bench/source.ts';
+import { nativeLibraryPath } from '#@/prototype/rust-kernel/native.ts';
 
 // Isolate game-adapter dependency resolution from Atlos's packaged kernel.
 // Both runs use the same copied adapter and the same live Ganglia source.
@@ -56,7 +57,7 @@ if (native)
   });
 const binaryHash = async () =>
   createHash('sha256')
-    .update(await readFile(resolve(root, '.local/cache/rust-transfers/transfer.node')))
+    .update(await readFile(nativeLibraryPath))
     .digest('hex');
 const binarySha256 = native ? await binaryHash() : undefined;
 const workerOption = args.indexOf('--workers');

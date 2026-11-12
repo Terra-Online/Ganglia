@@ -1,5 +1,4 @@
-import { createRequire } from 'node:module';
-
+import { loadNativeLibrary } from '#@/prototype/rust-kernel/native.ts';
 import type { GoalClip, GoalGeometryFactory } from '#@/src/v1/motion/goals.ts';
 
 interface NativeGoalProjectionIndex {
@@ -7,9 +6,7 @@ interface NativeGoalProjectionIndex {
   closestSurfaces(target: Float64Array, candidates: Uint32Array, clip: GoalClip): Float64Array;
 }
 
-const { GoalProjectionIndex } = createRequire(import.meta.url)(
-  '../../.local/cache/rust-transfers/transfer.node',
-) as {
+const { GoalProjectionIndex } = loadNativeLibrary() as {
   GoalProjectionIndex: new (
     positions: Float64Array,
     surfaceOffsets: Uint32Array,
