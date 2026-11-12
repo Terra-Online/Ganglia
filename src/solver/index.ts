@@ -25,3 +25,10 @@ export type { DeviceFacts } from './physical/devices.ts';
 export type { SweptSupport, FollowingSupport, PoseBounds, PoseSpan } from './physical/supports.ts';
 export { sweepSupports, supportBounds, supportEndpoints } from './physical/supports.ts';
 export { preparePhysicalRouteSolver } from './physical/prepared.ts';
+export { prepareSceneRouteSolver } from './scene/prepared.ts';
+export type {
+  SceneResources,
+  SceneConfig,
+  SceneProposal,
+  SceneTerminal,
+} from './scene/prepared.ts';

@@ -6,6 +6,7 @@ import type { LocomotionOptions } from '../resource/locomotion.ts';
 import { pruneGroundDetours } from '../route/ground-detours.ts';
 import { createGroundPlanner, type GroundOptions, type GroundArrival } from '../route/ground.ts';
 import type { Route } from '../route/routes.ts';
+import type { RouteQuery } from './contract.ts';
 import { physicalWork, type PhysicalWork } from './physical/work.ts';
 import { composeRoutes } from './route-result.ts';
 type Complete = Extract<Route, { status: 'complete' }>;
@@ -17,6 +18,7 @@ export interface WindowRequest {
   interaction?: InteractionGoal;
   walls: Wall[];
   waypoints?: Vec3[];
+  config?: RouteQuery['config'];
 }
 export interface WindowJob {
   status: 'queued' | 'building' | 'ready' | 'failed';
@@ -39,7 +41,7 @@ export interface WindowResources<Request extends WindowRequest, Job extends Wind
   solve(job: Job, request: Request, start: boolean, work: PhysicalWork): Promise<Job | null>;
   key(job: Job): string;
   ground(job: Job): Promise<{ surfaces: Surface[]; options: GroundOptions }>;
-  route(job: Job): { route?: Route; reason?: string };
+  route(job: Job): { route?: Route; reason?: string; diagnostics?: unknown };
 }
 export type WindowConfig = {
   tileSpan: number;
@@ -126,6 +128,7 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
   const pieces: Complete[] = [];
   const evidence: unknown[] = [];
   const failures = new Map<string, string>();
+  let truncated = false;
   let projectionData: { key: string; surfaces: Surface[]; options: GroundOptions } | undefined;
   let cursor = 0,
     end = -1,
@@ -147,6 +150,7 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
   const progress = (status: 'pending' | 'incomplete', reason?: string) => ({
     status,
     reason,
+    diagnostics: { truncated },
     completedWindows: evidence.length,
     cursor,
     position,
@@ -168,7 +172,14 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
     async advanceTail(): Promise<
       | ReturnType<typeof progress>
       | { status: 'incomplete'; reason: string }
-      | { status: 'partial'; route: Complete; start: Vec3; end: Vec3; evidence: unknown[] }
+      | {
+          status: 'partial';
+          route: Complete;
+          start: Vec3;
+          end: Vec3;
+          evidence: unknown[];
+          diagnostics: { truncated: boolean };
+        }
     > {
       if (!tail) {
         let first = candidates.length - 1;
@@ -209,6 +220,7 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
             start: result.route.points[0],
             end: result.route.points.at(-1)!,
             evidence: result.evidence,
+            diagnostics: result.diagnostics,
           }
         : result;
     },
@@ -217,7 +229,13 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
       signal,
     }: { maxWindows?: number; signal?: AbortSignal } = {}): Promise<
       | ReturnType<typeof progress>
-      | { status: 'complete'; route: Complete; pieces: Complete[]; evidence: unknown[] }
+      | {
+          status: 'complete';
+          route: Complete;
+          pieces: Complete[];
+          evidence: unknown[];
+          diagnostics: { truncated: boolean };
+        }
     > {
       if (running) throw new Error('Window query already running');
       running = true;
@@ -228,7 +246,13 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
         if (cursor >= candidates.length) {
           const route = composeRoutes(pieces, settings.locomotion);
           return route.status === 'complete'
-            ? { status: 'complete' as const, route, pieces: [...pieces], evidence: [...evidence] }
+            ? {
+                status: 'complete' as const,
+                route,
+                pieces: [...pieces],
+                evidence: [...evidence],
+                diagnostics: { truncated },
+              }
             : progress('incomplete', 'resource-schedule');
         }
         if (evidence.length >= maxWindows) return progress('incomplete', 'window-budget');
@@ -320,7 +344,7 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
           },
           target: supportedTarget,
           interaction: final ? request.interaction : undefined,
-          waypoints: coarseWaypoints([corridor]),
+          waypoints: [...(request.waypoints ?? []), ...coarseWaypoints([corridor])],
         };
         const job = await builder.solve(
           ground,
@@ -334,6 +358,18 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
         if (signal?.aborted) return progress('incomplete', 'aborted');
         const result = builder.route(job);
         const route = result?.route;
+        const diagnostics = result.diagnostics;
+        truncated ||=
+          Boolean(
+            diagnostics &&
+            typeof diagnostics === 'object' &&
+            'truncated' in diagnostics &&
+            diagnostics.truncated === true,
+          ) ||
+          Boolean(
+            route?.search?.truncated ||
+            (route?.status === 'complete' && route.locomotion?.search?.truncated),
+          );
         if (route?.status === 'complete') {
           const exit = route.points.at(-1)!;
           if (pieces.length && distance(position, route.points[0]) > 1e-4)

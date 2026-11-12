@@ -81,3 +81,32 @@ test('the benchmark closes the adapter after a failed solve', async () => {
   );
   assert.equal(closed, true);
 });
+
+test('identical geometry does not hide a partial versus complete outcome', async () => {
+  const result: RouteResult = {
+    route: {
+      status: 'complete',
+      start: 'a',
+      cost: 1,
+      arrivalCost: 0,
+      length: 1,
+      points: [
+        [0, 0, 0],
+        [1, 0, 0],
+      ],
+      segments: [],
+    },
+    connections: [],
+    diagnostics: { truncated: false },
+  };
+  const report = await runBenchmark(
+    async () => ({
+      solve: async () => ({ ...result, partial: true, reason: 'approach-incomplete' }),
+      solveBatch: async () => [{ ...result, partial: false }],
+      close: async () => {},
+    }),
+    [{ id: 'same-geometry', query: { starts: [], goal: [1, 0, 0] } }],
+  );
+  assert.equal(report.single.results[0].reason, 'approach-incomplete');
+  assert.equal(report.batch.results[0].sameOutcomeAsSingle, false);
+});

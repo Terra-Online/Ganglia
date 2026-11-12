@@ -3,7 +3,6 @@ import type { Vec3, Surface, CollisionGeometry } from '../geo/geometry.ts';
 import type { GroundArrival, GroundConnection } from '../route/ground.ts';
 import type { JumpRouteOptions } from '../route/jump-planner.ts';
 import type { Route } from '../route/routes.ts';
-import type { SupportBox } from './physical/moving-route.ts';
 
 /** One immutable physical snapshot. Keep inputs unchanged until close(). */
 export interface SceneInput {
@@ -49,10 +48,19 @@ export interface RouteQuery {
 export interface RouteResult {
   route: Route;
   connections: GroundConnection[];
-  diagnostics: { truncated: boolean };
+  diagnostics: { truncated: boolean; candidateAttempts?: number };
   reason?: string;
+  /** A verified target approach that does not yet connect to a requested start. */
+  partial?: boolean;
+  arrival?: GroundArrival;
   groundedTarget?: Vec3;
-  supportBoxes?: SupportBox[];
+  supportBoxes?: {
+    min: Vec3;
+    max: Vec3;
+    device: string;
+    family: string;
+    role: 'board' | 'leave' | 'use';
+  }[];
 }
 
 export type RouteEvent =

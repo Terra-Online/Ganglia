@@ -1,0 +1,278 @@
+import type { Vec3 } from '../../geo/geometry.ts';
+import type { Wall } from '../../geo/walls.ts';
+import type { GroundArrival } from '../../route/ground.ts';
+import { validateWaypoints } from '../../route/jump-planner.ts';
+import type { Route } from '../../route/routes.ts';
+import type { PreparedRouteSolver, RouteQuery, RouteResult, SolveOptions } from '../contract.ts';
+import { composeRoutes } from '../route-result.ts';
+import {
+  createWindowRoute,
+  type WindowConfig,
+  type WindowJob,
+  type WindowRequest,
+  type WindowResources,
+} from '../window-route.ts';
+
+type Complete = Extract<Route, { status: 'complete' }>;
+export type SceneProposal =
+  | {
+      status: 'candidate';
+      arrival: GroundArrival;
+      points: Vec3[];
+      path: { index: number; key?: string; points: Vec3[]; unresolved: boolean }[];
+    }
+  | { status: 'unmapped' | 'no-candidate' | 'cancelled'; reason?: string };
+/** The adapter supplies only assets validated against this scene and movement snapshot. */
+export interface SceneTerminal {
+  id: string;
+  route: Complete;
+  supportBoxes?: RouteResult['supportBoxes'];
+}
+export interface SceneResources<Source, Job extends WindowJob> extends WindowResources<
+  WindowRequest & { source: Source },
+  Job
+> {
+  plan(
+    starts: GroundArrival[],
+    goal: Vec3,
+    excludedEdges: (number | string)[],
+    signal?: AbortSignal,
+  ): Promise<SceneProposal>;
+  terminals?(query: RouteQuery): Promise<readonly SceneTerminal[]>;
+  /** Wait for resource work to change, without requiring another client request. */
+  wait(signal?: AbortSignal): Promise<void>;
+  close?(): Promise<void>;
+}
+export type SceneConfig = Omit<WindowConfig, 'transfers'> & {
+  maxAttempts?: number;
+  batchConcurrency?: number;
+};
+
+function selectSceneTerminal(
+  terminals: readonly SceneTerminal[],
+  starts: GroundArrival[],
+  speed: number,
+): SceneTerminal | undefined {
+  const estimate = (asset: SceneTerminal) =>
+    asset.route.cost +
+    Math.min(
+      ...starts
+        .filter((a) => a.state === 'available')
+        .map((a) => a.cost + distance(a.position, asset.route.points[0]) / speed),
+    );
+  return [...terminals].sort((a, b) => estimate(a) - estimate(b))[0];
+}
+const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((v, i) => v - b[i]));
+const contacts = (evidence: unknown[]): NonNullable<RouteResult['supportBoxes']> =>
+  evidence.flatMap((item) => {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      !('supportBoxes' in item) ||
+      !Array.isArray(item.supportBoxes)
+    )
+      return [];
+    // Physical adapters return the solver's own display evidence, not arbitrary renderer data.
+    return item.supportBoxes as NonNullable<RouteResult['supportBoxes']>;
+  });
+
+/** Full query orchestration. Only immutable input preparation may be shared between solves. */
+export function prepareSceneRouteSolver<Source, Job extends WindowJob>(
+  scene: { scene: string; source: Source; walls: Wall[] },
+  resources: SceneResources<Source, Job>,
+  config: SceneConfig,
+): PreparedRouteSolver {
+  const maxAttempts = config.maxAttempts ?? 6,
+    concurrency = config.batchConcurrency ?? 1;
+  if (![maxAttempts, concurrency].every((v) => Number.isSafeInteger(v) && v > 0))
+    throw new Error('Invalid scene query budget');
+  let closed = false;
+  let closing: Promise<void> | undefined;
+  const batches = new Set<Promise<readonly RouteResult[]>>();
+  const active = new Set<Promise<RouteResult>>();
+  const run = async (query: RouteQuery, options: SolveOptions): Promise<RouteResult> => {
+    validateWaypoints(query.waypoints);
+    const excludedEdges: (number | string)[] = [],
+      excludedArrivals = new Set<string>();
+    let lastReason: string | undefined;
+    let partial: RouteResult | undefined,
+      attempts = 0;
+    let truncated = false;
+    const stopped = (reason: string, limited = false): RouteResult =>
+      partial
+        ? {
+            ...partial,
+            reason,
+            diagnostics: { truncated: truncated || limited, candidateAttempts: attempts },
+          }
+        : {
+            route: { status: 'no-verified-route' },
+            connections: [],
+            reason,
+            diagnostics: { truncated: truncated || limited, candidateAttempts: attempts },
+          };
+    const cancelled = () => options.signal?.aborted;
+    const progress = (phase: 'search' | 'validate') =>
+      options.onEvent?.({ type: 'progress', phase });
+    try {
+      const terminals = query.interaction?.airborne
+        ? await resources.terminals?.(query)
+        : undefined;
+      const terminal = selectSceneTerminal(
+        terminals ?? [],
+        query.starts,
+        config.locomotion.sprintSpeed ?? config.locomotion.speed,
+      );
+      const goal = terminal?.route.points[0] ?? query.goal;
+      for (; attempts < maxAttempts;) {
+        if (cancelled()) return stopped('aborted', true);
+        const starts = query.starts.filter((a) => !excludedArrivals.has(a.id));
+        if (!starts.length) return stopped(lastReason ?? 'no-available-arrival');
+        attempts++;
+        progress('search');
+        const proposal = await resources.plan(starts, goal, excludedEdges, options.signal);
+        if (cancelled()) return stopped('aborted', true);
+        if (proposal.status !== 'candidate')
+          return stopped(proposal.reason ?? 'no-global-candidate');
+        const arrival = proposal.arrival;
+        const window = createWindowRoute(
+          resources,
+          {
+            ...scene,
+            arrival,
+            target: goal,
+            interaction: terminal ? undefined : query.interaction,
+            walls: scene.walls,
+            waypoints: query.waypoints,
+            config: query.config,
+          },
+          proposal.points,
+          {
+            ...config,
+            transfers: proposal.path?.filter((edge) => edge.unresolved).map((edge) => edge.points),
+          },
+        );
+        const publish = (route: Complete, evidence: unknown[], isPartial: boolean): RouteResult => {
+          const result: RouteResult = {
+            route,
+            connections: [],
+            partial: isPartial,
+            arrival,
+            supportBoxes: contacts(evidence),
+            diagnostics: {
+              truncated:
+                truncated ||
+                Boolean(route.search?.truncated || route.locomotion?.search?.truncated),
+              candidateAttempts: attempts,
+            },
+          };
+          options.onEvent?.({ type: 'candidate', result, optimizing: isPartial });
+          return result;
+        };
+        if (!partial) {
+          if (terminal)
+            partial = publish(terminal.route, [{ supportBoxes: terminal.supportBoxes }], true);
+          else {
+            while (!cancelled()) {
+              const tail = await window.advanceTail();
+              if ('diagnostics' in tail) truncated ||= tail.diagnostics.truncated;
+              if (tail.status === 'partial') {
+                partial = publish(tail.route, tail.evidence, true);
+                break;
+              }
+              if (tail.status !== 'pending') break;
+              progress('validate');
+              await resources.wait(options.signal);
+            }
+          }
+        }
+        while (!cancelled()) {
+          const result = await window.advance({ signal: options.signal });
+          truncated ||= result.diagnostics.truncated;
+          if (result.status === 'complete') {
+            const route = terminal
+              ? composeRoutes([result.route, terminal.route], config.locomotion)
+              : result.route;
+            if (route.status !== 'complete') return stopped('terminal-resource-schedule');
+            return publish(
+              route,
+              [...result.evidence, ...(terminal ? [{ supportBoxes: terminal.supportBoxes }] : [])],
+              false,
+            );
+          }
+          if (result.status === 'pending') {
+            progress('validate');
+            await resources.wait(options.signal);
+            continue;
+          }
+          if (cancelled()) return stopped('aborted', true);
+          lastReason = result.reason;
+          const edge = proposal.path?.find(
+            (edge) =>
+              edge.unresolved &&
+              !excludedEdges.includes(edge.key ?? edge.index) &&
+              edge.points.some((point) =>
+                result.window.points.some((candidate) => distance(point, candidate) < 1e-5),
+              ),
+          );
+          if (edge) excludedEdges.push(edge.key ?? edge.index);
+          else excludedArrivals.add(arrival.id);
+          if (attempts >= maxAttempts) return stopped(result.reason ?? 'candidate-budget', true);
+          break;
+        }
+        if (cancelled()) return stopped('aborted', true);
+      }
+      return stopped('candidate-budget', true);
+    } catch (error) {
+      if (cancelled()) return stopped('aborted', true);
+      if (partial) return stopped(error instanceof Error ? error.message : String(error), true);
+      throw error;
+    }
+  };
+  const submit = (query: RouteQuery, options: SolveOptions = {}) => {
+    const task = run(query, options);
+    active.add(task);
+    void task.then(
+      () => active.delete(task),
+      () => active.delete(task),
+    );
+    return task;
+  };
+  return {
+    solve(query, options) {
+      return closed ? Promise.reject(new Error('Scene solver is closed')) : submit(query, options);
+    },
+    solveBatch(queries, options) {
+      if (closed) return Promise.reject(new Error('Scene solver is closed'));
+      const batch = (async () => {
+        const results: RouteResult[] = new Array(queries.length);
+        let next = 0;
+        const lanes = Array.from({ length: Math.min(concurrency, queries.length) }, async () => {
+          while (next < queries.length) {
+            const index = next++;
+            results[index] = await submit(queries[index], options);
+          }
+        });
+        const settled = await Promise.allSettled(lanes);
+        const failure = settled.find((value) => value.status === 'rejected');
+        if (failure?.status === 'rejected') throw failure.reason;
+        return results;
+      })();
+      batches.add(batch);
+      void batch.then(
+        () => batches.delete(batch),
+        () => batches.delete(batch),
+      );
+      return batch;
+    },
+    close() {
+      closing ??= (async () => {
+        closed = true;
+        await Promise.allSettled(batches);
+        await Promise.allSettled(active);
+        await resources.close?.();
+      })();
+      return closing;
+    },
+  };
+}

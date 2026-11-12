@@ -128,6 +128,22 @@ Atlos runs an owned worker against that resource adapter instead of invoking the
 extractor command for online solving. Browser resource and routing clients expose
 transfer accounting separately from algorithm timing. The normal prepared factory accepts only the immutable physical input. Per-query options carry typed progress/candidate events and cooperative cancellation; returned results retain grounded targets and display support boxes. Resource integration uses the separate `solver/host` seam: Ganglia selects serialized work and owns preparation-slot invalidation, while hosts consume its resource/scheduling plan. Coverage estimates and the active window strategy belong to Ganglia; unused legacy attempt/proposal helpers and their isolated tests have been removed. Online IPC carries a structured query. The game adapter prepares validated inputs and reports; CLI and worker adapters own atomic output. The owned noclip routing adaptation is maintained in `routing-adapter.patch`. Browser requests and results bind the catalog generation, source and fully-enabled state. Scene state changes invalidate the current request/result. The resource adapter shares preparation-slot invalidation with Ganglia, while retaining file identity and memory-budget policy.
 
+The scene-level prepared solver owns global candidate selection, query-scoped failed
+transfer/arrival exclusions, physical-window retries, partial target-approach retention
+and terminal-route composition. Atlos supplies normalized game facts and resource
+operations, then formats solver events/results for display. HTTP polling reads ongoing
+work; another request is not needed to advance the algorithm. Closing the scene solver
+drains accepted single/batch work, and repeated close calls share the same completion.
+Partial results carry an explicit marker and retain local discovery truncation.
+
+Ganglia's `benchmark:scene` runs the same scene solver from local physical and navigation
+exports through the game adapter, without Vite, a browser or resource HTTP processes.
+Missing physical coverage must be prepared before measurement. The adapter rejects a
+resolved Ganglia source that differs from the benchmark checkout. Input loading and
+candidate construction are recorded separately; timed queries include lazy candidate
+expansion, resource decoding/preparation, physical solving and retries. Whole-batch
+submission permits bounded parallel lanes with independent resource-cache owners.
+
 ## Current scene and movement assumptions
 
 The working snapshot assumes completed tasks, enabled and powered facilities, and open doors. Geometry, body clearance, collision and applicable hazards still constrain passage. Factory region centres can serve as teleport arrivals under the fully traversable factory assumption. The fixed map02 snapshot uses daytime. Preserve these assumptions in result interpretation and source selection.

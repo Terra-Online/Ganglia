@@ -752,3 +752,59 @@ Local evidence: `atlos-lint-check.log`, `atlos-lint-build.log`, `atlos-lint-worl
 and paired screenshots under `.local/research/`. Full private-font packaging remains
 outside source-only validation. This resolves the earlier full-lint acceptance gap.
 The implementation and ownership record remains accurate without a behavior update.
+
+
+## 2026-11-12: headless scene-query orchestration, alpha.80
+
+The scene prepared module now owns global proposal/physical-window orchestration,
+query-local transfer and arrival exclusions, retry budgets, retained target approaches,
+and terminal selection/composition. World supplies resource operations and display
+formatting. HTTP polling observes independently progressing work. Removed World window
+wrappers and their isolated tests; their behavior is exercised at the Ganglia scene seam.
+The game adapter forwards per-query search configuration through its owned patch.
+
+Dual-axis review found and corrected lost local-discovery truncation, repeated close
+returning before work drained, partial/full outcome comparison, and missing provenance
+for the game adapter's resolved Ganglia copy. The file adapter now refuses mismatched
+kernel source before measurement. Proposal results use discriminated variants.
+Focused regressions cover query-local rejection, partial retention, terminal composition,
+cooperative cancellation, concurrent batch ordering, draining close and truncation.
+
+Final checks passed 328 Ganglia tests with formatting/lint/type checks, 1,234 Atlos tests
+with full source-only check (ESLint 745 files, zero errors/warnings; Stylelint 97 files),
+source-only World build, and 21 physical CLI/cache tests. Private-font release packaging
+is outside source-only validation. Atlos HTTP behavior tests retain candidate publication,
+physical failure, alternative arrivals and terminal result caching.
+
+The original 50-query surface-action corpus ran five times on the pre-change source
+`c666cc58700f61d6d201756e2d7dcb27b7f70549eed4ffc7b8ff15c2952dd055`
+and five on final source `d536200c8a671a46f0e138cf57b1a5fd770eb0678f0eee27d3fa7a3ccc09627a`,
+on Node v26.13.0 with a 6 GiB heap. Input hashes, route outcome hashes and truncation
+flags match across all ten runs. Median batch throughput is 6.170057 before and
+6.063405 queries/s after (-1.729%); the observed ranges overlap. This is a small measured
+slowdown, not evidence of an improvement; the surface-action algorithm is unchanged.
+Reports are `scene-core-before-1..5.json`, `scene-core-after-1..5.json` and
+`scene-core-summary.json` under `.local/research/`.
+
+The full scene file-adapter workload used the same 50 ground start/goal pairs with a
+separate, larger physical snapshot (bounds [-1408,-1696] to [-1280,-1536], 202,311
+surfaces) so rounded windows do not exceed retained coverage. Existing verified data
+was preserved. Dataset provenance is stored beside `.local/data/scene-map02/`.
+The game build remains `2954fa80-23c1-1579-2b22-4ecfd6d70418`, content
+`23821a7611be5c0478dc4695d96fd74a`; no device file is available for this workload.
+World and resource HTTP processes were stopped and neither port listened during the
+run. All 50 singles and 50 batch results are complete, including 81 jump segments
+per pass, with identical outcomes and truncation flags. Single median is 16.964741 s,
+P95 33.892929 s; total single time is 978.266221 s. The serial batch took 996.037343 s,
+0.0501989 queries/s. This establishes a new full-query baseline; it is not directly
+comparable to the surface-action timing because it includes global candidate expansion,
+lazy resource preparation, target-side validation, windows and retries.
+
+Full-query kernel binding: `ed1986c9706bee12b956686cbaea513b4166847368374e8c74e93c0add3199b8`;
+game adapter binding: `d6f70ecb86f70a96f56849ae1ff4bc851b33041b49286bf4dd86c14871781f2c`.
+`scene-final-50.json` retains input/code hashes, actual resolved kernel path, per-query
+results and inclusive phase timers. Single/batch own independent preparation; completed
+routes are never cached. Batch accepts bounded parallel lanes with independently leased
+cache owners; real-data acceptance here used one lane, while concurrency behavior is
+covered by the scene seam fixture. The interrupted pre-restart run produced no report
+and is excluded from these measurements.

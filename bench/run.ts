@@ -6,11 +6,17 @@ import type { PreparedRouteSolver, RouteQuery, RouteResult } from '../src/solver
 
 const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const outcome = (result: RouteResult) => ({ route: result.route, connections: result.connections });
+const outcome = (result: RouteResult) => ({
+  route: result.route,
+  connections: result.connections,
+  ...(result.partial ? { partial: true } : {}),
+});
 const summarize = (result: RouteResult) => {
   const complete = result.route.status === 'complete' ? result.route : null;
   return {
     status: result.route.status,
+    partial: result.partial === true,
+    reason: result.reason ?? null,
     cost: complete?.cost ?? null,
     length: complete?.length ?? null,
     jumps: complete?.segments?.filter((segment) => segment.mode === 'jump').length ?? 0,
@@ -24,6 +30,7 @@ const summarize = (result: RouteResult) => {
 export async function runBenchmark(
   prepare: () => Promise<PreparedRouteSolver>,
   cases: readonly { id: string; query: RouteQuery }[],
+  onSingle?: (completed: number, id: string, wallMs: number) => void,
 ) {
   const singles: (ReturnType<typeof summarize> & { id: string; wallMs: number })[] = [];
   const results: RouteResult[] = [];
@@ -35,6 +42,7 @@ export async function runBenchmark(
       const wallMs = performance.now() - started;
       results.push(result);
       singles.push({ id, wallMs, ...summarize(result) });
+      onSingle?.(singles.length, id, wallMs);
     }
   } finally {
     await first.close();
