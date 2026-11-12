@@ -5,90 +5,86 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { prepareSurfaceActionSolver } from '@opendfieldmap/ganglia/solver';
-
+import { loadFileScene } from './adapters/files.ts';
 import { runBenchmark } from './run.ts';
-import { loadMap02, cases } from './scenes/map02.ts';
+import { cases } from './scenes/map02.ts';
+
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { values } = parseArgs({
   options: {
     json: { type: 'boolean' },
-    help: { type: 'boolean', short: 'h' },
+    help: { type: 'boolean' },
     'data-root': { type: 'string', default: resolve(root, '.local/data') },
+    extractor: { type: 'string', default: resolve(root, '.local/repos/Atlos/talos/.cache/noclip') },
+    concurrency: { type: 'string', default: '1' },
+    limit: { type: 'string', default: '50' },
   },
 });
-if (values.help) {
-  console.log('Usage: pnpm benchmark [--json] [--data-root <directory>]');
+if (values.help)
   console.log(
-    `Runs ${cases.length} fixed map02 queries individually, then as one same-scene batch.`,
+    'Usage: pnpm benchmark:full [--json] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <lanes>]',
   );
-} else {
+else {
   try {
-    const { input, metadata } = await loadMap02(values['data-root']);
-    // Include actual source bytes, since a commit alone cannot identify a dirty tree.
-    const sourceHash = createHash('sha256');
-    for (const dir of ['src', 'bench']) {
-      for (const name of (await readdir(resolve(root, dir), { recursive: true })).sort()) {
-        if (!name.endsWith('.ts')) continue;
-        sourceHash.update(`${dir}/${name}\0`).update(await readFile(resolve(root, dir, name)));
+    const count = Number(values.limit);
+    if (!Number.isInteger(count) || count < 1 || count > cases.length)
+      throw new Error('Invalid query limit');
+    const concurrency = Number(values.concurrency);
+    if (!Number.isSafeInteger(concurrency) || concurrency < 1)
+      throw new Error('Invalid concurrency');
+    const started = performance.now();
+    const { prepare, timings, metadata } = await loadFileScene(
+      values['data-root'],
+      values.extractor,
+      concurrency,
+    );
+    const inputLoadMs = performance.now() - started;
+    const selected = cases.slice(0, count);
+    const report = await runBenchmark(prepare, selected, (phase) => {
+      console.error(JSON.stringify({ phase, queries: selected.length }));
+      if (phase === 'batch') {
+        const timing = timings[0];
+        timing.normalizationMs = timing.candidateMs = timing.localSolveMs = 0;
       }
-    }
-    const preparationMs: number[] = [];
-    const report = await runBenchmark(async () => {
-      const started = performance.now();
-      const solver = await prepareSurfaceActionSolver(input);
-      preparationMs.push(performance.now() - started);
-      return solver;
-    }, cases);
+    });
+    const hash = createHash('sha256');
+    for (const directory of ['src', 'bench'])
+      for (const name of (await readdir(resolve(root, directory), { recursive: true })).sort()) {
+        if (name.endsWith('.ts'))
+          hash
+            .update(`${directory}/${name}\0`)
+            .update(await readFile(resolve(root, directory, name)));
+      }
     const output = {
       schemaVersion: 2,
-      runtime: 'native-typescript',
-      adapter: 'surface-action',
-      execution: 'serial',
+      adapter: 'scene-files',
       node: process.version,
       execArgv: process.execArgv,
-      revision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
-      sourceSha256: sourceHash.digest('hex'),
+      revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', cwd: root }).trim(),
+      sourceSha256: hash.digest('hex'),
       ...metadata,
-      cases,
+      concurrency,
+      cases: selected,
+      inputLoadMs,
+      timings,
       policy:
-        'Input I/O and preparation excluded. Single queries first, batch on a separate prepared solver in the same process. No explicit warmup; lazy discovery preparation is charged to its first query. No completed-route cache. OS pages/JIT/GC uncontrolled.',
-      preparationMs,
+        'All dataset file reads, JSON decoding, source verification and hashing finish before preparation. One full unmeasured batch prewarms the same prepared solver and lane-local physical caches. The measured batch recomputes queries without completed-route caching and reads inputs from memory only. It includes normalization, remaining lazy computation, candidate search, target approach, physical windows and retries. Inclusive phase timers describe measured work only and may overlap across lanes. OS scheduling/JIT/GC uncontrolled.',
       ...report,
     };
     if (values.json) console.log(JSON.stringify(output, null, 2));
     else {
       console.log(
-        `${metadata.scene}: ${cases.length} queries; surface-action adapter (serial batch)`,
+        `${metadata.scene}: ${selected.length} full-scene queries; local files, no Atlos server`,
       );
+      console.table(report.batch.results);
+      console.log(`Prewarm: ${(report.prewarmMs / 1000).toFixed(2)} s; excluded`);
       console.log(
-        `Preparation (single / batch): ${preparationMs.map((ms) => ms.toFixed(1)).join(' / ')} ms; excluded`,
-      );
-      console.table(
-        report.single.results.map((r) => ({
-          query: r.id,
-          ms: +r.wallMs.toFixed(2),
-          status: r.status,
-          cost: r.cost,
-          jumps: r.jumps,
-          drops: r.drops,
-          truncated: r.truncated,
-        })),
-      );
-      console.log(
-        `Single: total ${report.single.totalWallMs.toFixed(2)} ms, median ${report.single.medianMs?.toFixed(2) ?? 'n/a'} ms, P95 ${report.single.p95Ms?.toFixed(2) ?? 'n/a'} ms`,
-      );
-      console.log(
-        `Batch: ${report.batch.wallMs.toFixed(2)} ms, ${report.batch.queriesPerSecond.toFixed(2)} queries/s`,
-      );
-      console.log(
-        `Same outcomes: ${report.batch.results.filter((r) => r.sameOutcomeAsSingle && r.sameTruncationAsSingle).length}/${cases.length}`,
+        `Batch: ${report.batch.queriesPerSecond.toFixed(3)} queries/s; ${report.batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${selected.length} outcomes match prewarm`,
       );
       console.log(output.policy);
     }
   } catch (error) {
-    console.error(`Benchmark failed: ${error instanceof Error ? error.message : String(error)}`);
-    console.error('Use --data-root to select the directory containing the scene exports.');
+    console.error(error);
     process.exitCode = 1;
   }
 }

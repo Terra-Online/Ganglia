@@ -808,3 +808,39 @@ routes are never cached. Batch accepts bounded parallel lanes with independently
 cache owners; real-data acceptance here used one lane, while concurrency behavior is
 covered by the scene seam fixture. The interrupted pre-restart run produced no report
 and is excluded from these measurements.
+
+
+## 2026-11-12: one prewarmed full-scene batch benchmark
+
+The maintained benchmark is now only `pnpm benchmark:full`. Core benchmark loading,
+the separate scene command and individual-query timing were removed; the 50-query
+ground corpus and whole-batch scheduling contract remain. The file adapter eagerly
+reads and decodes a fixed memory snapshot, supplies it directly to the game adapter,
+and retains lane-local physical preparation. Timed queries perform no dataset file
+reads, stat checks or JSON decoding. Query-specific normalization and any remaining
+lazy computation remain timed. One unmeasured full batch prewarms the same solver;
+measurement recomputes the whole workload without completed-route caching.
+
+Benchmark seam tests cover whole-batch warm/measured submission, result ordering,
+cleanup on failure and partial/full outcome differences. Full Ganglia check passed
+328 tests plus formatting, lint and type checking. Dual-axis review had no required
+findings. The actual game adapter was inspected to confirm that its contextual input
+reads exclusively use the supplied in-memory begin/read/preparation implementation.
+No solver source, algorithm or Atlos integration code changed.
+
+The 50-query real-data run on Node v26.13.0 and a 6 GiB heap passed: all routes are
+complete, including 81 jump segments; warm/measured outcome hashes and truncation
+flags agree for all 50 inputs and match the retained alpha.80 full-scene results.
+Input loading/decoding/verification took 0.534376 s and initial candidate preparation
+0.710712 s; the full prewarm batch took 892.563280 s. Those durations are excluded.
+Measured batch wall time is 849.194857 s, throughput 0.0588793 queries/s. This is a
+warm-prepared baseline with different timing/cache semantics from the earlier run;
+it does not establish an algorithm speedup.
+
+Report: `.local/research/full-batch-50.json`; source binding
+`0a65ce00c10b0d878c0283aad10e431544bf625a2490a083f68479e0101819cb`.
+Kernel and dataset bindings are unchanged from the alpha.80 scene run. The report
+records all consumed file hashes, adapter/source identities, prewarm duration,
+measured inclusive phase timers and per-query outcome/truncation comparisons.
+The real-data acceptance uses one execution lane; configured batch concurrency remains
+available. A one-query batch validated the memory adapter before the full run.

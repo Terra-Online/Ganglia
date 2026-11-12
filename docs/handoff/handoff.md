@@ -136,13 +136,16 @@ work; another request is not needed to advance the algorithm. Closing the scene 
 drains accepted single/batch work, and repeated close calls share the same completion.
 Partial results carry an explicit marker and retain local discovery truncation.
 
-Ganglia's `benchmark:scene` runs the same scene solver from local physical and navigation
-exports through the game adapter, without Vite, a browser or resource HTTP processes.
-Missing physical coverage must be prepared before measurement. The adapter rejects a
-resolved Ganglia source that differs from the benchmark checkout. Input loading and
-candidate construction are recorded separately; timed queries include lazy candidate
-expansion, resource decoding/preparation, physical solving and retries. Whole-batch
-submission permits bounded parallel lanes with independent resource-cache owners.
+Ganglia's only maintained benchmark entry is `benchmark:full`. It submits the whole
+scene-query batch once for unmeasured prewarming and again for measurement on the
+same prepared solver. The file adapter reads/decodes all dataset inputs before either
+pass and serves a fixed in-memory snapshot to lane-local physical preparation caches.
+No frontend, resource HTTP process or completed-route cache participates. Timed work
+includes query-specific normalization, search, physical windows, retries and any
+remaining lazy computation. Preparation and prewarm durations are reported separately;
+measured inclusive phase timers may overlap across concurrent lanes. Warm/measured
+outcomes and truncation flags are compared per input. The resolved game-adapter kernel
+must match the benchmark checkout. Missing coverage requires offline preparation.
 
 ## Current scene and movement assumptions
 

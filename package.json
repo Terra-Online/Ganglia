@@ -24,9 +24,8 @@
     "lint": "oxlint src bench test",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "test": "node --test test/*.test.ts",
-    "benchmark": "node bench/cli.ts",
     "prepack": "pnpm check",
-    "benchmark:scene": "node --max-old-space-size=6144 bench/scene-cli.ts"
+    "benchmark:full": "node --max-old-space-size=6144 bench/cli.ts"
   },
   "dependencies": {
     "@recast-navigation/core": "0.44.0"

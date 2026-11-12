@@ -10,6 +10,7 @@ import type { GroundOptions } from '../../src/route/ground.ts';
 import type { Route } from '../../src/route/routes.ts';
 import { createCandidatePlanner } from '../../src/search/candidate-planner.ts';
 import type { RouteResult } from '../../src/solver/contract.ts';
+import { createPhysicalPreparation } from '../../src/solver/physical/host.ts';
 import type { PhysicalWork } from '../../src/solver/physical/work.ts';
 import { prepareSceneRouteSolver, type SceneResources } from '../../src/solver/scene/prepared.ts';
 import type { WindowRequest } from '../../src/solver/window-route.ts';
@@ -46,10 +47,16 @@ export async function loadFileScene(dataRoot: string, extractor: string, concurr
     devices: resolve(dataRoot, 'routing/map02-traversal-devices.json'),
   };
   const hashes: Record<string, string> = {};
+  const inputs = new Map<string, unknown>();
+  let inputBytes = 0;
   const read = async <T>(name: string): Promise<T> => {
+    if (inputs.has(name)) return inputs.get(name) as T;
     const bytes = await readFile(name);
+    inputBytes += bytes.byteLength;
     hashes[name] = createHash('sha256').update(bytes).digest('hex');
-    return JSON.parse(bytes.toString()) as T;
+    const value: unknown = JSON.parse(bytes.toString());
+    inputs.set(name, value);
+    return value as T;
   };
   const ground = await read<Ground>(files.ground);
   const navigation = await read<Ground>(resolve(dataRoot, 'routing/map02-ground-all.json'));
@@ -85,11 +92,6 @@ export async function loadFileScene(dataRoot: string, extractor: string, concurr
   const { preparePhysicalRoute } = (await import(
     pathToFileURL(resolve(extractor, 'packages/extractor/src/game/physical-input.ts')).href
   )) as GameAdapter;
-  const { createRouteCache } = (await import(
-    pathToFileURL(resolve(extractor, 'packages/extractor/src/route-cache.ts')).href
-  )) as {
-    createRouteCache(): { clear(): void };
-  };
   const movement = await read<{ sustainedSprint: GroundOptions['locomotion'] }>(files.movement);
   if (!movement.sustainedSprint) throw new Error('Missing locomotion settings');
   const adapterHash = createHash('sha256');
@@ -105,25 +107,36 @@ export async function loadFileScene(dataRoot: string, extractor: string, concurr
   const locomotion = movement.sustainedSprint;
   const timings: {
     preparationMs: number;
-    resourceLoadMs: number;
+    normalizationMs: number;
     candidateMs: number;
     localSolveMs: number;
   }[] = [];
   const prepare = async () => {
     const started = performance.now();
-    const caches = Array.from({ length: concurrency }, () => createRouteCache());
+    const binding = JSON.stringify(hashes);
+    // Input bytes and decoding are owned by loadFileScene. Physical preparation
+    // remains lane-local, while timed queries read only this immutable memory snapshot.
+    const caches = Array.from({ length: concurrency }, () => {
+      const preparation = createPhysicalPreparation();
+      return {
+        begin: async () => binding,
+        read: async (_slot: string, path: string) => inputs.get(path),
+        preparation,
+        clear: preparation.clear,
+      };
+    });
     const idle = [...caches];
-    const waiting: ((cache: ReturnType<typeof createRouteCache>) => void)[] = [];
+    const waiting: ((cache: (typeof caches)[number]) => void)[] = [];
     const acquire = () => {
       const cache = idle.pop();
       return cache
         ? Promise.resolve(cache)
-        : new Promise<ReturnType<typeof createRouteCache>>((resolve) => waiting.push(resolve));
+        : new Promise<(typeof caches)[number]>((resolve) => waiting.push(resolve));
     };
     const planner = createCandidatePlanner(navigation);
     const timing = {
       preparationMs: performance.now() - started,
-      resourceLoadMs: 0,
+      normalizationMs: 0,
       candidateMs: 0,
       localSolveMs: 0,
     };
@@ -156,7 +169,7 @@ export async function loadFileScene(dataRoot: string, extractor: string, concurr
         try {
           let started = performance.now();
           const prepared = await preparePhysicalRoute(files, request, { cache });
-          timing.resourceLoadMs += performance.now() - started;
+          timing.normalizationMs += performance.now() - started;
           started = performance.now();
           const result = await prepared.solve({ work });
           timing.localSolveMs += performance.now() - started;
@@ -198,6 +211,7 @@ export async function loadFileScene(dataRoot: string, extractor: string, concurr
       gameAdapterSha256,
       kernelSha256,
       resolvedKernel,
+      inputBytes,
     },
   };
 }

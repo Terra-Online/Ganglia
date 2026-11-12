@@ -26,62 +26,41 @@ const summarize = (result: RouteResult) => {
   };
 };
 
-// Submit the batch once so scheduling remains the adapter's responsibility.
+// Warm and measured passes submit the whole workload; neither pass drives solve().
 export async function runBenchmark(
   prepare: () => Promise<PreparedRouteSolver>,
   cases: readonly { id: string; query: RouteQuery }[],
-  onSingle?: (completed: number, id: string, wallMs: number) => void,
+  onPhase?: (phase: 'prewarm' | 'batch') => void,
 ) {
-  const singles: (ReturnType<typeof summarize> & { id: string; wallMs: number })[] = [];
-  const results: RouteResult[] = [];
-  const first = await prepare();
+  const solver = await prepare();
+  const queries = cases.map((item) => item.query);
   try {
-    for (const { id, query } of cases) {
-      const started = performance.now();
-      const result = await first.solve(query);
-      const wallMs = performance.now() - started;
-      results.push(result);
-      singles.push({ id, wallMs, ...summarize(result) });
-      onSingle?.(singles.length, id, wallMs);
-    }
+    onPhase?.('prewarm');
+    let started = performance.now();
+    const warm = await solver.solveBatch(queries);
+    const prewarmMs = performance.now() - started;
+    if (warm.length !== cases.length)
+      throw new Error('Prewarm returned a different number of results');
+    onPhase?.('batch');
+    started = performance.now();
+    const batch = await solver.solveBatch(queries);
+    const wallMs = performance.now() - started;
+    if (batch.length !== cases.length)
+      throw new Error('Batch returned a different number of results');
+    return {
+      prewarmMs,
+      batch: {
+        wallMs,
+        queriesPerSecond: cases.length / (wallMs / 1000),
+        results: batch.map((result, i) => ({
+          id: cases[i].id,
+          ...summarize(result),
+          sameOutcomeAsPrewarm: isDeepStrictEqual(outcome(result), outcome(warm[i])),
+          sameTruncationAsPrewarm: result.diagnostics.truncated === warm[i].diagnostics.truncated,
+        })),
+      },
+    };
   } finally {
-    await first.close();
+    await solver.close();
   }
-
-  // Separate preparation keeps single-query runs out of batch caches.
-  const second = await prepare();
-  let batch: readonly RouteResult[], wallMs: number;
-  try {
-    const started = performance.now();
-    batch = await second.solveBatch(cases.map((item) => item.query));
-    wallMs = performance.now() - started;
-  } finally {
-    await second.close();
-  }
-  if (batch.length !== cases.length)
-    throw new Error('Batch returned a different number of results');
-  const times = singles.map((row) => row.wallMs).sort((a, b) => a - b);
-  const percentile = (p: number) => times[Math.ceil(times.length * p) - 1] ?? null;
-  const middle = Math.floor(times.length / 2);
-  const medianMs = times.length
-    ? (times[Math.floor((times.length - 1) / 2)] + times[middle]) / 2
-    : null;
-  return {
-    single: {
-      totalWallMs: singles.reduce((sum, row) => sum + row.wallMs, 0),
-      medianMs,
-      p95Ms: percentile(0.95),
-      results: singles,
-    },
-    batch: {
-      wallMs,
-      queriesPerSecond: cases.length / (wallMs / 1000),
-      results: batch.map((result, i) => ({
-        id: cases[i].id,
-        ...summarize(result),
-        sameOutcomeAsSingle: isDeepStrictEqual(outcome(result), outcome(results[i])),
-        sameTruncationAsSingle: result.diagnostics.truncated === results[i].diagnostics.truncated,
-      })),
-    },
-  };
 }
