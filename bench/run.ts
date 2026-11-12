@@ -4,6 +4,8 @@ import { isDeepStrictEqual } from 'node:util';
 
 import type { PreparedRouteSolver, RouteQuery, RouteResult } from '@opendfieldmap/ganglia';
 
+import { summarizeQuality } from '#@/bench/quality.ts';
+
 const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const outcome = (result: RouteResult) => ({
@@ -47,18 +49,20 @@ export async function runBenchmark(
     const wallMs = performance.now() - started;
     if (batch.length !== cases.length)
       throw new Error('Batch returned a different number of results');
+    const results = batch.map((result, i) => ({
+      id: cases[i].id,
+      ...summarize(result),
+      sameOutcomeAsPrewarm: isDeepStrictEqual(outcome(result), outcome(warm[i])),
+      sameTruncationAsPrewarm: result.diagnostics.truncated === warm[i].diagnostics.truncated,
+    }));
     return {
       config: solver.config,
       prewarmMs,
       batch: {
         wallMs,
         queriesPerSecond: cases.length / (wallMs / 1000),
-        results: batch.map((result, i) => ({
-          id: cases[i].id,
-          ...summarize(result),
-          sameOutcomeAsPrewarm: isDeepStrictEqual(outcome(result), outcome(warm[i])),
-          sameTruncationAsPrewarm: result.diagnostics.truncated === warm[i].diagnostics.truncated,
-        })),
+        quality: summarizeQuality(results),
+        results,
       },
     };
   } finally {

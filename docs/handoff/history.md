@@ -1447,3 +1447,42 @@ The broad Atlos source-only check stopped at a filter test because a sequential
 shell command used the system Node lacking Uint8Array.fromBase64; the complete
 World suite and worker integration pass when rerun with Node 26. Other app suites
 following World in the broad check were not executed by that interrupted command.
+
+
+## Deterministic benchmark route quality, 2026-11-12
+
+Benchmark schema 5 keeps solver throughput and adds modeled travel time in seconds
+as a route-quality objective. route.cost includes arrival overhead and resource-timed
+motion. Only complete, non-partial solutions contribute; an incomplete workload has
+no total cost, preventing cheap failures from improving that aggregate. Mean completed
+cost is accompanied by explicit completion coverage.
+
+The optional --reference flag reads a fixed report before solver preparation.
+Comparison binds scene, source, all consumed content hashes, game adapter and exact
+queries. It permits solver/config changes and relocated input files. It reports lost
+and gained solutions separately from paired cost ratios, their geometric mean and
+worst ratio; zero-reference regressions remain explicit rather than becoming JSON
+Infinity or silently disappearing. The exact reference file SHA-256 is recorded.
+These ratios compare measured feasible routes and are not optimality certificates.
+Reference input compatibility does not independently certify route physics or game
+execution. Quality reporting remains outside the measured batch interval.
+
+This follows the usual motion-planning separation of solve success and objective
+cost; OMPL supports custom objectives and Moving AI publishes optimal lengths for
+its discrete-grid scenarios. Ganglia has no optimal oracle for its complete movement
+model, so geometric distance or grid-optimal length cannot supply that certificate.
+
+Ganglia format/lint/type checks and all 335 tests pass. Four focused quality tests
+cover missing/partial solutions, paired aggregation and worst-case regressions,
+zero reference costs, and input binding. A fresh 10-query CLI run uses
+.local/research/benchmark-quality-reference-10.json and writes
+.local/research/benchmark-quality-10.json. All requests complete, all warm outcome
+and truncation checks match, and every ordered outcome hash matches the fixed
+reference. Total/mean modeled time is 96.74069268315841/9.674069268315842 seconds;
+geometric mean and worst cost ratios are both 1, with no lost/gained solutions.
+Measured batch wall time is 204509.976834 ms, throughput 0.048897369971 queries/s.
+This harness-only change makes no algorithm speedup claim. The kernel SHA-256 stays
+79ab2d3a6964a11555e33a41a46594ec2d3b3e8f556a82b45ed111d0eb453978.
+The new source/benchmark SHA-256 is
+ba0e84cff9f59f52ccafb52e7340cdb67775671ddc9891815c621a9821460cff.
+No packaged solver source or Atlos dependency changes are needed.

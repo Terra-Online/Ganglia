@@ -7,6 +7,7 @@ import { parseArgs } from 'node:util';
 
 import { prepareRouteSolver, gangliaV1Defaults, type SolverConfig } from '@opendfieldmap/ganglia';
 
+import { compareQuality, readReference } from '#@/bench/quality.ts';
 import { runBenchmark } from '#@/bench/run.ts';
 import { loadScene } from '#@/bench/scene.ts';
 import { cases } from '#@/bench/scenes/map02.ts';
@@ -20,12 +21,13 @@ const { values } = parseArgs({
     extractor: { type: 'string', default: resolve(root, '.local/repos/Atlos/talos/.cache/noclip') },
     concurrency: { type: 'string' },
     config: { type: 'string' },
+    reference: { type: 'string' },
     limit: { type: 'string', default: '50' },
   },
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <lanes>] [--config <json-file>]',
+    'Usage: pnpm benchmark:full [--json] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <lanes>] [--config <json-file>] [--reference <benchmark-json>]',
   );
 else {
   try {
@@ -45,9 +47,14 @@ else {
       values.extractor,
       concurrency,
     );
+    const selected = cases.slice(0, count);
+    const referenceBytes = values.reference ? await readFile(values.reference) : undefined;
+    const reference = referenceBytes
+      ? readReference(JSON.parse(referenceBytes.toString()), { ...metadata, cases: selected })
+      : undefined;
+    // Reject incompatible references before spending time on prewarm and search.
     const solver = await prepareRouteSolver({ ...config, batchConcurrency: concurrency }, input);
     const setupMs = performance.now() - started;
-    const selected = cases.slice(0, count);
     const report = await runBenchmark(solver, selected, (phase) => {
       console.error(JSON.stringify({ phase, queries: selected.length }));
       if (phase === 'batch') {
@@ -63,7 +70,7 @@ else {
             .update(await readFile(resolve(root, directory, name)));
       }
     const output = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       adapter: 'scene-files',
       node: process.version,
       execArgv: process.execArgv,
@@ -78,6 +85,14 @@ else {
       policy:
         'All dataset file reads, JSON decoding, source verification and hashing finish before preparation. One full unmeasured batch prewarms the same prepared solver and lane-local physical caches. The measured batch recomputes queries without completed-route caching and reads inputs from memory only. It includes normalization, remaining lazy computation, candidate search, target approach, physical windows and retries. Inclusive phase timers describe measured work only and may overlap across lanes. OS scheduling/JIT/GC uncontrolled.',
       ...report,
+      ...(reference && referenceBytes
+        ? {
+            comparison: {
+              referenceSha256: createHash('sha256').update(referenceBytes).digest('hex'),
+              ...compareQuality(report.batch.results, reference),
+            },
+          }
+        : {}),
     };
     if (values.json) console.log(JSON.stringify(output, null, 2));
     else {
@@ -89,6 +104,15 @@ else {
       console.log(
         `Batch: ${report.batch.queriesPerSecond.toFixed(3)} queries/s; ${report.batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${selected.length} outcomes match prewarm`,
       );
+      console.log(
+        `Quality: ${report.batch.quality.completed}/${selected.length} complete; total modeled travel time: ${report.batch.quality.totalCostSeconds ?? 'incomplete'} s`,
+      );
+      if (output.comparison) {
+        console.log(
+          `Reference: ${output.comparison.pairedCompleted} paired completions; lost ${output.comparison.lostSolutions.length}; gained ${output.comparison.gainedSolutions.length}; geometric mean cost ratio ${output.comparison.geometricMeanCostRatio ?? 'unavailable'}; worst ${output.comparison.worstCostRatio ?? 'unavailable'} (lower is better)`,
+        );
+        console.table(output.comparison.pairs);
+      }
       console.log(output.policy);
     }
   } catch (error) {

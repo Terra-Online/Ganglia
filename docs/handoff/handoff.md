@@ -154,7 +154,7 @@ pass and serves a fixed in-memory snapshot to lane-local physical preparation ca
 No frontend, resource HTTP process or completed-route cache participates. Timed work
 includes query-specific normalization, search, physical windows, retries and any
 remaining lazy computation. Preparation and prewarm durations are reported separately;
-measured inclusive resource-adapter phase timers may overlap across concurrent lanes. JSON schema 4 removes the host-owned candidate timer; candidate search remains included in total batch wall time. `--config` selects a complete serialized solver configuration; the report records the effective frozen policy. Warm/measured
+measured inclusive resource-adapter phase timers may overlap across concurrent lanes. The host-owned candidate timer is omitted; candidate search remains included in total batch wall time. JSON schema 5 adds deterministic modeled-travel-time quality summaries and optional fixed-reference comparisons. Complete non-partial routes contribute their total modeled seconds, including arrival overhead. A workload with missing/partial solutions has no total quality cost. Reference comparisons bind scene, source, consumed input content, game adapter and exact queries, while allowing different solver/configuration implementations. They report lost/gained solutions, per-query cost ratios, geometric mean ratio and worst ratio. Completion must be assessed before paired costs; a reference is not an optimality oracle. `--config` selects a complete serialized solver configuration; the report records the effective frozen policy. Warm/measured
 outcomes and truncation flags are compared per input. The resolved game-adapter kernel
 must match the benchmark checkout. Missing coverage requires offline preparation.
 
