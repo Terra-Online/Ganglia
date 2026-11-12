@@ -1,7 +1,7 @@
 import type { CollisionWorld } from '../geo/collision.ts';
 import type { Vec3, Surface } from '../geo/geometry.ts';
 import type { InteractionGoal } from '../motion/goals.ts';
-import { createGoalProjector } from '../motion/goals.ts';
+import { createGoalProjector, findGoalHit, markTerminalGoal } from '../motion/goals.ts';
 import type { JumpModel } from '../motion/jumps.ts';
 import type {
   ShortcutDiagnostics,
@@ -65,6 +65,8 @@ export interface JumpDiagnostics {
   baselineCost: number | null;
   selectedCost: number | null;
   truncated: boolean;
+  unusedCandidates?: number;
+  deviceImprovement?: JumpDiagnostics;
   searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[];
   /** Additional bounded entry queries after primary feasibility fails. */
   deviceApproaches?: {
@@ -72,6 +74,7 @@ export interface JumpDiagnostics {
     goals: number;
     searches: {
       device: string;
+      budget: number;
       status: Route['status'];
       discovery: JumpDiagnostics;
     }[];
@@ -162,6 +165,7 @@ function solveJumpRoute(
   if (best.status === 'complete') diagnostics.baselineCost = best.cost;
   const ids = new Set<string>(bestConnections.map((connection) => connection.id));
   let serial = 0;
+  let unspent = options.maxCandidates;
   const actions = new Map<string, GroundConnection>();
   const withGait = (
     connection: GroundConnection & { peakHorizontalSpeed?: number },
@@ -233,19 +237,12 @@ function solveJumpRoute(
     // Cheap region-chain proposals cover simple transfers before broad frontiers.
     // The same bounded stage runs for every unresolved query.
     const proposalBudget =
-      stage === 'direction'
-        ? 0
-        : stage === 'relations'
-          ? remaining
-          : Math.min(128, Math.floor(remaining / 8));
+      stage === 'relations' ? remaining : Math.min(128, Math.floor(remaining / 8));
     if (incumbent.status !== 'complete' && proposalBudget > 0) {
-      const proposal = findJumpConnections(
-        surfaces,
-        world,
-        discoveryOptions,
-        { arcAttempts: proposalBudget * 2, regionSearches: proposalBudget },
-        stage === 'entry' || stage === 'relations',
-      );
+      const proposal = findJumpConnections(surfaces, world, discoveryOptions, {
+        arcAttempts: proposalBudget * 2,
+        regionSearches: proposalBudget,
+      });
       connections.push(...search(proposal));
       remaining = stage === 'relations' ? 0 : remaining - proposalBudget;
       if (proposal.connections.length)
@@ -319,6 +316,7 @@ function solveJumpRoute(
       });
     }
     if (incumbent.status !== 'complete') {
+      unspent = 0;
       for (const connection of connections) partialConnections.set(connection.id, connection);
       continue;
     }
@@ -327,11 +325,23 @@ function solveJumpRoute(
       bestConnections = connections;
     }
     const improvementBudget = Math.min(remaining, options.maxShortcutCandidates ?? remaining);
-    if (improvementBudget <= 0) continue;
+    if (improvementBudget <= 0) {
+      unspent = Math.min(unspent, Math.max(0, remaining));
+      continue;
+    }
     const localBaseline = incumbent,
       localBaseConnections = connections;
-    // Preserve the broad comparison's budget and incumbent. A new local heuristic
-    // must not displace an alternative already covered by that established pass.
+    const localBudget = Math.min(
+      128,
+      Math.floor(improvementBudget / 4),
+      remaining - improvementBudget,
+    );
+    const refinementBudget = Math.min(localBudget, remaining - improvementBudget - localBudget);
+    unspent = Math.min(
+      unspent,
+      Math.max(0, remaining - improvementBudget - localBudget - refinementBudget),
+    );
+    // Reserve the broad comparison before refining its verified incumbent.
     const alternatives = search(
       findJumpShortcuts(
         surfaces,
@@ -360,27 +370,26 @@ function solveJumpRoute(
         bestConnections = connections;
       }
     }
-    const localBudget = Math.min(
-      128,
-      Math.floor(improvementBudget / 4),
-      remaining - improvementBudget,
-    );
-    if (localBudget > 0) {
+    for (const [baseline, baseConnections, budget] of [
+      [localBaseline, localBaseConnections, localBudget],
+      [incumbent, connections, incumbent === localBaseline ? 0 : refinementBudget],
+    ] as const) {
+      if (budget <= 0) continue;
       const local = findRouteShortcuts(
         surfaces,
         world,
         {
           ...discoveryOptions,
           connections,
-          maxCandidates: localBudget,
-          baseline: localBaseline,
+          maxCandidates: budget,
+          baseline,
           speed: options.locomotion?.sprintSpeed ?? options.speed,
         },
         cache,
       );
       const additions = search(local);
       if (additions.length) {
-        const localConnections = [...localBaseConnections, ...additions];
+        const localConnections = [...baseConnections, ...additions];
         const localRoute = planner.plan([arrival], goal, {
           interaction,
           endpointTolerance: options.endpointTolerance,
@@ -405,6 +414,7 @@ function solveJumpRoute(
       }
     }
   }
+  diagnostics.unusedCandidates = unspent;
   if (best.status === 'complete') diagnostics.selectedCost = best.cost;
   return {
     route: best,
@@ -667,12 +677,26 @@ function planBaseRoute(
       return [edge, component ?? edge.id];
     }),
   );
-  // Divide causal approach work across distinct ground regions instead of
-  // multiplying the full query budget by every discovered device endpoint.
+  const arrivals = starts.filter((start) => start.state === 'available');
+  const scores = new Map(
+    sources.map((edge) => [
+      edge,
+      Math.min(
+        ...arrivals.map(
+          (start) =>
+            start.cost +
+            Math.hypot(...edge.points[0].map((value, axis) => value - start.position[axis])) /
+              options.speed,
+        ),
+      ),
+    ]),
+  );
+  sources.sort((a, b) => scores.get(a)! - scores.get(b)!);
   const entryBudget = Math.min(
     options.maxCandidates,
-    Math.max(128, Math.floor(options.maxCandidates / Math.max(1, new Set(regions.values()).size))),
+    Math.max(128, Math.floor(options.maxCandidates / 8)),
   );
+  let entryRemaining = options.maxCandidates;
   const attempts: NonNullable<JumpDiagnostics['deviceApproaches']> = {
     budgetPerGoal: entryBudget,
     goals: sources.length,
@@ -694,8 +718,13 @@ function planBaseRoute(
       });
       continue;
     }
+    if (entryRemaining <= 0) {
+      result.diagnostics.truncated = true;
+      break;
+    }
     eligible = true;
     if (region !== undefined && region !== null) searchedRegions.add(region);
+    const budget = Math.min(entryBudget, entryRemaining);
     const trial = planDirectedRoute(
       surfaces,
       world,
@@ -708,35 +737,58 @@ function planBaseRoute(
         interaction: undefined,
         waypoints: undefined,
         maxShortcutCandidates: 0,
-        maxCandidates: entryBudget,
+        maxCandidates: budget,
       },
       shared,
       'entry',
     );
+    entryRemaining -= budget;
     result.diagnostics.truncated ||= trial.diagnostics.truncated;
     known = trial.connections;
     const route = planner.plan(starts, goal, {
       interaction: options.interaction,
       connections: trial.connections,
     });
-    attempts.searches.push({ device: edge.id, status: route.status, discovery: trial.diagnostics });
+    attempts.searches.push({
+      device: edge.id,
+      budget,
+      status: route.status,
+      discovery: trial.diagnostics,
+    });
     options.onProgress?.({
       phase: 'device-entry-search',
       completed: index + 1,
       total: sources.length,
       status: route.status,
     });
-    if (route.status === 'complete')
+    if (route.status === 'complete') {
+      const improvement = solveJumpRoute(
+        surfaces,
+        world,
+        starts,
+        goal,
+        {
+          ...options,
+          groundPlanner: planner,
+          connections: trial.connections,
+          maxCandidates: trial.diagnostics.unusedCandidates ?? 0,
+        },
+        shared,
+        'final',
+        route,
+      );
       return {
         ...result,
-        route,
-        connections: trial.connections,
+        route: improvement.route,
+        connections: improvement.connections,
         diagnostics: {
           ...result.diagnostics,
-          selectedCost: route.cost,
+          selectedCost: improvement.route.status === 'complete' ? improvement.route.cost : null,
           deviceApproaches: attempts,
+          deviceImprovement: improvement.diagnostics,
         },
       };
+    }
   }
   if (!eligible) {
     // New action chains supplement an unresolved primary query. Earlier feasible
@@ -778,9 +830,15 @@ export function planJumpRoute(
   options: JumpRouteOptions,
 ): JumpResult {
   const result = planBaseRoute(surfaces, world, starts, goal, options);
-  return options.boosts?.length
+  const best = options.boosts?.length
     ? planBoostedRoute(surfaces, world, starts, goal, options, result, planBaseRoute)
     : result;
+  if (options.interaction?.airborne && best.route.status === 'complete' && !best.route.goalHit) {
+    const point = best.route.points.at(-1)!;
+    if (findGoalHit([point, point], goal, options.interaction))
+      best.route = markTerminalGoal(best.route);
+  }
+  return best;
 }
 
 export function validateWaypoints(waypoints: unknown): asserts waypoints is Vec3[] | undefined {

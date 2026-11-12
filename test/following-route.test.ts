@@ -232,11 +232,12 @@ test('a candidate needs complete support under its actual footprint, including n
   const result = await solve({
     surfaces: [
       floor('left', -8, 7.9, 0, -1, 1),
-      floor('right', 9.5, 18, 0, -1, 1),
+      floor('right-near', 9.5, 11.95, 0, -1, 1),
+      floor('right-far', 12.05, 18, 0, -1, 1),
       floor('upper', 10, 15, 2.5, -0.5, 0.5),
     ],
   });
-  assert.equal(result.route.status, 'no-verified-route');
+  assert.equal(result.route.status, 'no-verified-route', JSON.stringify(result.diagnostics));
   assert.ok(
     result.diagnostics.outcomes.some((outcome) => outcome.reason === 'placement-base-unsupported'),
   );

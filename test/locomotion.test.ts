@@ -707,3 +707,21 @@ test('retiming keeps terminal airborne goal evidence attached to its shifted seg
   assert.deepEqual(result.goalHit!.position, [24, 2, 0]);
   assert.deepEqual(input, original);
 });
+
+test('ground completion events follow the final segment after stamina and dash splitting', () => {
+  const input = line(60);
+  input.segments[0].times = [0, 60];
+  input.goalHit = { segment: 0, time: 60, position: [60, 0, 0] };
+  const result = retimeGroundRoute(input, {
+    ...options,
+    stamina,
+    dash: { speed: 10, duration: 0.3, cooldown: 0.8, cost: 1 },
+  });
+  assert.equal(result.status, 'complete');
+  assert.ok(result.goalHit);
+  assert.ok(result.segments.length > 1);
+  assert.equal(result.goalHit.segment, result.segments.length - 1);
+  assert.equal(result.goalHit.time, result.segments.at(-1)!.times.at(-1));
+  assert.deepEqual(result.goalHit.position, result.points.at(-1));
+  assert.equal(input.goalHit.time, 60);
+});

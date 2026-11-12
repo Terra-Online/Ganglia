@@ -889,3 +889,26 @@ test('returns a complete device approach before probing every other known entry'
   );
   assert.equal(result.diagnostics.deviceApproaches!.searches.length, 1);
 });
+
+test('a ground-reachable airborne interaction records its exact completion event', () => {
+  const surfaces = [floor('road', 0, 20, 0)],
+    world = createCollisionWorld(geometry(surfaces));
+  const starts: Vec3[] = [
+    [2, 0, 0],
+    [18, 0, 0],
+  ];
+  for (const start of starts) {
+    const result = planJumpRoute(surfaces, world, arrival(start), [18, 0, 0], {
+      ...options,
+      maxCandidates: 0,
+      interaction: { radius: 1, airborne: true },
+    });
+    assert.equal(result.route.status, 'complete');
+    const event = result.route.goalHit;
+    assert.ok(event);
+    const segment = result.route.segments[event.segment];
+    assert.deepEqual(event.position, result.route.points.at(-1));
+    assert.equal(event.time, segment.times.at(-1));
+    assert.ok(Math.hypot(event.position[0] - 18, event.position[1], event.position[2]) <= 1);
+  }
+});

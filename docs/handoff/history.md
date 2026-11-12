@@ -168,9 +168,10 @@ The attachment originally placed resource work at P0, requested five interleaved
 2. **Validate the claimed candidate contract.** For an optimization claiming equivalent finite enumeration, compare old and new retained representatives under unchanged seed/neighbor/endpoint/trajectory budgets. Preserve stable ties, uncertainty ordering, source/intermediate fairness, insertion order and truncation; the current dominated-face optimization still consumes its original neighbor slot. An intentional replacement of the generation/search strategy must instead state its coverage, fairness, stopping and budget semantics, and validate feasibility and route quality against the established controls. Do not silently call reordered or reduced sampling equivalent, or obtain a speedup solely by weakening the quality/coverage requirement. Unknown controls or unsupported/numerically unsafe bounds retain a conservative fallback.
 3. **Exercise cache/cursor changes where relevant.** Larger work budgets resume; changed endpoints, final bound goal, cost bound, geometry/world/body/model/walls or action revision invalidate the dependent state. Increasing a representative/link quota rebuilds when needed. An earlier incomplete solve under a tighter bound cannot block a later wider-bound search. Reusable geometry failures and changed reachability are different dependencies. Check new/removed/faster/zero-cost actions, moved endpoints and multiple arrivals without duplicate IDs or lost local edges.
 4. **Retain complete physical acceptance.** Candidate scores and polygon-center heuristics organize a finite search; they do not prove executable route optimality. Accepted motions still need real support, body clearance, walls, complete trajectory sweeps, directed device conditions, whole-route resource scheduling, boost expiry and the required terminal goal event. Supported run-off may walk uphill before actual takeoff. Terminal collection edges cannot become ordinary intermediate transfers. Preserve far/away-from-goal, interior/narrow landings and multi-hop alternatives in the affected fixtures.
-5. **Check feasibility and quality independently.** A route that remains complete can still be slower or use a changed finite candidate set. Compare selected origin, points, segments, times, gait, resources, goal event, boost annotations and connection identities where equality is promised. If differences are intentional, explain and validate them rather than silently moving the baseline. A bounded unavailable result remains inconclusive about physical impossibility; existing contract failures remain visible.
+5. **Check feasibility and quality independently.** The 2026-11-11 user acceptance gate permits complete-route cost deterioration up to 5% against the valid same-input control. Fix failures, timeouts and larger cost regressions by improving the new algorithm. Legacy enumeration remains a diagnostic control, not the requested production remedy. A route that remains complete can still be slower or use a changed finite candidate set. Compare selected origin, points, segments, times, gait, resources, goal event, boost annotations and connection identities where equality is promised. If differences are intentional, explain and validate them rather than silently moving the baseline. A bounded unavailable result remains inconclusive about physical impossibility; existing contract failures remain visible.
 6. **Use a finite verification pass.** Once edits stabilize, run directly affected tests and the established checks required for that change, then only the representative solver/HTTP cases needed to resolve its actual risk. Add a focused regression for a real failure, not a mirror of internal structure. Broaden or repeat after a new failure/change or unresolved concern; stop when sufficient evidence exists. Neither indefinite profiling nor a full cold/warm corpus on every small edit is required. A cross-map or release-wide claim still needs evidence covering that claim.
 7. **Keep timing meanings separate.** Process/application cold does not mean flushed OS pages; warm prepared planning differs from finished-route cache reuse. Exact instrumented inclusive/self timers, sampled deepest-frame attribution, CPU usage and stage progress intervals have different meanings. Nested function/stage durations overlap. Original phase timestamps may mark completion, not start; use paired attempt start/end events for per-attempt durations. Record profiler/hook overhead and use an appropriate low-overhead control before claiming elapsed-time gains. Report regressions and memory costs as well as wins.
+8. **Keep learned-data scope explicit.** Collect random support regions across maps and level-tagged windows before fitting scheduling weights. Split by whole level/map, bind labels to the tested witness and preserve budget-exhausted episodes as unresolved. Fit normalization on training data only. Compare geometry-only and control-only features, charge generation/inference/validation/fallback separately from offline training, and report early-budget losses as well as aggregate discovery gains. A local primitive-policy benchmark does not replace complete-route quality/resource/goal validation or establish production solver speed.
 
 At the alpha.76 checkpoint, **271 SDK tests and 10 Atlos route worker/server tests were recorded as passing**, and checkout, tarball and installed SDK source files matched byte for byte. This history migration ran no new solver or tests. Those old passes do not certify a subsequent edit, package or environment.
 
@@ -844,3 +845,432 @@ records all consumed file hashes, adapter/source identities, prewarm duration,
 measured inclusive phase timers and per-query outcome/truncation comparisons.
 The real-data acceptance uses one execution lane; configured batch concurrency remains
 available. A one-query batch validated the memory adapter before the full run.
+
+
+## 2026-11-11 random-window collection and local policy ablation
+
+The user requested the next algorithm experiments and emphasized broad random
+map/level data before learning weights. This pass adds maintained research tools in
+`scripts/research/`, with five contract tests, without changing `src/`, package
+exports, alpha.76, the Atlos installed artifact or generated extractor. The runtime
+remains `66dbd52`. These tools implement basic diagonal CEM and logistic witness
+scheduling for supplied local region pairs. They do not implement a full learned
+route planner, reinforcement learning or iCEM.
+
+### Data and source binding
+
+Local artifacts are under
+`/Users/canvas/_Code/EF Repos/endfield-noclip/.research/stage123/learned-search-20261111/`.
+`broad-inputs.json` names the 26 retained ground/collision/movement windows;
+`broad-corpus/` retains per-window metadata and individual JSONL decisions.
+`source/` and `source-manifest.json` archive source/tests from base `3c2b666` plus
+the research implementation. Each window records all input SHA-256 hashes and the
+resolved `.mjs` source manifest. Collection and online validation use source digest
+`b07ab9a8429acf1b602cc856408ed84249948d0dcecd96103f8958acbad4a01c`.
+The final analyzer subsequently removes implicit control proxies from its
+geometry-only feature ablation; the archived collection/runtime source remains
+the actual measured version. These ignored local inputs/results are not delivered
+by an ordinary clone.
+
+The physical source is build `2954fa80-23c1-1579-2b22-4ecfd6d70418`, content
+`23821a7611be5c0478dc4695d96fd74a`, with default movement input
+`eeedcd2afd4b0ca250a63cc77e293a6920efe301e3d83f45a41e1089bdaa8bf6.json`.
+The collector checks equality of scene, source, selection and body profile between
+inputs. The windows retain their actual scene selections and incomplete coverage;
+they do not acquire complete-map evidence from sampling.
+
+The 26 windows carry 14 distinct level tags: map01 levels 001, 002, 003, 005, 006,
+007 and map02 levels 001, 002, 003, 004, 005, 006, 009, 010. Tags come from unanimous
+exported point labels within each ground build rectangle, using point release
+`cf47053cc507555d`. They describe the sampling window, not native per-face level
+ownership. Two windows per tag were preferred when their centers were at least
+96 m apart; only one eligible window was found for some tags. No inferred level
+ownership is used for physical passage.
+
+| Split | Region pairs | Tested witnesses | Useful witnesses | Pairs with a useful witness |
+| --- | ---: | ---: | ---: | ---: |
+| Train: ten map01 windows, excluding level 002 | 1,800 | 72,000 | 855 | 293 |
+| Validation: both map01 level 002 windows | 360 | 14,400 | 174 | 62 |
+| Test: all fourteen map02 windows | 2,506 | 100,240 | 1,385 | 457 |
+| Total | 4,666 | 186,640 | 2,414 | 812 |
+
+Seed `20261111`, 180 requested episodes per window and 40 proposals per episode
+were fixed before the broad run. Nine approximate distance/rise strata limit
+flat-adjacent bias. One sparse window supplied 166 rather than 180 pairs; the
+shortfall is retained, not filled by duplicate easy cases. Source/target regions
+are 6 m XZ / 3 m Y support sampling cells. Triangle-area sampling avoids weighting
+small detail triangles equally with large support. The continuous CEM chart crosses
+triangle-selection CDF boundaries and is therefore piecewise continuous.
+
+Every candidate uses the existing `standingFoot`, direct jump/split or supported
+run-off, wall and complete trajectory checks. Actual ground tracing can reject a
+slower flight as walking-dominated. `valid` means a useful local primitive under
+these checks; it does not label a whole route or establish resource feasibility.
+All five control classes remain sampled. No unsuccessful episode labels an
+untested control or region connection impossible. Regions grant no ground
+connectivity. Terminal hits, boosts, waypoint controls and relay composition are
+outside this initial corpus.
+
+The earlier eight-window pilot remains in `corpus/`, `replay.json` and
+`weights.json`. The broad corpus supersedes its sample-size conclusions rather
+than deleting that evidence. Summed broad collection wall time was 160.832 s,
+including input loading/preparation; maximum per-process RSS was 1,755,584 KiB
+(about 1.67 GiB). Node v26.13.0 and a 4 GiB heap were used, without function timing
+hooks or CPU sampling. Initial SDK verification briefly overlapped collection;
+this collection duration is an acquisition-cost observation, not a solver benchmark.
+
+### Learned scheduling and feature controls
+
+Training standardization and logistic weights use only the 72,000 map01 training
+witnesses. Map/level IDs, absolute coordinates and validation outcomes are not
+features. The full model took 0.833 s to fit in the first broad analysis; analysis,
+data acquisition and later diagnostic model fits are separate costs. Fixed model
+and CEM settings were not tuned against map02. Training positives are sparse
+(855/72,000); ranking evidence must not be read as calibrated physical probabilities.
+
+The full learned order found a useful primitive in 429/2,506 test pairs within
+eight validations, versus 204 for the local reference heuristic. Control-only
+learning reached 424. Paired full-model changes at that prefix were 248 gains and
+23 losses. At four validations, full/control-only/reference counts were
+362/360/118; at sixteen they were 453/451/359. All forty original witnesses remain
+available, so a finite-prefix loss is not cached as a rejected region connection.
+
+The training controls explain most of the gain: out of 14,400 trials per control,
+direct jumps supplied 709 useful witnesses, run-off 101, and splits 0.25/0.5/0.75
+supplied 14/12/19. A strong control-priority baseline is necessary before attributing
+the benefit to geometric learning. The first diagnostic geometry-only model removed
+explicit drop/split features but retained nominal duration/reach ratio, which still
+encode the control. Its initial table in `broad-replay.json` is superseded by the
+corrected feature analysis that also excludes those two proxies. The full trained
+model and measured online policies are unaffected by that diagnostic correction.
+
+The corrected `corrected-replay.json` gives geometry-only test discovery counts
+139/228/354 at 4/8/16 validations, versus reference 118/204/359. At sixteen, its
+27 gains and 32 losses are a small net regression. Re-fitting the full model during
+that correction reproduced its weights, normalization and bias exactly. The
+geometry-only model supplies no stable independent improvement across these budgets.
+
+### Four-arm physical execution and repeated timing
+
+`heldout-inputs.json` selects the first available window for each of the eight map02
+level tags, independently of its success count. Both `ablation-a/` and `ablation-b/`
+use seed `20261112`, 90 requested episodes/window and 40 proposals/arm. A sparse
+window supplies 81 episodes, giving 711 pairs per run. Each arm physically executes
+its proposals again, without replacing validation with recorded labels. Execution
+order rotates by episode. Source, inputs and model hashes match across both runs;
+all repeated candidate identities, validity, durations and accepted motion hashes
+match exactly. `comparison.json` records the aggregate and paired comparisons.
+
+| Arm | Pairs found in first 8 / full 40 | Found including fallback | Full warm work, runs A / B (s) | First-hit work on 149 common reference successes, A / B (s) |
+| --- | ---: | ---: | ---: | ---: |
+| Fixed random pool + nominal local heuristic | 72 / 149 | 149 | 16.355 / 16.592 | 1.196 / 1.262 |
+| Basic diagonal CEM | 61 / 141 | 170 | 32.604 / 33.007 | 2.015 / 2.028 |
+| Learned ordering of the same fixed pool | 135 / 149 | 149 | 16.396 / 16.633 | 0.368 / 0.372 |
+| CEM + learned ordering within populations | 61 / 141 | 170 | 32.596 / 33.090 | 1.830 / 1.851 |
+
+Full work includes measured generation, scheduling, physical validation and the
+complete reference fallback. CEM/hybrid validate 80 witnesses per pair including
+fallback, while reference/learned validate 40. The first-hit column includes
+generation and uses the same 149 reference-successful pairs for every arm. CEM's
+fallback is charged before a late hit. This avoids comparing different survivor
+sets. The unpaired additional CEM successes are represented in the coverage column.
+
+These are warm geometry experiment times. Source/input reads and preparation,
+training, JSON output and the initial per-episode reference labeling pass are
+outside the timed policy columns. The initial labeling pass warms geometry; no
+finished-result cache is used. These columns are not cold extractor, whole-query
+or HTTP timings, and their denominator is not alpha.70's 158.363 s heavy command.
+Arm order and the two sequential repeats reduce some systematic bias but do not
+isolate OS/JIT/GC variation or establish scene-wide performance.
+
+Learned scheduling reduced common-pair first-hit work to 30.8%/29.5% of this local
+reference while leaving full-pool work essentially unchanged. That scope does not
+reach the production 20% objective. The feature controls above show that most of
+the early advantage is control selection, not learned geometry. Retain the full
+pool and compare a strong non-learning control-priority policy before considering
+production learned scheduling or smaller budgets.
+
+CEM's own 40-proposal pass finds fewer pairs than the fixed reference, and complete
+fallback roughly doubles work. Its union gains 21 pairs without losing the original
+primitive best-duration evidence. Those additional successes do not isolate an
+evolutionary benefit from simply spending forty extra random proposals; an equal
+80-proposal random control was not run. The hybrid does not improve full coverage
+over CEM here. No new default is promoted from these trials. Best primitive duration
+and preserved local coverage are not complete-route quality/resource evidence.
+
+### Validation and limits
+
+All **277 SDK tests** passed on Node v26.13.0, including five new research contract
+tests for projected-area sampling, witness-only labels, finite CEM/fallback coverage,
+snapshot/profile matching and level-split leakage. Subsequent analyzer-only feature
+mask and paired-summary changes were exercised against the recorded data; the final
+maintained paired sums matched an independent calculation. No further full SDK run
+is claimed. No Atlos files changed, no artifact was replaced or published, and no
+remote push or 113-request replay was performed.
+
+The 20% remaining-cost target is still unmet. A local fixed-random-pool heuristic
+is not the current solver baseline, and primitive validation counts do not quantify
+its dominant spatial enumeration cost. Production use still requires a region-pair
+policy before broad face enumeration, entry/resource/goal/boost/relay composition,
+resumable exploration and complete-route comparisons. The useful result of this
+pass is reproducible data and bounded policy evidence, not a promoted solver speedup.
+
+
+## 2026-11-11 terrain and spatial preparation pass
+
+The user clarified that optimization covers the complete pipeline, including
+terrain/support preparation, rather than only action search. The retained changes
+start from Ganglia `9f9699b` and Atlos `d7ca0b63`. This pass does not replace the
+installed alpha.76 artifact. The source integration manifest currently binds noclip
+`b54b1dcb7d01a36910c7ced1b0206e6b0b06249b`, protocol 102; older profile results
+retain their original source/protocol bindings.
+
+### Original costs and scope
+
+The original candidate control spent 65.673 s preparing and 9.040 s searching
+(74.713 s total). Alpha.70's lazy-transfer change reduced preparation to 8.480 s
+but raised search to 38.425 s, totaling 46.905 s and increasing retained memory.
+Those historical results illustrate shifted work, not an untouched current control.
+The separate ground command took 16.395/3.936 s cold/warm in its historical
+lower-overhead control. The detailed ground profile measured 9.041 s in native
+`buildPolyMeshDetail` within 18.148 s total; WASM accounted for 58.73% of sampled
+ground-detail wall time. These are different containing commands, not slices of
+one global total. In the heavy action profile, spatial-query work remains dominant.
+
+Local inputs, frozen sources, reports and manifests for this pass reside in
+`endfield-noclip/.research/stage123/terrain-space-20261111/`.
+`source-manifests.json` binds every frozen SDK variant and `comparison.json`
+retains the actual command reports. The maintained Atlos
+`profile-route-stages.mjs` harness executed `--baseline` without function hooks or
+CPU sampling, on Node v26.13.0 with a 4 GiB heap. Cold/warm retain that harness's
+existing fresh-input/tile-cache or shared-candidate-planner semantics. OS pages,
+JIT/GC and system load remain uncontrolled; module setup is reported separately.
+
+Ground uses the retained `detailed-profile-20261110/ground-args.json`: map02,
+bounds `[-1376,0,-1152,128]`, 0.15 m cells, 256-cell tiles, terminal scene selection,
+the source-bound movement/static-support inputs and local game configuration.
+Candidate uses the retained `candidate-input.json`, 640,747 navigation faces and
+85 arrivals. Reports record input identities and resolved module source hashes.
+Raw records are ignored local artifacts, not included in an ordinary clone.
+
+### Native detail experiments that were not retained
+
+| Variant | Ground cold / warm (s) | Decision |
+| --- | ---: | --- |
+| Fresh source control | 15.569 / 3.889 | Control |
+| Generate native detail output in batches of 64 coarse polygons | 15.246 / 3.547 | No stable native-stage benefit; remove |
+| Certified flat height patches with sample distance zero | Failed at the first native tile with a WASM out-of-bounds trap | Remove; not a terrain-impossibility result |
+| Same certificate with a large positive sampling distance for flat patches | 16.832 / 3.936 | Output preserved, command slower; remove |
+
+The batching hypothesis targeted repeated native output-buffer growth/copying,
+motivated by inspection of upstream
+[RecastMeshDetail.cpp](https://github.com/recastnavigation/recastnavigation/blob/main/Recast/Source/RecastMeshDetail.cpp).
+It was not a proof that copying dominates the installed 0.44.0 binary. Warm trials
+load tile caches and execute no native detail rebuild, so their timing differences
+cannot be attributed to native batching. A 256-polygon snapshot was prepared but
+not run after the 64-polygon screen failed to establish a useful benefit.
+
+The flat-patch prototype required every compact cell in a polygon's complete
+height-patch rectangle and halo to have exactly one span at the same height as
+every polygon vertex. Missing/multilayer/different-height cells retained ordinary
+sampling. Prefix sums certified the rectangles. The zero-distance attempt trapped
+in WASM; the positive-distance retry initialized the outline path and completed.
+Only 1,206 of 27,095 coarse polygons were certified flat. Checking and splitting
+these limited regions did not amortize its overhead. Both completed native variants
+preserved ground/collision content after excluding generator identity strings.
+No sampling/coarsening/native-mesh mutation from these prototypes enters `src/`.
+Native detail construction remains an open large cost.
+
+### Retained preparation changes and measurements
+
+`geo/build` reuses `createBoundsIndex` to assign source triangles once to selected
+padded tile rectangles. It preserves exact inclusive AABB tests and original
+triangle order per tile, including padding-only contacts. Each consumed tile drops
+its reference list. Native rasterization, detail sampling, height partitions,
+clipping and seam semantics remain unchanged. The representation retains a shared
+flat coordinate array per assigned source triangle rather than nested triangle
+objects re-flattened by every tile.
+
+`geo/surfaces` removes temporary coordinate arrays from 3D portal predicates and
+graph distances, preserving the accumulation order, tolerance and traversal order.
+Each face computes a rounded vertex key once per used vertex. This is local reuse,
+not a persistent topology cache or a changed quantization scheme.
+
+On the global map02 input, an isolated component pass measured portals
+2.665→2.267 s and graph construction 1.844→1.158 s, summing 4.509→3.425 s.
+Ordered portal and graph hashes matched. That component sample is not a complete
+request claim.
+
+| Command / repeat | Control cold / warm (s) | Changed cold / warm (s) |
+| --- | ---: | ---: |
+| Ground, tile-index-only screen | 15.569 / 3.889 | 15.213 / 3.282 |
+| Ground, final source + compatible generator hashing | 15.557 / 3.653 | 15.239 / 3.600 |
+| Candidate, first pair | 48.743 / 1.376 | 46.486 / 1.207 |
+| Candidate, repeated pair | 45.149 / 1.106 | 45.230 / 1.304 |
+
+Both cold ground comparisons improve about 2%; warm observations vary. The final
+tile code additionally releases consumed input lists. Native detail settings and
+all ground/collision bytes other than the expected `generator` signature match.
+
+Candidate preparation measured 7.921→7.093 s and 7.778→6.984 s, about 10% lower
+in both comparisons. Search measured 39.987→38.576 s and 36.599→37.406 s. Complete
+cold time improves 4.6% in one pair and is 0.18% worse in the other; warm candidate
+time also changes sign. There is no stable complete-candidate-request speedup.
+Unlike the old eager-to-lazy redesign, the new code does not move enumeration into
+search; source inspection and identical result/graph evidence support that limited
+mechanism, while elapsed search variation remains visible.
+
+Cold candidate RSS snapshots were 2.443→3.016 GB and 3.377→3.162 GB; heap-used
+snapshots were 3.035→2.617 GB and 2.601→2.558 GB. These are final snapshots, not
+isolated allocation or peak-memory measurements. They do not establish a uniform
+RSS benefit. All cold/warm candidate outputs match after removing timing/memory
+diagnostics, including origin, score, path, points, transfer keys and unresolved edges.
+
+### Generator signature integration and checks
+
+The first modular-source ground replay stopped before a valid build because the
+Atlos generator signer still looked for flat `src/support-field.mjs`. Initial
+isolated SDK variants supplied research-only flat-path links; fresh run directories
+prevented cross-variant cache reuse. That compatibility workaround did not hash
+`geo/build` itself, so its old signer is not a safe production solution. Actual loaded
+source manifests, independent output comparisons and fresh caches bind those screens.
+
+Atlos's owning `extractor.patch` now recognizes the stable public build forwarder
+and hashes it plus `geo/build.mjs`, `geo/support-field.mjs`, `geo/clip-surface.mjs`
+and `geo/bounds.mjs`. The new tile selector is a physical generator dependency.
+Flat installed packages keep their existing identity byte-for-byte, independently
+verified as `24db3a5799f71793059c23664787c62cef7eec9a903b69eb9f8dcb67c42b9e8a`.
+No route-only implementation is added to the physical generator signature.
+
+The final ground pair uses this integration fix through an isolated load hook.
+The main generated extractor is not edited. The maintained `noclip.mjs prepare`
+also successfully reapplied all five owning patches to the verified upstream
+archive in a separate scratch tree. Tests and lint use that real prepared tree
+with existing dependencies linked, rather than weakening module mocks.
+
+All **278 SDK tests** pass, including the new tile-cache input-order/inclusive-
+padding regression and existing slope, stairs, gaps, ceilings, stacked floors,
+directed intervals and sparse-tile checks. Three actual prepared ground-cache tests
+pass, including modular implementation/bounds invalidation. The existing source-
+preparation/tamper test also passes. Oxfmt checks pass for the changed integration
+files. Focused type-aware oxlint reports no errors and one existing no-shadow warning
+at the old test's line 25. Initial lint against detached source files could not
+resolve workspace types; the properly prepared tree resolved those environment
+errors. `git diff --check` passes in both repositories.
+
+No SDK artifact was repacked or installed, no ordinary physical-action/HTTP or
+113-request corpus replay is claimed, and no remote push occurred. The retained
+changes reduce preparation work with unchanged tested outputs; the 20% objective
+is still unmet. Next work should prioritize the unresolved native detail cost and
+region representation/ownership, then measure candidate transfer materialization,
+action spatial enumeration, collision and resource costs under their containing
+requests. Existing prepared caches, serialization and repeated window setup remain
+part of that pipeline rather than disappearing from the accounting.
+
+## 2026-11-11 retained-point repair in progress
+
+The retained `retained-replay-20261111/verified-replay` research run completed all
+113 unchanged requests against the alpha.67 control. All resulting routes pass
+resource and goal-event checks. The comparison contains 69 equal-cost routes,
+29 improvements, 12 increases within the user-approved 5% tolerance, two repaired
+terminal-event contracts and one larger regression (`0frHUCx`, 18.919→20.966 s).
+The old invalid terminal reference remains separately classified.
+
+The working implementation retains envelope pruning and resumable frontiers. It
+interleaves region boundary seeds, gives direction queries region-chain proposals,
+returns up to four distinct frontier components per batch, and prioritizes causal
+entries by geometric approach score under one shared fallback quota. Remaining
+entry quota can improve the complete final route. Grounded airborne-goal completion
+now records an exact terminal event and preserves it through scheduling and detours.
+The four previously unavailable requests and the 180-second timeout all complete.
+Cases 004/005 cost 30.082/14.149 s, 025 costs 19.200 s, and 052/061 cost 17.591 s
+(+3.54% versus alpha.67). The first implementation passed all 282 SDK tests.
+
+The larger quality regression comes from local refinement targeting the incumbent
+before broad shortcut improvement. A focused current-incumbent refinement trial
+reduces `0frHUCx` to 15.692 s. That adjustment subsequently completed the run in
+`retained-replay-20261111/refined-replay`; the final validation section records
+its remaining quality regression and the retained correction. Diagnostic legacy-enumeration variants were not adopted.
+Source variants, requests and intermediate failures remain in the research root.
+
+
+### Final bounded validation and delivery
+
+The current-incumbent-only experiment completed another 113-request replay with
+no route/evidence failures but introduced a >5% cost regression on case 006. The
+retained implementation compares the pre-broad incumbent locally and additionally
+compares the improved incumbent using remaining overall candidate budget. Focused
+final cases 006/038 cost 1.875152/15.480632 seconds. All 282 SDK tests pass. The
+third full replay was stopped at the user's request after 12 completed cases; its
+interrupted request is not a solver-failure claim. No complete final-source corpus
+pass is claimed. Final instrumented heavy-query cold/warm times are 95.514/98.558 s.
+CPU sample aggregation was empty, so function timers supply hotspot evidence.
+The Chinese requested benefit report is `docs/reports/2026-11-11-solver-optimization.md`.
+The solver source was committed and pushed as `51ef6b3`. The subsequent alpha.77
+Atlos package upgrade is recorded below. The 20%-remaining-time target stays open.
+
+
+## Alpha.77 packaged Atlos integration, 2026-11-11
+
+The user authorized upgrading Atlos and pushing all local changes. Ganglia
+`0.1.0-alpha.77` packages the solver implementation at `51ef6b3`, including the
+subsystem reorganization, terrain preparation improvements and retained-point
+repair. Only package metadata changed during this release step. Atlos World and
+the maintained noclip extractor patch both reference the alpha.77 vendored archive.
+The workspace lockfile and generated extractor were refreshed through the owning
+preparation script, and the replaced alpha.76 archive was removed.
+
+Archive SHA-256 is `9dd60b4b237dedbdcc7ba4e8c3baddd53a82ca83005a015b270f1a6cfadddeee`.
+All packaged source files match the checkout. Both World and extractor resolve
+the same alpha.77 package and source bytes. Package prepack passes 282 SDK tests.
+The prepared integration passes 13 route worker/server, route cache and source
+preparation tests, plus 59 World tests. World type checking, production build and
+frozen-lockfile installation pass. The build reports its existing large-chunk
+warning. No additional corpus replay was run for this packaging-only upgrade.
+The earlier final-source corpus limitation and performance conclusions still apply.
+
+
+## Main integration into the TypeScript scene solver, 2026-11-12
+
+Main through `1a617c9` contributes cross-map research tools, terrain preparation
+optimizations and retained-route search repairs. The merge ports their executable
+changes into the owning TypeScript modules and research scripts; it retains pnpm,
+source-only package exports and the single full-scene batch benchmark. Research
+scripts are included in type checking and lint. The integration package is alpha.81.
+
+The old following-box footprint fixture admitted a fully supported placement at
+`[12, 0, -0.2]`; richer search now finds a valid route through it. The corrected
+fixture cuts a 0.1 m hole across the target-side floor under the candidate box
+footprints. It retains the incomplete-route and unsupported-placement assertions.
+Temporarily removing the footprint support guard makes the corrected test fail;
+the guard remains unchanged in the delivered implementation.
+
+Ganglia format, lint, type checking and all 338 tests pass. The six directly
+affected suites pass 81 tests. Both code-review axes found no required behavior
+or ownership fixes. Atlos source-only checks and World production build pass
+with the pinned alpha.81 source. The initial sandboxed Atlos test run failed to
+listen on loopback with EPERM; the permitted loopback rerun passed. The World
+build retains its existing large-chunk warning. A synthetic research-policy
+analysis also completed. Raw integration evidence is under
+`.local/research/main-merge-*`; benchmark results must be read with their recorded
+source hashes and input bindings.
+
+The fixed map02 50-query full-scene batch completed with 50 complete routes and
+87 jumps. Every measured outcome and truncation flag matches its prewarm result.
+Against the pre-merge alpha.80 run, 31 route outcome hashes are unchanged,
+17 routes have lower modeled cost, and two have slightly higher cost
+(at most 0.041%). Inputs remain
+the verified map02 scene export bound to build
+`23821a7611be5c0478dc4695d96fd74a`. Input loading took 0.545 s and the unmeasured
+whole-batch prewarm took 899.411 s. Measured batch time was 929.906 s, or
+0.053769 queries/s. The previous identical workload recorded 849.195 s and
+0.058879 queries/s; this single comparison observes an 8.68% throughput decrease,
+without establishing whether it is strategy cost or runtime variation. No claim
+of a performance improvement is made. Every query retains a bounded-search
+truncation flag; route completeness does not establish optimality.
+
+Measured source SHA-256 is
+`7b1bd14b6956ca9a02920fe40dbea716ee6a09bbd290b09b9020a7c858b47fa0`
+and resolved kernel SHA-256 is
+`c9443708b4d7498ae5eb8179465007dcd3fad3f0a4156fa019c7fa1fe7d0af5e`.
+Raw report: `.local/research/main-merge-full-50.json`.

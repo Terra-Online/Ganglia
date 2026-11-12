@@ -1,8 +1,12 @@
 # Route solver handoff
 
+The `misakavan` merge of upstream main `1a617c9` carries the alpha.77 kernel changes in the source-only TypeScript alpha.81 package. The benchmark contract remains the prepared full-scene batch described below. Earlier checkpoints retain their original source, input and validation scope.
+
 This handoff describes Ganglia `0.1.0-alpha.76` at local commit `917dfcd` and its Atlos integration at `9311d063`, as inspected on 2026-11-10. The companion [history and testing record](history.md) owns the chronological experiments, complete measurement tables, regression corpus and validation procedures. The source layout was subsequently reorganized on 2026-11-11, starting from `c8cc213`. The subsystem and composition sections below describe that source refactor. The alpha.76 performance measurements remain bound to their historical implementations.
 
-The current objective is to reduce comparable solver computation to **at most 20% of the original cost**, while preserving supported behavior, reachability and route quality. The latest heavy-query checkpoint remains above that target. The immediate implementation priority is to reduce the region state space, spatial candidate generation and repeated action queries. The older roadmap's resource-first P0 order has been superseded for this optimization task. Resource-state unification remains subsequent work.
+The current objective is to reduce comparable solver computation to **at most 20% of the original cost**, while preserving supported behavior, reachability and route quality. The latest heavy-query checkpoint remains above that target. The user's latest direction covers the complete pipeline: terrain generation, support/portal/graph/index preparation, corridor search, action discovery, collision validation and resource scheduling. Work through measured bottlenecks individually and check their containing request; a local gain must not hide shifted computation. Region/action reduction remains important, but is not the only optimization target. The old resource-first P0 roadmap does not prescribe the current order.
+
+The latest user acceptance gate (2026-11-11) permits route-cost deterioration up to 5% against the valid same-input control. Feasibility failures, timeouts and larger cost regressions require fixes within the new algorithm. The retained-corpus repair and bounded validation are described in the final delivery section below. Historical timings remain bound to their implementations.
 
 ## Repository ownership and entry points
 
@@ -22,7 +26,7 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 | Atlos resource scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |
 | Atlos terminal assets | [`terminal-routes.ts`](../../../Atlos/talos/apps/world/terminal-routes.ts) |
 
-The authoritative noclip adaptation lives in Atlos [`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json), including `extractor.patch`, `format.patch`, `renderer.patch`, `documentation.patch` and `gpu-recovery.patch`. `Atlos/talos/.cache/noclip/` is generated source. Changes inspected there must be maintained through the integration patches. The retained upstream binding is `30f73f4609b24f033e3e2a48607d3270b01695a3`, with package protocol 98. Navigation/physical export revision 2 is a separate data binding.
+The authoritative noclip adaptation lives in Atlos [`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json), including `extractor.patch`, `format.patch`, `renderer.patch`, `documentation.patch` and `gpu-recovery.patch`. `Atlos/talos/.cache/noclip/` is generated source. Changes inspected there must be maintained through the integration patches. The current source manifest binds upstream `b54b1dcb7d01a36910c7ced1b0206e6b0b06249b` and package protocol 102, checked during the terrain/preparation work. Earlier measurements retain their original bindings, including the older `30f73f4`/protocol-98 checkpoint. Navigation/physical export revision 2 is a separate data binding.
 
 ## Six source subsystems
 
@@ -185,6 +189,38 @@ Local refinement is implemented by `src/solver/ground-refinement.ts`; the patche
 
 Imported directed portal intervals remain authoritative through graph construction, exposed-boundary discovery and straightening. Point contacts, stacked surfaces and ambiguous overlaps do not establish passage. Ground straightening uses supported continuous traces, directed passages and wall checks. Same-height corner contraction and candidate-corridor straightening remove unnecessary tessellation turns under those constraints.
 
+### Terrain and spatial preparation optimization
+
+`buildGroundTiles` indexes the selected padded tile rectangles with the existing
+`createBoundsIndex`, assigning source triangles once rather than scanning all
+retained triangles again for every tile. XZ bounds remain inclusive, source order
+within each tile stays unchanged, and each consumed tile releases its reference
+list. Padded geometry, native Recast parameters, detail heights, clipping and
+directed seam construction retain their previous semantics. This is input
+partitioning, not a lower-resolution terrain model.
+
+`surfaces` now uses scalar 3D calculations in portal interval tests and graph
+distances, with the same arithmetic order/tolerances. Each face shares its rounded
+vertex keys across adjacent edges. There is no persistent portal cache or changed
+tie order, and geometry/mask changes are still validated by each preparation.
+
+Atlos's owning `extractor.patch` now binds modular ground generator identities to
+the public forwarding entry plus `geo/build`, `support-field`, `clip-surface` and
+`bounds`. Legacy flat-package identities remain byte-for-byte unchanged. This
+prevents a forwarder-only signature from omitting actual tile selection/build code.
+The installed SDK and the main generated extractor have not been replaced by this
+source/integration patch work.
+
+On the retained 640,747-face input, portal plus graph preparation measured
+4.509 s versus 3.425 s, with identical ordered hashes. In two complete candidate
+cold/warm comparisons, preparation fell about 10% each time, but cold request
+totals were 48.743→46.486 s and 45.149→45.230 s. The second total is effectively
+unchanged/slightly worse, so no stable complete-request speedup is established.
+Ground cold totals fell about 2% in two comparisons; warm differences were variable.
+See [history](history.md) for exact bindings, memory, rejected native detail trials
+and validation. Native detail construction, repeated large planner preparation,
+serialization and lazy-transfer search remain open costs.
+
 `createCollisionWorld` retains indexed source collision and broad-phase bounds. Ground support requires a suitable normal and permitted height correction. `standingFoot` verifies corrected foot support, stationary capsule clearance, wall state and reattachment to navigation support. A projected point alone provides insufficient action evidence.
 
 Each accepted flight receives full-body capsule sweeps. Curved sample intervals are inflated to cover the quadratic deviation between chords, with interval refinement when conservative inflation contacts geometry. Collision indexing scope must cover the complete padded body and trajectory. Unknown walls and missing-cook bounds remain active conservative exclusions according to their exported state.
@@ -283,8 +319,9 @@ separate implementations and acceptance evidence.
 
 The subsequent 2026-11-11 batch compared 11 structural heavy-query variants plus
 regional-index and canonical-order query microbenchmarks. Every new prototype was
-removed after failing to demonstrate a stable benefit. Runtime source remains
-`66dbd52`, and Atlos still uses the previously installed alpha.76 artifact.
+removed after failing to demonstrate a stable benefit. At that checkpoint runtime
+source remained `66dbd52`; later terrain/preparation changes are described above.
+Atlos still uses the previously installed alpha.76 artifact.
 The [history](history.md) records the exact variants, source/input bindings, timings,
 checks and retry premises. Raw local evidence is `structural-ablation-20261111/`.
 
@@ -323,8 +360,9 @@ within proposed region/control families. A learned search policy can select regi
 pairs, control families and work allocation before detailed candidates are built.
 A hybrid can combine learned proposals with continuous stochastic optimization.
 Quality-diversity methods such as CMA-MAE are another candidate when retaining
-multiple landing regions or motion families proves important. These are proposals;
-no evolutionary optimizer, learned policy or new performance result is implemented.
+multiple landing regions or motion families proves important. The production solver
+does not enable these policies. Research-only local CEM and learned witness scheduling
+now live in `scripts/research/`; their limited scope is described below.
 
 Start with four comparable arms: the current solver, evolutionary/sampling-based
 local generation, learned high-level selection with the current local generator,
@@ -341,6 +379,58 @@ lower bounds continue to govern safe pruning. Exploration and resumable fallback
 remain part of the comparison, with their actual runtime included. Fixed-budget
 coverage and route quality require independent validation; the 20% objective has
 no demonstrated learning/evolutionary result yet.
+
+### Random-window data and local policy experiments
+
+The research tools [`collect.mjs`](../../scripts/research/collect.mjs),
+[`policy.mjs`](../../scripts/research/policy.mjs) and
+[`analyze.mjs`](../../scripts/research/analyze.mjs) collect individual motion decisions,
+fit logistic scheduling weights and compare a fixed random-pool heuristic, basic
+diagonal CEM, learned ordering and their combination. Their
+[usage and measurement contracts](../../scripts/research/README.md) are separate
+from the production API. Runtime source under `src/`, package alpha.76 and the Atlos
+installation remain unchanged by this experiment.
+
+Sampling uses occupied 6 m XZ / 3 m Y support regions, projected-area endpoint
+sampling, and nine distance/height strata. A region is a sampling domain; it grants
+no support continuity or walking passage. Each tested witness still uses
+`standingFoot`, the existing direct jump/split or supported run-off implementation,
+wall checks and complete swept-body collision. An actual continuous ground trace
+can reject a walking-dominated motion. Labels concern those individual witnesses.
+An exhausted sample pool is unresolved, not a negative region-pair label.
+
+Training normalization and weights use training witnesses only. Whole levels stay
+in one split and map02 is held out from training. Window level tags come from
+unanimous exported marker labels inside each build rectangle; native per-surface
+level ownership is unavailable. Input hashes, model/body/selection, source hashes,
+coverage and random seeds are retained per window. The local artifacts are under
+`endfield-noclip/.research/stage123/learned-search-20261111/`; an ordinary clone does
+not contain them.
+
+CEM proposes endpoint witnesses before detailed surface-pair enumeration, but
+region-pair selection is supplied by the experiment. Its support chart is piecewise
+continuous at triangle-CDF boundaries, with uniform exploration and a variance floor.
+The learned score only changes scheduling. All original reference witnesses remain
+available. CEM/hybrid execute and charge their complete reference fallback. The
+fixed random-pool heuristic is a local comparator, not the current solver's candidate
+generator. Local discovery counts and warm geometry timings cannot establish an
+end-to-end solver speedup. Whole-route resource/goal/boost/relay validation, route
+quality, resumable production integration and the 20% objective remain open.
+
+The completed corpus contains 4,666 region pairs and 186,640 individually tested
+witnesses across 26 windows, with 2,414 useful local motions. The full learned
+model found useful motions in 429/2,506 map02 test pairs within eight validations,
+versus 204 for its local heuristic; control-only learning reached 424. Geometry-only
+features do not show a stable gain across budgets. A strong fixed control-priority
+comparison is needed before attributing the benefit to geometric learning.
+
+Two physical execution repeats on 711 new map02 pairs retained exact witness
+outcomes. Learned first-hit work on 149 common successes used 30.8%/29.5% of the
+local reference time, but full-pool time stayed essentially unchanged. CEM/hybrid
+with full fallback roughly doubled work and found 21 additional pairs. Extra random
+sampling at the same enlarged budget was not compared. No policy is promoted into
+the default solver; the [history](history.md) retains the detailed table, corrected
+feature ablation, timing scope and actual checks.
 
 ## Action objectives and device coverage
 
@@ -396,3 +486,54 @@ The next agent should concentrate on these outstanding boundaries.
 5. Complete moving-controller bindings, multi-box handling, source-bound map coverage, ordinary entry acceptance and the full south-to-north physical connection. Earlier base-collision prefixes and independent tails retain their original coverage scope.
 
 Older [architecture](../architecture.md), [roadmap](../roadmap.md), [ground topology](../ground-topology.md), [solver performance](../solver-performance.md) and [prebuilt navigation](../prebuilt-navigation.md) documents retain useful assumptions and historical acceptance definitions. Their alpha.21/alpha.58 milestones and earlier ordering need to be read alongside this current handoff and [history](history.md). Persistent regional transfers, shared validated action assets, state-preserving contraction, complete release manifests, robust recommended-route evaluation and the original time-reduction goal remain open.
+
+## Retained-point repair checkpoint, 2026-11-11
+
+The current working tree adds fair region-boundary sampling, direction-chain
+proposals, small component-diverse frontier batches and geometrically ranked
+causal-entry trials. Entry trials share one additional `maxCandidates` quota;
+unused trial quota can refine the final jointly resource-timed route. Scores only
+rank bounded coverage. Envelope, collision, support and resource checks remain
+active. Terminal grounded goal evidence survives walk scheduling and detour edits.
+
+One complete 113-request replay has no incomplete routes or resource/goal evidence
+failures. One route exceeds the accepted 5% cost tolerance. Its current-incumbent
+local-refinement experiment and subsequent dual comparison are recorded in the
+final validation section below. The user stopped further full-corpus repetition.
+See the companion history for precise experiment status and evidence paths.
+
+
+### Final bounded validation and delivery
+
+The current-incumbent-only experiment completed another 113-request replay with
+no route/evidence failures but introduced a >5% cost regression on case 006. The
+retained implementation compares the pre-broad incumbent locally and additionally
+compares the improved incumbent using remaining overall candidate budget. Focused
+final cases 006/038 cost 1.875152/15.480632 seconds. All 282 SDK tests pass. The
+third full replay was stopped at the user's request after 12 completed cases; its
+interrupted request is not a solver-failure claim. No complete final-source corpus
+pass is claimed. Final instrumented heavy-query cold/warm times are 95.514/98.558 s.
+CPU sample aggregation was empty, so function timers supply hotspot evidence.
+The Chinese requested benefit report is `docs/reports/2026-11-11-solver-optimization.md`.
+The solver source was committed and pushed as `51ef6b3`. The subsequent alpha.77
+Atlos package upgrade is recorded below. The 20%-remaining-time target stays open.
+
+
+## Alpha.77 packaged Atlos integration, 2026-11-11
+
+The user authorized upgrading Atlos and pushing all local changes. Ganglia
+`0.1.0-alpha.77` packages the solver implementation at `51ef6b3`, including the
+subsystem reorganization, terrain preparation improvements and retained-point
+repair. Only package metadata changed during this release step. Atlos World and
+the maintained noclip extractor patch both reference the alpha.77 vendored archive.
+The workspace lockfile and generated extractor were refreshed through the owning
+preparation script, and the replaced alpha.76 archive was removed.
+
+Archive SHA-256 is `9dd60b4b237dedbdcc7ba4e8c3baddd53a82ca83005a015b270f1a6cfadddeee`.
+All packaged source files match the checkout. Both World and extractor resolve
+the same alpha.77 package and source bytes. Package prepack passes 282 SDK tests.
+The prepared integration passes 13 route worker/server, route cache and source
+preparation tests, plus 59 World tests. World type checking, production build and
+frozen-lockfile installation pass. The build reports its existing large-chunk
+warning. No additional corpus replay was run for this packaging-only upgrade.
+The earlier final-source corpus limitation and performance conclusions still apply.

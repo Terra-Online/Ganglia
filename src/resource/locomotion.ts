@@ -1,4 +1,5 @@
 import type { Vec3 } from '../geo/geometry.ts';
+import { hasTerminalGroundEvent, markTerminalGoal } from '../motion/goals.ts';
 import type { MovementMode, Segment } from '../motion/motion.ts';
 import { validateMotion } from '../motion/motion.ts';
 import type { Route } from '../route/routes.ts';
@@ -619,7 +620,7 @@ export function retimeGroundRoute(route: Route, options: LocomotionOptions): Rou
     for (const point of segment.points.slice(1)) {
       if (distance(points.at(-1)!, point) > epsilon) points.push([...point]);
     }
-  return {
+  const result: Extract<Route, { status: 'complete' }> = {
     ...route,
     segments,
     points,
@@ -640,4 +641,5 @@ export function retimeGroundRoute(route: Route, options: LocomotionOptions): Rou
         }
       : {}),
   };
+  return hasTerminalGroundEvent(route) ? markTerminalGoal(result) : result;
 }

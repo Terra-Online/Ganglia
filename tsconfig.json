@@ -16,5 +16,5 @@
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true
   },
-  "include": ["src/**/*.ts", "bench/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "bench/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"]
 }

@@ -306,3 +306,41 @@ test('excludes costly seed regions before projection and retries after the bound
   assert.equal(wider.diagnostics.seedChecks, fresh.diagnostics.seedChecks);
   assert.equal(wider.diagnostics.truncated, fresh.diagnostics.truncated);
 });
+
+test('a frontier batch retains different reachable relay regions within its link quota', () => {
+  const surfaces = [
+    floor('start', 0, 4, 0, -4, 4),
+    floor('left', 7, 10, 0, -4, -1),
+    floor('right', 7, 10, 0, 1, 4),
+    floor('goal', 30, 34, 0, -2, 2),
+  ];
+  const world = createCollisionWorld(geometry(surfaces));
+  const settings: ShortcutOptions = {
+    ...options,
+    from: [2, 0, 0],
+    to: [32, 0, 0],
+    maxCandidates: 1000,
+    maxLinks: 4,
+  };
+  const result = findJumpFrontier(surfaces, world, settings, {});
+  assert.deepEqual(
+    new Set(result.connections.map((edge) => edge.toSurface)),
+    new Set(['left', 'right']),
+  );
+  assert.ok(result.connections.length <= settings.maxLinks);
+  const planner = createGroundPlanner(surfaces, settings);
+  const targets: Vec3[] = [
+    [8, 0, -2],
+    [8, 0, 2],
+  ];
+  for (const target of targets) {
+    assert.equal(
+      planner.plan(
+        [{ id: 'player', position: settings.from, cost: 0, state: 'available' }],
+        target,
+        { connections: result.connections },
+      ).status,
+      'complete',
+    );
+  }
+});

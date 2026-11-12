@@ -389,3 +389,23 @@ test('pure walking straightening retains a necessary wall detour', () => {
     );
   }
 });
+
+test('detour removal preserves a grounded endpoint event without blocking the improvement', () => {
+  const original = excursion();
+  original.goalHit = { segment: 2, time: 1, position: [6, 0, 0.5] };
+  const result = pruneGroundDetours(
+    original,
+    createGroundPlanner([floor('road', 0, 8)], options),
+    locomotion,
+  );
+  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.goalHit);
+  const scheduled = retimeGroundRoute(original, locomotion);
+  assert.equal(scheduled.status, 'complete');
+  assert.ok(result.replacements > 0);
+  assert.ok(result.route.cost < scheduled.cost);
+  assert.equal(result.route.goalHit.segment, result.route.segments.length - 1);
+  assert.equal(result.route.goalHit.time, result.route.segments.at(-1)!.times.at(-1));
+  assert.deepEqual(result.route.goalHit.position, original.goalHit.position);
+  assert.deepEqual(result.route.points.at(-1), original.points.at(-1));
+});

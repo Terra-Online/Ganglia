@@ -2,6 +2,7 @@ import { createBoundsIndex } from '../geo/bounds.ts';
 import type { Vec3, Surface } from '../geo/geometry.ts';
 import { supportSnapshot } from '../geo/support-snapshot.ts';
 import { projectPoint } from '../geo/surfaces.ts';
+import type { Route } from '../route/routes.ts';
 
 /** Explicit source-derived interaction volume. No per-game defaults are supplied.
  * Airborne collection goals finish at the first in-flight hit. */
@@ -327,6 +328,39 @@ export function findGoalHit(
   }
   return null;
 }
+
+// A grounded completion is witnessed at the verified route endpoint. Its index
+// and local time must be rebuilt when scheduling or detour removal splits walks.
+export function hasTerminalGroundEvent(route: Extract<Route, { status: 'complete' }>) {
+  const hit = route.goalHit,
+    last = route.segments?.at(-1);
+  return Boolean(
+    hit &&
+    last?.mode === 'walk' &&
+    hit.segment === route.segments.length - 1 &&
+    hit.time === last.times.at(-1) &&
+    distanceSquared(hit.position, route.points.at(-1)!) <= 1e-18,
+  );
+}
+
+export function markTerminalGoal(
+  route: Extract<Route, { status: 'complete' }>,
+): Extract<Route, { status: 'complete' }> {
+  const point = route.points.at(-1)!;
+  const segments: Extract<Route, { status: 'complete' }>['segments'] = route.segments.length
+    ? route.segments
+    : [{ mode: 'walk', points: [point, point], times: [0, 0] }];
+  return {
+    ...route,
+    segments,
+    goalHit: {
+      segment: segments.length - 1,
+      time: segments.at(-1)!.times.at(-1)!,
+      position: [...point],
+    },
+  };
+}
+
 // Interaction completion owns the terminal point of an airborne collection action.
 export function trimGoalFlight<T extends { points: Vec3[]; times: number[] }>(
   arc: T | null,

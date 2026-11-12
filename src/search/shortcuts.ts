@@ -77,6 +77,7 @@ export interface FrontierDiagnostics extends Omit<ShortcutDiagnostics, 'baseline
 type IndexedBoundary = Boundary & Bounds & { ordinal: number };
 type LandingFace = Surface & Bounds;
 interface PreparedGeometry {
+  componentOf(id: string): number;
   forward: { get(id: string): WeightedEdge[] | undefined };
   reverse: Map<string, WeightedEdge[]>;
   lengthScale: number;
@@ -225,6 +226,7 @@ function prepareGeometry(surfaces: Surface[], options: DiscoveryOptions): Prepar
     representatives,
     byId,
     projectSupport,
+    componentOf,
     centers,
     project,
     visibility,
@@ -1236,8 +1238,8 @@ function findConnections(
         (entries.length >= capacity[pool] && (frontier || candidate.score >= entries.at(-1)!.score))
       )
         continue;
-      const cell = candidate.cell;
-      if (accepted.has(cell)) continue;
+      let cell = candidate.cell;
+      if (!frontier && accepted.has(cell)) continue;
       if (!entry.variants) {
         const start = standing(candidate.start);
         if (!start) {
@@ -1289,6 +1291,10 @@ function findConnections(
             : Infinity,
           variants: motionVariants(start.position, end.position, candidate.start.exit),
         });
+      }
+      if (frontier) {
+        cell = String(prepared.componentOf(reverse ? entry.start!.surface : entry.end!.surface));
+        if (accepted.has(cell)) continue;
       }
       const next = entry.variants!.next();
       if (next.done) {
@@ -1377,7 +1383,7 @@ function findConnections(
       if (entries.length > capacity[pool]) entries.pop();
       accepted.add(cell);
       pending.pop();
-      if (frontier) {
+      if (frontier && retained[0].length + retained[1].length >= Math.min(maxLinks, 4)) {
         for (let remaining = index + 1; remaining < candidates.length; remaining++)
           pending.push(candidates[remaining]);
         candidates = pending;

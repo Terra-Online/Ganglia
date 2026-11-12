@@ -1,6 +1,6 @@
 {
   "name": "@opendfieldmap/ganglia",
-  "version": "0.1.0-alpha.80",
+  "version": "0.1.0-alpha.81",
   "private": true,
   "description": "Conservative ground-route planning for Open Endfield Map",
   "license": "SEE LICENSE IN LICENSE",
@@ -21,7 +21,7 @@
     "typecheck": "tsc --noEmit",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
-    "lint": "oxlint src bench test",
+    "lint": "oxlint src bench test scripts",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "test": "node --test test/*.test.ts",
     "prepack": "pnpm check",

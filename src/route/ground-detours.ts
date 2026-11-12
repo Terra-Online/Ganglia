@@ -1,4 +1,5 @@
 import type { Vec3 } from '../geo/geometry.ts';
+import { hasTerminalGroundEvent, markTerminalGoal } from '../motion/goals.ts';
 import type { Segment } from '../motion/motion.ts';
 import { groundComponents, condenseComponents, canReach } from '../reach/connectivity.ts';
 import type { LocomotionOptions } from '../resource/locomotion.ts';
@@ -139,11 +140,17 @@ export function pruneGroundDetours(
     route.status !== 'complete' ||
     route.boosts?.length ||
     route.segments.some((s) => s.boost || s.boostExpiry !== undefined) ||
-    (route.goalHit && route.segments[route.goalHit.segment]?.mode === 'walk')
+    (route.goalHit &&
+      route.segments[route.goalHit.segment]?.mode === 'walk' &&
+      !hasTerminalGroundEvent(route))
   ) {
     return { route, replacements, queries };
   }
-  const scheduled = retimeGroundRoute(route, locomotion);
+  const terminalEvent = hasTerminalGroundEvent(route);
+  const scheduled = retimeGroundRoute(
+    terminalEvent ? { ...route, goalHit: undefined } : route,
+    locomotion,
+  );
   if (scheduled.status !== 'complete') return { route, replacements, queries };
   const preparation = groundPreparation(planner);
   // Impossible cross-floor goals must not consume all comparisons before a
@@ -255,5 +262,9 @@ export function pruneGroundDetours(
     }
     if (!improved) break;
   }
-  return { route: replacements ? best : route, replacements, queries };
+  return {
+    route: replacements ? (terminalEvent ? markTerminalGoal(best) : best) : route,
+    replacements,
+    queries,
+  };
 }
