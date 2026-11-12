@@ -10,7 +10,13 @@ export interface MarkdownReport extends Report {
   concurrency: number;
   execution: { mode: string; workers: number; lanes: number };
   comparison?: ReturnType<typeof compareQuality> & { speedup?: number };
-  prototype?: { implementation: string; sourceSha256: string; binarySha256?: string };
+  prototype?: {
+    implementation: string;
+    sourceSha256: string;
+    binarySha256?: string;
+    locomotionLabelLimit?: number;
+    nativeLocomotion?: boolean;
+  };
   workingTreeDirty?: boolean;
 }
 const number = (value: number | null, digits = 3) =>
@@ -52,7 +58,7 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
     '',
     ...(report.prototype
       ? [
-          `Local prototype: \`${report.prototype.implementation}\`; prototype source SHA-256: \`${report.prototype.sourceSha256}\`.`,
+          `Local prototype: \`${report.prototype.implementation}\`; native scheduler: ${report.prototype.nativeLocomotion ?? false}; locomotion label limit: ${report.prototype.locomotionLabelLimit ?? 256}; prototype source SHA-256: \`${report.prototype.sourceSha256}\`.`,
           '',
         ]
       : []),

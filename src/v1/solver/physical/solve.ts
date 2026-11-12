@@ -597,9 +597,9 @@ export const solvePhysicalRoute = async (
         });
         if (refined.surfaces.length) {
           const combined = [...surfaces, ...refined.surfaces];
-          // Keep the coarse graph beside the single refined graph so subsequent
-          // queries do not rebuild it. Binding/wall changes still replace both;
-          // this trades one retained graph for repeated preparation work.
+          // Retain coarse preparation beside bounded target refinements. This
+          // avoids rebuilding shared geometry as independent queries alternate;
+          // binding and wall changes still invalidate the derived preparations.
           groundPlanner = undefined;
           context.cache?.release('moving');
           return {

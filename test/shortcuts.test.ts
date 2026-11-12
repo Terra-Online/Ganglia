@@ -56,6 +56,43 @@ const options: Omit<ShortcutOptions, 'from' | 'to'> = {
   model: movement,
 };
 
+test('reuses physical jump evidence across full frontier searches without changing their budgets', () => {
+  const surfaces = [floor('left', 0, 4, 0, -2, 2), floor('right', 6, 10, 0, -2, 2)];
+  const collision = createCollisionWorld(geometry(surfaces));
+  let sweeps = 0;
+  const world = {
+    groundAt: collision.groundAt.bind(collision),
+    sweepCapsule: (...args: Parameters<typeof collision.sweepCapsule>) => {
+      sweeps++;
+      return collision.sweepCapsule(...args);
+    },
+  };
+  const query = { ...options, from: [2, 0, 0] as Vec3, to: [8, 0, 0] as Vec3 };
+  const search = () => findJumpFrontier(surfaces, world, query, {});
+  const cold = search();
+  assert.ok(cold.connections.some((connection) => connection.mode === 'jump'));
+  const coldSweeps = sweeps;
+  sweeps = 0;
+  const warm = search();
+  assert.deepEqual(warm, cold);
+  assert.ok(sweeps < coldSweeps, `${sweeps} warm sweeps must be below ${coldSweeps}`);
+  warm.connections[0].points[0][0] = 999;
+  warm.connections[0].times[0] = 999;
+  assert.deepEqual(search(), cold);
+
+  // A different endpoint still performs its complete fresh search. Previously
+  // proved arcs may participate, but no cursor or route can authorize the result.
+  const changed = { ...query, to: [8, 0, 1] as Vec3 };
+  const changedWarm = findJumpFrontier(surfaces, world, changed, {});
+  const freshWorld = createCollisionWorld(geometry(surfaces));
+  assert.deepEqual(changedWarm, findJumpFrontier(surfaces, freshWorld, changed, {}));
+  const changedModel = { ...query, model: { ...movement, maxJumpHeight: 1.5 } };
+  assert.deepEqual(
+    findJumpFrontier(surfaces, world, changedModel, {}),
+    findJumpFrontier(surfaces, freshWorld, changedModel, {}),
+  );
+});
+
 test('finds a shorter drop across a gap even when a long ground ramp connects both sides', () => {
   const surfaces: Surface[] = [
     floor('upper', 0, 4, 4, -2, 2),

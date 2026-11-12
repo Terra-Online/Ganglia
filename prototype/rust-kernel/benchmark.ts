@@ -71,6 +71,8 @@ if (args.includes('--json') || args.includes('--markdown')) {
     'Cargo.lock',
     'src/lib.rs',
     'src/collision.rs',
+    'src/locomotion.rs',
+    'locomotion-binding.ts',
     'binding.ts',
     'register.ts',
     'collision-world.ts',
@@ -85,6 +87,8 @@ if (args.includes('--json') || args.includes('--markdown')) {
         : 'rust-transfers'
       : 'typescript',
     sourceSha256: hash.digest('hex'),
+    locomotionLabelLimit: Number(process.env.GANGLIA_LOCOMOTION_LABELS ?? 256),
+    nativeLocomotion: native && process.env.GANGLIA_RUST_LOCOMOTION === '1',
     ...(native
       ? {
           binarySha256: createHash('sha256')

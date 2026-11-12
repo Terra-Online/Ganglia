@@ -119,8 +119,10 @@ test('refined physical queries remain independent across goals, walls and collis
   const preparation = createPhysicalPreparation();
   const config = { ...gangliaV1Defaults, maxCandidates: 128, maxShortcutCandidates: 16 };
   let addedSurfaces = 0;
-  const solve = (snapshot: PhysicalInput, binding: string, goal: Vec3) =>
-    preparation.solve(
+  let refinementReused: boolean | undefined;
+  const solve = (snapshot: PhysicalInput, binding: string, goal: Vec3) => {
+    refinementReused = undefined;
+    return preparation.solve(
       snapshot,
       {
         starts: [{ id: 'start', position: [-2, 0, 0], state: 'available', cost: 0 }],
@@ -131,6 +133,11 @@ test('refined physical queries remain independent across goals, walls and collis
         binding,
         config,
         onResult(_result, _optimizing, diagnostics) {
+          if (diagnostics && typeof diagnostics === 'object' && 'prepareReuse' in diagnostics) {
+            const reuse = diagnostics.prepareReuse;
+            if (reuse && typeof reuse === 'object' && 'refinement' in reuse)
+              refinementReused = reuse.refinement === true;
+          }
           if (diagnostics && typeof diagnostics === 'object' && 'refinement' in diagnostics) {
             const refinement = diagnostics.refinement;
             if (
@@ -144,14 +151,17 @@ test('refined physical queries remain independent across goals, walls and collis
         },
       },
     );
+  };
   const goal: Vec3 = [0.4, 1.5, 0];
   try {
     const first = await solve(input, 'open', goal);
     assert.equal(first.route.status, 'complete');
     assert.ok(addedSurfaces > 0);
+    assert.equal(refinementReused, false);
     const otherGoal: Vec3 = [0.4, 1.5, 1];
     const other = await solve(input, 'open', otherGoal);
     assert.equal(other.route.status, 'complete');
+    assert.equal(refinementReused, false);
     if (other.route.status === 'complete') {
       const hit = other.route.goalHit;
       assert.ok(hit);
@@ -160,6 +170,13 @@ test('refined physical queries remain independent across goals, walls and collis
       );
     }
     assert.deepEqual(await solve(input, 'open', goal), first);
+    assert.equal(refinementReused, true);
+    assert.equal((await solve(input, 'open', [0.4, 1.5, -1])).route.status, 'complete');
+    assert.equal(refinementReused, false);
+    // A hit does not refresh FIFO order. Admitting the third target evicts the
+    // first graph while preserving the result when that graph is rebuilt.
+    assert.deepEqual(await solve(input, 'open', goal), first);
+    assert.equal(refinementReused, false);
     const blocked: PhysicalInput = {
       ...input,
       ground: {
@@ -171,13 +188,19 @@ test('refined physical queries remain independent across goals, walls and collis
       },
     };
     assert.notEqual((await solve(blocked, 'blocked-wall', goal)).route.status, 'complete');
+    assert.equal(refinementReused, false);
     const ceiling = floor('ceiling', -0.5, 1.4, 2.8);
     const covered = {
       ...input,
       collision: geometry([...faces, { ...ceiling, vertices: ceiling.vertices.toReversed() }]),
     };
     assert.notEqual((await solve(covered, 'low-ceiling', goal)).route.status, 'complete');
+    assert.equal(refinementReused, false);
     assert.deepEqual(await solve(input, 'open-again', goal), first);
+    assert.equal(refinementReused, false);
+    preparation.clear();
+    assert.deepEqual(await solve(input, 'open-again', goal), first);
+    assert.equal(refinementReused, false);
   } finally {
     preparation.clear();
   }

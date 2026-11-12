@@ -23,6 +23,7 @@ interface Scheduled {
 }
 interface Label extends Scheduled {
   previous: Label | null;
+  transition: { block: Segment[]; allowSprint: boolean; allowDash: boolean } | null;
 }
 
 const epsilon = 1e-9;
@@ -114,6 +115,7 @@ function scheduleBlock(
   state: LocomotionState,
   allowSprint: boolean,
   allowDash = false,
+  materialize = true,
 ): Scheduled | null {
   const { sprintAcceleration, stamina, dash } = options;
   const speed = options.speed * (block[0].boost?.multiplier ?? 1);
@@ -136,7 +138,11 @@ function scheduleBlock(
     sprinting = false;
     velocity = speed;
   }
-  const segments: Segment[] = [];
+  // Frontier labels need resource states and clocks, while only the selected
+  // chain needs playback samples. Keep the same per-output clock additions in
+  // both modes: summing physical phase durations would change tie rounding.
+  type Output = { gait?: Segment['gait']; duration: number; segment?: Segment };
+  const outputs: Output[] = [];
   for (const segment of block) {
     if (segment.mode !== 'walk') {
       // A faster authored air trajectory cannot activate sprint or spend energy
@@ -144,10 +150,17 @@ function scheduleBlock(
       if (segment.requiredGait === 'sprint' && !sprinting) return null;
       advanceClock(segment.times.at(-1)!);
       dashRemaining = 0;
-      segments.push({
-        ...segment,
-        points: segment.points.map((point) => [...point]),
-        times: [...segment.times],
+      outputs.push({
+        duration: segment.times.at(-1)!,
+        ...(materialize
+          ? {
+              segment: {
+                ...segment,
+                points: segment.points.map((point) => [...point]),
+                times: [...segment.times],
+              },
+            }
+          : {}),
       });
       if (stamina?.recoveryDuringNonWalk) {
         const duration = segment.times.at(-1)!;
@@ -160,14 +173,28 @@ function scheduleBlock(
       previousDirection = null;
       continue;
     }
-    let output: Segment | null = null;
-    const append = (gait: Segment['gait'], point: Vec3, elapsed: number, start: Vec3) => {
+    let output: Output | null = null;
+    const append = (
+      gait: Segment['gait'],
+      point: Vec3 | null,
+      elapsed: number,
+      start: Vec3 | null,
+    ) => {
       if (!output || output.gait !== gait) {
-        output = { ...segment, gait, points: [[...start]], times: [0] };
-        segments.push(output);
+        output = {
+          gait,
+          duration: 0,
+          ...(materialize
+            ? { segment: { ...segment, gait, points: [[...start!]], times: [0] } }
+            : {}),
+        };
+        outputs.push(output);
       }
-      output.points.push([...point]);
-      output.times.push(output.times.at(-1)! + elapsed);
+      output.duration += elapsed;
+      if (output.segment) {
+        output.segment.points.push([...point!]);
+        output.segment.times.push(output.duration);
+      }
     };
     for (let index = 1; index < segment.points.length; index++) {
       const a = segment.points[index - 1];
@@ -208,9 +235,14 @@ function scheduleBlock(
         if (dashRemaining > epsilon) {
           const dashSpeed = dash!.speed * (segment.boost?.multiplier ?? 1);
           const duration = Math.min(dashRemaining, (length - travelled) / dashSpeed);
-          const start = interpolate(a, b, travelled / length);
+          const start = materialize ? interpolate(a, b, travelled / length) : null;
           travelled = Math.min(length, travelled + dashSpeed * duration);
-          append('dash', interpolate(a, b, travelled / length), duration, start);
+          append(
+            'dash',
+            materialize ? interpolate(a, b, travelled / length) : null,
+            duration,
+            start,
+          );
           dashRemaining = Math.max(0, dashRemaining - duration);
           advanceClock(duration);
           // Dash blocks recovery just like its activation. The delay still elapses.
@@ -268,9 +300,14 @@ function scheduleBlock(
             const rechargeTime = delay + Math.max(0, restartEnergy - energy) / recoveryRate;
             duration = Math.min(duration, rechargeTime);
           }
-          const start = interpolate(a, b, travelled / length);
+          const start = materialize ? interpolate(a, b, travelled / length) : null;
           travelled = Math.min(length, travelled + speed * duration);
-          append('run', interpolate(a, b, travelled / length), duration, start);
+          append(
+            'run',
+            materialize ? interpolate(a, b, travelled / length) : null,
+            duration,
+            start,
+          );
           if (stamina) {
             const recovering = Math.max(0, duration - delay);
             delay = Math.max(0, delay - duration);
@@ -298,12 +335,17 @@ function scheduleBlock(
         const initialDistance = travelled;
         let previousTime = 0;
         for (const sample of samples) {
-          const start = interpolate(a, b, travelled / length);
+          const start = materialize ? interpolate(a, b, travelled / length) : null;
           travelled = Math.min(
             length,
             initialDistance + sprintDistance(sample, velocity, sprintSpeed, sprintAcceleration),
           );
-          append('sprint', interpolate(a, b, travelled / length), sample - previousTime, start);
+          append(
+            'sprint',
+            materialize ? interpolate(a, b, travelled / length) : null,
+            sample - previousTime,
+            start,
+          );
           previousTime = sample;
         }
         advanceClock(duration);
@@ -321,7 +363,7 @@ function scheduleBlock(
     }
   }
   return {
-    segments,
+    segments: materialize ? outputs.map((output) => output.segment!) : [],
     state: {
       energy,
       minimum,
@@ -332,7 +374,7 @@ function scheduleBlock(
       previousDirection,
       ...(dash ? { dashCooldown, dashRemaining, dashCount } : {}),
     },
-    duration: segments.reduce((sum, segment) => sum + segment.times.at(-1)!, 0),
+    duration: outputs.reduce((sum, output) => sum + output.duration, 0),
   };
 }
 const sameContinuation = (a: LocomotionState, b: LocomotionState) => {
@@ -387,6 +429,108 @@ export function createLocomotion(options: LocomotionOptions) {
     },
   };
 }
+export interface ScheduleChoice {
+  allowSprint: boolean;
+  allowDash: boolean;
+}
+export interface ScheduleDecision {
+  choices: ScheduleChoice[];
+  truncated: boolean;
+  maxLabels: number;
+}
+export type ScheduleChooser = (
+  blocks: Segment[][],
+  options: LocomotionOptions,
+) => ScheduleDecision | null;
+let prototypeChooser: ScheduleChooser | undefined;
+export function installSchedulePrototype(choose: ScheduleChooser) {
+  prototypeChooser = choose;
+}
+
+export function chooseTypeScriptSchedule(
+  blocks: Segment[][],
+  options: LocomotionOptions,
+  maxLabels = 256,
+): ScheduleDecision | null {
+  if (!Number.isSafeInteger(maxLabels) || maxLabels < 2 || maxLabels % 2)
+    throw new Error('Invalid locomotion label limit');
+  const { speed, stamina } = options;
+  const initialEnergy = stamina?.initial ?? 0;
+  let labels: Label[] = [
+    {
+      duration: 0,
+      previous: null,
+      transition: null,
+      segments: [],
+      state: {
+        energy: initialEnergy,
+        minimum: initialEnergy,
+        delay: 0,
+        sprinting: false,
+        hasActivated: false,
+        velocity: speed,
+        previousDirection: null,
+      },
+    },
+  ];
+  let truncated = false;
+  for (const block of blocks) {
+    const next: Label[] = [];
+    const choices = block[0].mode === 'walk' ? [true, false] : [true];
+    for (const label of labels)
+      for (const allowSprint of choices)
+        for (const allowDash of options.dash && allowSprint && block[0].mode === 'walk'
+          ? [true, false]
+          : [false]) {
+          const scheduled = scheduleBlock(
+            block,
+            options,
+            label.state,
+            allowSprint,
+            allowDash,
+            false,
+          );
+          if (!scheduled) continue;
+          const candidate = {
+            ...scheduled,
+            duration: label.duration + scheduled.duration,
+            previous: label,
+            transition: { block, allowSprint, allowDash },
+          };
+          if (next.some((other) => dominates(other, candidate))) continue;
+          for (let index = next.length - 1; index >= 0; index--) {
+            if (dominates(candidate, next[index])) next.splice(index, 1);
+          }
+          next.push(candidate);
+        }
+    if (!next.length) return null;
+    if (next.length > maxLabels) {
+      // Retain diverse high-energy states alongside faster partial journeys.
+      next.sort((a, b) => a.duration - b.duration);
+      const fastest = next.slice(0, maxLabels / 2);
+      const remainder = next
+        .slice(maxLabels / 2)
+        .sort((a, b) => b.state.energy - a.state.energy || a.duration - b.duration);
+      labels = [...fastest, ...remainder.slice(0, maxLabels / 2)];
+      truncated = true;
+    } else labels = next;
+  }
+  const best = labels.reduce((chosen, label) =>
+    label.duration < chosen.duration - epsilon ||
+    (Math.abs(label.duration - chosen.duration) <= epsilon &&
+      label.state.energy < chosen.state.energy - epsilon)
+      ? label
+      : chosen,
+  );
+
+  const choices: ScheduleChoice[] = [];
+  for (let current = best; current.previous; current = current.previous) {
+    const { allowSprint, allowDash } = current.transition!;
+    choices.push({ allowSprint, allowDash });
+  }
+  return { choices: choices.reverse(), truncated, maxLabels };
+}
+
 /** Retime a continuous path while allocating sprint activations across ground runs.
  * Each run offers running or the feasible sprint/recovery schedule. Labels carry exact
  * energy, recovery delay, gait and velocity across movement boundaries. Dominance pruning
@@ -480,68 +624,25 @@ export function retimeGroundRoute(route: Route, options: LocomotionOptions): Rou
     });
   }
   const initialEnergy = stamina?.initial ?? 0;
-  let labels: Label[] = [
-    {
-      duration: 0,
-      previous: null,
-      segments: [],
-      state: {
-        energy: initialEnergy,
-        minimum: initialEnergy,
-        delay: 0,
-        sprinting: false,
-        hasActivated: false,
-        velocity: speed,
-        previousDirection: null,
-      },
-    },
-  ];
-  const maxLabels = 256;
-  let truncated = false;
-  for (const block of blocks) {
-    const next: Label[] = [];
-    const choices = block[0].mode === 'walk' ? [true, false] : [true];
-    for (const label of labels)
-      for (const allowSprint of choices)
-        for (const allowDash of options.dash && allowSprint && block[0].mode === 'walk'
-          ? [true, false]
-          : [false]) {
-          const scheduled = scheduleBlock(block, options, label.state, allowSprint, allowDash);
-          if (!scheduled) continue;
-          const candidate = {
-            ...scheduled,
-            duration: label.duration + scheduled.duration,
-            previous: label,
-          };
-          if (next.some((other) => dominates(other, candidate))) continue;
-          for (let index = next.length - 1; index >= 0; index--) {
-            if (dominates(candidate, next[index])) next.splice(index, 1);
-          }
-          next.push(candidate);
-        }
-    if (!next.length) return { status: 'no-verified-route' };
-    if (next.length > maxLabels) {
-      // Retain diverse high-energy states alongside faster partial journeys.
-      next.sort((a, b) => a.duration - b.duration);
-      const fastest = next.slice(0, maxLabels / 2);
-      const remainder = next
-        .slice(maxLabels / 2)
-        .sort((a, b) => b.state.energy - a.state.energy || a.duration - b.duration);
-      labels = [...fastest, ...remainder.slice(0, maxLabels / 2)];
-      truncated = true;
-    } else labels = next;
+  const decision = (prototypeChooser ?? chooseTypeScriptSchedule)(blocks, options);
+  if (!decision) return { status: 'no-verified-route' };
+  const { truncated, maxLabels } = decision;
+  const best = { state: createLocomotion(options).initial(), duration: 0 };
+  const segments: Segment[] = [];
+  for (let index = 0; index < blocks.length; index++) {
+    const choice = decision.choices[index];
+    const scheduled = scheduleBlock(
+      blocks[index],
+      options,
+      best.state,
+      choice.allowSprint,
+      choice.allowDash,
+    );
+    if (!scheduled) return { status: 'no-verified-route' };
+    segments.push(...scheduled.segments);
+    best.state = scheduled.state;
+    best.duration += scheduled.duration;
   }
-  const best = labels.reduce((chosen, label) =>
-    label.duration < chosen.duration - epsilon ||
-    (Math.abs(label.duration - chosen.duration) <= epsilon &&
-      label.state.energy < chosen.state.energy - epsilon)
-      ? label
-      : chosen,
-  );
-  const path: Segment[][] = [];
-  for (let current = best; current.previous; current = current.previous)
-    path.push(current.segments);
-  const segments = path.reverse().flat();
   let goalHit = route.goalHit;
   if (goalHit && route.segments[goalHit.segment]?.mode !== 'walk') {
     // Resource scheduling splits ground motion but preserves every authored air

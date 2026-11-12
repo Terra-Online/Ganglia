@@ -2,6 +2,7 @@ import type { CollisionWorld } from '#@/src/collision.ts';
 import type { Vec3, Surface } from '#@/src/geometry.ts';
 import type { GroundConnection, GroundOptions, Route } from '#@/src/route.ts';
 import { type Bounds, type BoundsIndex, createBoundsIndex } from '#@/src/v1/geo/bounds.ts';
+import { motionEvidence } from '#@/src/v1/motion/evidence.ts';
 import type { GoalProjection } from '#@/src/v1/motion/goals.ts';
 import {
   type Arc,
@@ -297,19 +298,20 @@ function findConnections(
   reverse = false,
 ): { connections: GroundConnection[]; diagnostics: Diagnostics } {
   validateDiscovery(world, options);
+  const signature = JSON.stringify([
+    options.profile,
+    options.walls,
+    options.portals,
+    options.model,
+    options.maxVertical,
+    options.maxSlope,
+    options.maxDrop,
+    options.maxHorizontalDistance,
+    options.sampleSpacing,
+    options.activeBoost,
+  ]);
+  const evidence = motionEvidence(world, surfaces, signature);
   if (cache) {
-    const signature = JSON.stringify([
-      options.profile,
-      options.walls,
-      options.portals,
-      options.model,
-      options.maxVertical,
-      options.maxSlope,
-      options.maxDrop,
-      options.maxHorizontalDistance,
-      options.sampleSpacing,
-      options.activeBoost,
-    ]);
     const binding = cache.binding;
     if (
       binding &&
@@ -402,9 +404,14 @@ function findConnections(
   const groundTrace = (start: Vec3, end: Vec3): Vec3[] | null => {
     const key = JSON.stringify([start, end]);
     if (!traces.has(key)) {
-      visibility ??= createGroundStraightener(surfaces, { walls, profile });
-      if (cache) cache.visibility = visibility;
-      traces.set(key, visibility.trace(start, end));
+      traces.set(
+        key,
+        evidence.trace(key, () => {
+          visibility ??= createGroundStraightener(surfaces, { walls, profile });
+          if (cache) cache.visibility = visibility;
+          return visibility.trace(start, end);
+        }),
+      );
     }
     return traces.get(key)!;
   };
@@ -1369,7 +1376,7 @@ function findConnections(
                 { ...motion, world, maxSlope },
                 approaches,
               )
-            : jumpConnection(start.position, end.position, motion);
+            : evidence.arc(motionKey, () => jumpConnection(start.position, end.position, motion));
         motions.set(motionKey, arc);
       }
       if (!arc) {

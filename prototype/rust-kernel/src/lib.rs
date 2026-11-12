@@ -1,4 +1,5 @@
 mod collision;
+mod locomotion;
 
 use napi::bindgen_prelude::{Float64Array, Uint32Array};
 use napi::{Error, Result};

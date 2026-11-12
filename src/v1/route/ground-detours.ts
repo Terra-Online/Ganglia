@@ -2,13 +2,28 @@ import type { Vec3 } from '#@/src/geometry.ts';
 import type { Segment, LocomotionOptions } from '#@/src/movement.ts';
 import type { Route } from '#@/src/route.ts';
 import { hasTerminalGroundEvent, markTerminalGoal } from '#@/src/v1/motion/goals.ts';
-import { groundComponents, condenseComponents, canReach } from '#@/src/v1/reach/connectivity.ts';
+import {
+  type CondensedTopology,
+  groundComponents,
+  condenseComponents,
+  canReach,
+} from '#@/src/v1/reach/connectivity.ts';
 import { retimeGroundRoute } from '#@/src/v1/resource/locomotion.ts';
 import { type GroundPlanner, groundPreparation } from '#@/src/v1/route/ground.ts';
+import type { Graph } from '#@/src/v1/route/routes.ts';
 import type { GroundStraightener } from '#@/src/v1/route/straighten.ts';
 
 type CompleteRoute = Extract<Route, { status: 'complete' }>;
 
+const topologies = new WeakMap<Graph, CondensedTopology>();
+const detourTopology = (graph: Graph) => {
+  let topology = topologies.get(graph);
+  if (!topology) {
+    topology = condenseComponents(groundComponents(graph));
+    topologies.set(graph, topology);
+  }
+  return topology;
+};
 const distance = (a: Vec3, b: Vec3) => Math.hypot(...a.map((v, i) => v - b[i]));
 const pointsOf = (segments: Segment[], start?: Vec3): Vec3[] =>
   segments.length
@@ -154,7 +169,7 @@ export function pruneGroundDetours(
   // Impossible cross-floor goals must not consume all comparisons before a
   // nearby ground return is considered. Use unfiltered support topology here:
   // conservative blocked polygon centres can still have a valid walking bypass.
-  const topology = preparation && condenseComponents(groundComponents(preparation.graph));
+  const topology = preparation && detourTopology(preparation.graph);
   best = scheduled;
   while (true) {
     if (preparation) {

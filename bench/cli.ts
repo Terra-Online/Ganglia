@@ -27,19 +27,35 @@ const { values } = parseArgs({
     workers: { type: 'string', default: '1' },
     config: { type: 'string' },
     reference: { type: 'string' },
-    limit: { type: 'string', default: '50' },
+    limit: { type: 'string' },
+    offset: { type: 'string', default: '0' },
+    workload: { type: 'string' },
   },
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--limit <1..50>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>]',
+    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>]',
   );
 else {
   try {
     if (values.json && values.markdown) throw new Error('Choose --json or --markdown');
-    const count = Number(values.limit);
-    if (!Number.isInteger(count) || count < 1 || count > cases.length)
-      throw new Error('Invalid query limit');
+    const workload: typeof cases = values.workload
+      ? JSON.parse(await readFile(values.workload, 'utf8'))
+      : cases;
+    const offset = Number(values.offset),
+      count = Number(values.limit ?? workload.length);
+    if (
+      !Array.isArray(workload) ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0 ||
+      !Number.isSafeInteger(count) ||
+      count < 1 ||
+      offset + count > workload.length
+    )
+      throw new Error('Invalid workload, offset or query limit');
+    const selected = workload.slice(offset, offset + count);
+    if (new Set(selected.map((item) => item.id)).size !== selected.length)
+      throw new Error('Duplicate workload query id');
     const config: SolverConfig = values.config
       ? JSON.parse(await readFile(values.config, 'utf8'))
       : { ...gangliaV1Defaults };
@@ -79,7 +95,6 @@ else {
     }
     const { solver, inputLoadMs, timings, metadata } = prepared;
     try {
-      const selected = cases.slice(0, count);
       const referenceBytes = values.reference ? await readFile(values.reference) : undefined;
       const referenceReport: { batch: { wallMs: number } } | undefined = referenceBytes
         ? JSON.parse(referenceBytes.toString())
