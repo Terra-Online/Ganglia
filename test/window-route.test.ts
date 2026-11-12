@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import type { Surface } from '#@/src/geometry.ts';
 import type { Route } from '#@/src/route.ts';
 import type { WindowResources, WindowRequest, WindowJob } from '#@/src/solver/resources.ts';
+import { setActionCatalogPhase } from '#@/src/v1/route/action-catalog.ts';
 import {
   createWindowGroundCache,
   createWindowRoute,
@@ -287,70 +288,77 @@ test('unknown airborne transfers cannot become invented grounded intermediate de
   if (result.status === 'incomplete') assert.equal(result.reason, 'coverage-budget');
 });
 
-test('walking can replace an unnecessary device excursion across two solved windows', async () => {
-  const builder: Omit<Resources, 'key' | 'ground' | 'route'> = {
-    query: async () => ({
-      status: 'ready',
-      message: '',
-      output: groundPath,
-      collision: 'collision',
-    }),
-    solve: async (_ground, local, _start, stage) => {
-      if (stage.step === 0)
+for (const phase of ['disabled', 'frozen'] as const)
+  test(`walking replaces a device excursion across two windows with catalog ${phase}`, async (t) => {
+    setActionCatalogPhase(phase);
+    t.after(() => setActionCatalogPhase('disabled'));
+    const builder: Omit<Resources, 'key' | 'ground' | 'route'> = {
+      query: async () => ({
+        status: 'ready',
+        message: '',
+        output: groundPath,
+        collision: 'collision',
+      }),
+      solve: async (_ground, local, _start, stage) => {
+        if (stage.step === 0)
+          return {
+            status: 'ready',
+            message: '',
+            output: 'r',
+            collision: 'c',
+            result: { reason: 'no-verified-route' },
+          };
+        const start = local.arrival.position,
+          exit = local.target;
+        const a = [start[0] + 1, start[1], 0] as [number, number, number];
+        const b = [exit[0] - 1, exit[1], 0] as [number, number, number];
         return {
           status: 'ready',
           message: '',
           output: 'r',
           collision: 'c',
-          result: { reason: 'no-verified-route' },
-        };
-      const start = local.arrival.position,
-        exit = local.target;
-      const a = [start[0] + 1, start[1], 0] as [number, number, number];
-      const b = [exit[0] - 1, exit[1], 0] as [number, number, number];
-      return {
-        status: 'ready',
-        message: '',
-        output: 'r',
-        collision: 'c',
-        result: {
-          route: {
-            status: 'complete',
-            start: local.arrival.id,
-            arrivalCost: 0,
-            cost: 102,
-            length: 120,
-            points: [start, a, b, exit],
-            segments: [
-              { mode: 'walk', points: [start, a], times: [0, 1] },
-              { mode: 'launch', points: [a, b], times: [0, 100], connection: 'launcher' },
-              { mode: 'walk', points: [b, exit], times: [0, 1] },
-            ],
+          result: {
+            route: {
+              status: 'complete',
+              start: local.arrival.id,
+              arrivalCost: 0,
+              cost: 102,
+              length: 120,
+              points: [start, a, b, exit],
+              segments: [
+                { mode: 'walk', points: [start, a], times: [0, 1] },
+                { mode: 'launch', points: [a, b], times: [0, 100], connection: 'launcher' },
+                { mode: 'walk', points: [b, exit], times: [0, 1] },
+              ],
+            },
           },
-        },
-      };
-    },
-  };
-  const search = createWindowRoute(
-    resources(builder),
-    { ...request, target: [120, 0, 0] },
-    [
-      [80, 5, 0],
-      [120, 0, 0],
-    ],
-    { ...settings, maxTiles: 8 },
-  );
-  let result = await search.advance();
-  for (let i = 0; i < 12 && result.status === 'pending'; i++) result = await search.advance();
-  assert.equal(result.status, 'complete');
-  if (result.status === 'complete') {
-    assert.equal(result.evidence.length, 2);
-    assert.deepEqual(result.route.points[0], [0, 0, 0]);
-    assert.deepEqual(result.route.points.at(-1), [120, 0, 0]);
-    assert.ok(result.route.segments.every((s) => s.mode === 'walk'));
-    assert.ok(Math.abs(result.route.cost - 24) < 1e-8);
-  }
-});
+        };
+      },
+    };
+    const search = createWindowRoute(
+      resources(builder),
+      { ...request, target: [120, 0, 0] },
+      [
+        [80, 5, 0],
+        [120, 0, 0],
+      ],
+      { ...settings, maxTiles: 8 },
+    );
+    let result = await search.advance();
+    for (let i = 0; i < 12 && result.status === 'pending'; i++) result = await search.advance();
+    assert.equal(result.status, 'complete');
+    if (result.status === 'complete') {
+      assert.equal(result.evidence.length, 2);
+      assert.deepEqual(result.route.points[0], [0, 0, 0]);
+      assert.deepEqual(result.route.points.at(-1), [120, 0, 0]);
+      const evidence = result.evidence as { detours?: { replacements: number } }[];
+      if (phase === 'frozen') assert.equal(evidence[0].detours, undefined);
+      else assert.ok(evidence[0].detours);
+      assert.ok(evidence[1].detours!.replacements > 0);
+      assert.ok(result.route.segments.every((s) => s.mode === 'walk'));
+      assert.ok(Math.abs(result.route.cost - 24) < 1e-8);
+    }
+  });
 
 const floor = (id: string, from: number, to: number, height = 0): Surface => ({
   id,

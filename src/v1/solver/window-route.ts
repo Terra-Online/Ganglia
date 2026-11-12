@@ -8,6 +8,7 @@ import type {
   WindowResources,
 } from '#@/src/solver/resources.ts';
 import { createGoalProjector } from '#@/src/v1/motion/goals.ts';
+import { isActionCatalogFrozen } from '#@/src/v1/route/action-catalog.ts';
 import { pruneGroundDetours } from '#@/src/v1/route/ground-detours.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
 import { physicalWork } from '#@/src/v1/solver/physical/work.ts';
@@ -406,6 +407,9 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
             const length = (previous?.length ?? 0) + route.length;
             const direct = distance(previous?.points[0] ?? route.points[0], exit);
             if (
+              // Frozen catalog queries use the physical pass for same-window pruning.
+              // This approximate phase policy retains cross-window repairs and training.
+              (previous || !isActionCatalogFrozen()) &&
               windowGround &&
               (segments.some((s) => s.mode !== 'walk') ||
                 length > direct + 2 * windowGround.options.profile.radius)

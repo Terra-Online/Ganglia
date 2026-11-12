@@ -27,6 +27,7 @@ const counts = {
 export const setActionCatalogPhase = (next: Phase) => {
   phase = next;
 };
+export const isActionCatalogFrozen = () => phase === 'frozen';
 export const actionCatalogStats = () => ({
   phase,
   ...counts,

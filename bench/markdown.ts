@@ -82,7 +82,7 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
     '',
     ...(report.catalogTraining
       ? [
-          'Approximate algorithm: the catalog is trained before holdout prewarm and then frozen. Training time is additional preparation cost excluded from measured throughput. New queries run physical ground/resource planning over selected actions and a broad comparison of at most 128 candidates and one incumbent-local pass of at most 128 candidates; completed routes are not cached.',
+          'Approximate algorithm: the catalog is trained before holdout prewarm and then frozen. Training time is additional preparation cost excluded from measured throughput. New queries run physical ground/resource planning over selected actions and a broad comparison of at most 128 candidates and one incumbent-local pass of at most 128 candidates. Frozen queries use physical detour pruning for each first window and retain outer comparisons across preceding window pieces; training retains both comparison phases. Completed routes are not cached.',
           '',
         ]
       : []),
