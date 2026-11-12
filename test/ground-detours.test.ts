@@ -5,7 +5,11 @@ import type { Surface, Vec3, Wall } from '#@/src/geometry.ts';
 import type { MovementMode, Segment } from '#@/src/movement.ts';
 import type { Route } from '#@/src/route.ts';
 import { blockedByWalls } from '#@/src/v1/geo/walls.ts';
-import { retimeGroundRoute } from '#@/src/v1/resource/locomotion.ts';
+import {
+  chooseTypeScriptSchedule,
+  installSchedulePrototype,
+  retimeGroundRoute,
+} from '#@/src/v1/resource/locomotion.ts';
 import { pruneGroundDetours } from '#@/src/v1/route/ground-detours.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
 import { expectStatus } from '#@/test/assertions.ts';
@@ -90,6 +94,86 @@ test('a supported cheaper walk removes an unnecessary device and preserves exact
   assert.deepEqual(result.route.points.at(-1), original.points.at(-1));
   assert.ok(result.route.segments.every((s) => s.mode === 'walk'));
   assert.deepEqual(original, excursion(), 'caller-owned route was mutated');
+});
+
+test('a supported replacement that cannot beat the incumbent avoids the full candidate schedule', () => {
+  const bridge = floor('bridge', 2, 4);
+  bridge.vertices = bridge.vertices.map(([x, y, z]) => [x, y, z === 0 ? 3 : 4]);
+  const planner = createGroundPlanner([floor('left', 0, 2), bridge, floor('right', 4, 8)], options);
+  const original = excursion();
+  original.segments[1].times = [0, 0.55, 1.1];
+  original.cost = original.segments.reduce((sum, part) => sum + part.times.at(-1)!, 0);
+  const walk = planner.plan(
+    [{ id: 'player', position: original.points[0], state: 'available', cost: 0 }],
+    original.points.at(-1)!,
+  );
+  assert.equal(walk.status, 'complete');
+  const incumbent = expectStatus(retimeGroundRoute(original, locomotion), 'complete');
+  assert.ok(walk.length / locomotion.sprintSpeed > incumbent.cost);
+  let schedules = 0;
+  const previous = installSchedulePrototype((blocks, policy) => {
+    schedules++;
+    return chooseTypeScriptSchedule(blocks, policy);
+  });
+  try {
+    const result = pruneGroundDetours(original, planner, locomotion, { maxQueries: 1 });
+    assert.equal(result.queries, 1);
+    assert.equal(result.replacements, 0);
+    assert.deepEqual(result.route, original);
+    // The incumbent and supported walk each need one schedule. The complete
+    // stitched candidate is already too long even at unlimited sprint speed.
+    assert.equal(schedules, 2);
+  } finally {
+    installSchedulePrototype(previous);
+  }
+});
+
+test('a dash-fast supported replacement remains eligible when sprint alone cannot improve it', () => {
+  const policy = {
+    ...locomotion,
+    stamina: {
+      capacity: 10,
+      initial: 10,
+      sprintDrain: 0,
+      activationCost: 0,
+      recoveryRate: 0,
+      recoveryDelay: 0,
+      reserve: 0,
+    },
+    dash: { speed: 10, duration: 1, cooldown: 1.5, cost: 1 },
+  };
+  const original = excursion();
+  original.segments[1].times = [0, 0.35, 0.7];
+  original.cost = original.segments.reduce((sum, part) => sum + part.times.at(-1)!, 0);
+  const scheduled = expectStatus(retimeGroundRoute(original, policy), 'complete');
+  const directLength = Math.hypot(
+    ...original.points.at(-1)!.map((value, axis) => value - original.points[0][axis]),
+  );
+  assert.ok(directLength / policy.sprintSpeed > scheduled.cost);
+  const result = pruneGroundDetours(
+    original,
+    createGroundPlanner([floor('road', 0, 8)], { ...options, locomotion: policy }),
+    policy,
+  );
+  assert.ok(result.replacements > 0);
+  assert.equal(result.route.status, 'complete');
+  assert.ok(result.route.cost < scheduled.cost - 0.01);
+  assert.ok(result.route.segments.every((part) => part.mode === 'walk'));
+});
+
+test('rounding near the detour acceptance threshold still reaches exact scheduling', () => {
+  const policy = { speed: 4, sprintSpeed: 4, sprintAcceleration: 2 };
+  const original = excursion();
+  original.segments[1].times = [0, 0.5050000000000005, 1.010000000000001];
+  original.cost = original.segments.reduce((sum, part) => sum + part.times.at(-1)!, 0);
+  const result = pruneGroundDetours(
+    original,
+    createGroundPlanner([floor('road', 0, 8)], { ...options, locomotion: policy }),
+    policy,
+  );
+  assert.equal(result.route.status, 'complete');
+  assert.ok(result.replacements > 0);
+  assert.ok(Math.abs(result.route.cost - 1.375) < 1e-12);
 });
 
 test('ground replacement cannot cross missing support or a blocking wall, even with a device in the planner', () => {

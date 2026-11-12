@@ -3,6 +3,7 @@ import type { Vec3, Surface } from '#@/src/geometry.ts';
 import type { GroundConnection, Route } from '#@/src/route.ts';
 import { createBoundsIndex } from '#@/src/v1/geo/bounds.ts';
 import { createWallChecker } from '#@/src/v1/geo/walls.ts';
+import { discoveryEvidence } from '#@/src/v1/motion/evidence.ts';
 import { createGoalProjector } from '#@/src/v1/motion/goals.ts';
 import {
   type MotionControl,
@@ -198,6 +199,7 @@ export function findRouteShortcuts(
   const project =
     prepared?.surfaces === surfaces ? prepared.projectGoal : createGoalProjector(surfaces);
   const blocked = createWallChecker(walls, profile);
+  const { evidence } = discoveryEvidence(world, surfaces, options);
   const cached = cache.standing!,
     approaches = cache.approaches;
   const standing = (sample: Sample): Witness | null => {
@@ -213,7 +215,9 @@ export function findRouteShortcuts(
       return null;
     }
     diagnostics.endpointChecks++;
-    const result = standingFoot(nav, world, { profile, maxVertical, maxSlope, blocked, project });
+    const result = evidence.standing(key, () =>
+      standingFoot(nav, world, { profile, maxVertical, maxSlope, blocked, project }),
+    );
     if (result.reason) diagnostics.rejected[result.reason]++;
     const foot = result.reason ? null : result;
     cached.set(key, foot);
@@ -289,8 +293,11 @@ export function findRouteShortcuts(
                 end.position,
                 { ...motion, world, maxSlope },
                 approaches,
+                evidence.approach,
               )
-            : jumpConnection(start.position, end.position, motion);
+            : evidence.arc(JSON.stringify([start.position, end.position, variant.value]), () =>
+                jumpConnection(start.position, end.position, motion),
+              );
         if (arc && arc.times.at(-1)! < entry.candidate.end.time - entry.candidate.start.time) {
           connections.push({
             id: `route-shortcut/${connections.length}`,

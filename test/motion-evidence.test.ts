@@ -47,3 +47,28 @@ test('trace evidence owns its arrays and follows immutable world, surfaces and c
   evidence.trace('walk', compute);
   assert.equal(computed, 2);
 });
+
+test('standing evidence owns corrected support coordinates and keeps rejection reasons', () => {
+  const world = createCollisionWorld({ positions: [], indices: [] });
+  const surfaces: Surface[] = [];
+  const evidence = motionEvidence(world, surfaces, 'body and walls');
+  const foot = { position: [1, 0.005, 2] as Vec3, surface: 'floor' };
+  const first = evidence.standing('seed', () => foot);
+  assert.ok(!first.reason);
+  first.position[0] = 999;
+  foot.position[1] = 999;
+  assert.deepEqual(
+    evidence.standing('seed', () => ({ reason: 'support' })),
+    {
+      position: [1, 0.005, 2],
+      surface: 'floor',
+    },
+  );
+  const blocked = motionEvidence(world, surfaces, 'changed body and walls');
+  assert.deepEqual(
+    blocked.standing('seed', () => ({ reason: 'clearance' })),
+    {
+      reason: 'clearance',
+    },
+  );
+});

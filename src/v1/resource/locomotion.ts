@@ -443,8 +443,10 @@ export type ScheduleChooser = (
   options: LocomotionOptions,
 ) => ScheduleDecision | null;
 let prototypeChooser: ScheduleChooser | undefined;
-export function installSchedulePrototype(choose: ScheduleChooser) {
+export function installSchedulePrototype(choose: ScheduleChooser | undefined) {
+  const previous = prototypeChooser;
   prototypeChooser = choose;
+  return previous;
 }
 
 export function chooseTypeScriptSchedule(

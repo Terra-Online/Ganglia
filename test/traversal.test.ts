@@ -58,7 +58,8 @@ const options: DiscoveryOptions = {
 
 test('discovers directed model-based jumps between supported separated platforms', () => {
   const surfaces: Surface[] = [floor('upper', 0, 4, 4), floor('lower', 7, 11, 0)];
-  const result = findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), options);
+  const world = createCollisionWorld(geometry(surfaces));
+  const result = findJumpConnections(surfaces, world, options);
   assert.ok(result.connections.some((c) => c.fromSurface === 'upper' && c.toSurface === 'lower'));
   assert.equal(
     result.connections.some((c) => c.fromSurface === 'lower' && c.toSurface === 'upper'),
@@ -70,6 +71,23 @@ test('discovers directed model-based jumps between supported separated platforms
     assert.ok(connection.endpointTolerance! <= options.profile.radius);
     assert.ok(connection.points[0][1] > 3.99);
   }
+  const expected = structuredClone(result);
+  result.connections[0].points[0][0] = 999;
+  result.connections[0].times[0] = 999;
+  assert.deepEqual(findJumpConnections(surfaces, world, options), expected);
+  const limited = { ...options, maxCandidates: 4 };
+  assert.deepEqual(
+    findJumpConnections(surfaces, world, limited),
+    findJumpConnections(surfaces, createCollisionWorld(geometry(surfaces)), limited),
+  );
+  const reverse = { ...options, from: options.to, to: options.from };
+  assert.deepEqual(findJumpConnections(surfaces, world, reverse).connections, []);
+  const blocked: DiscoveryOptions = {
+    ...options,
+    walls: [{ min: [4.5, -1, -20], max: [5, 10, 20], state: 'active' }],
+  };
+  assert.deepEqual(findJumpConnections(surfaces, world, blocked).connections, []);
+  assert.deepEqual(findJumpConnections(surfaces, world, options), expected);
 });
 
 test('retains supported narrow landing regions whose navigation already includes body clearance', () => {

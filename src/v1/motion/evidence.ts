@@ -1,6 +1,10 @@
 import type { CollisionWorld } from '#@/src/collision.ts';
 import type { Surface, Vec3 } from '#@/src/geometry.ts';
 import type { Approach, Arc } from '#@/src/v1/motion/jumps.ts';
+import { groundPreparation } from '#@/src/v1/route/ground.ts';
+import type { DiscoveryOptions, standingFoot } from '#@/src/v1/search/traversal.ts';
+
+type Foot = ReturnType<typeof standingFoot>;
 
 const copyPoints = (points: Vec3[]) => points.map((point): Vec3 => [...point]);
 const copyArc = (arc: Arc | null): Arc | null =>
@@ -11,12 +15,22 @@ const copyApproach = (approach: Approach | null): Approach | null =>
     points: copyPoints(approach.points),
     distances: [...approach.distances],
   };
+const copyFoot = (foot: Foot): Foot =>
+  foot.reason ? { ...foot } : { position: [...foot.position], surface: foot.surface };
 
 function createEvidence() {
   const motions = new Map<string, Arc | null>();
   const approaches = new Map<string, Approach | null>();
   const traces = new Map<string, Vec3[] | null>();
+  const feet = new Map<string, Foot>();
   return {
+    standing(key: string, compute: () => Foot): Foot {
+      if (!feet.has(key)) {
+        if (feet.size >= 2048) feet.delete(feet.keys().next().value!);
+        feet.set(key, copyFoot(compute()));
+      }
+      return copyFoot(feet.get(key)!);
+    },
     approach(key: string, compute: () => Approach | null): Approach | null {
       if (!approaches.has(key)) {
         if (approaches.size >= 1024) approaches.delete(approaches.keys().next().value!);
@@ -75,4 +89,36 @@ export function motionEvidence(
     snapshots.set(surfaces, scope);
   }
   return scope.evidence;
+}
+
+// Keep one physical binding across discovery execution sites. Query endpoints,
+// reachability and budgets remain outside the reusable geometric proofs.
+export function discoveryEvidence(
+  world: CollisionWorld,
+  surfaces: Surface[],
+  options: DiscoveryOptions & { activeBoost?: string },
+) {
+  const ground = groundPreparation(options.groundPlanner);
+  // A prepared graph owns immutable portals; standalone callers still require
+  // content binding because their supplied portal arrays can be mutated.
+  const portalBinding =
+    ground?.surfaces === surfaces && ground.importedPortals === options.portals
+      ? ground
+      : JSON.stringify(options.portals);
+  const signature = JSON.stringify([
+    options.profile,
+    options.walls,
+    options.model,
+    options.maxVertical,
+    options.maxSlope,
+    options.maxDrop,
+    options.maxHorizontalDistance,
+    options.sampleSpacing,
+    options.activeBoost,
+  ]);
+  return {
+    evidence: motionEvidence(world, surfaces, signature, portalBinding),
+    signature,
+    portalBinding,
+  };
 }

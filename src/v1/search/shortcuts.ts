@@ -2,7 +2,7 @@ import type { CollisionWorld } from '#@/src/collision.ts';
 import type { Vec3, Surface } from '#@/src/geometry.ts';
 import type { GroundConnection, GroundOptions, Route } from '#@/src/route.ts';
 import { type Bounds, type BoundsIndex, createBoundsIndex } from '#@/src/v1/geo/bounds.ts';
-import { motionEvidence } from '#@/src/v1/motion/evidence.ts';
+import { discoveryEvidence } from '#@/src/v1/motion/evidence.ts';
 import type { GoalProjection } from '#@/src/v1/motion/goals.ts';
 import {
   type Arc,
@@ -27,7 +27,6 @@ import {
 } from '#@/src/v1/reach/distance-field.ts';
 import { createMotionBounds } from '#@/src/v1/reach/motion-bounds.ts';
 import { createJumpEnvelope, createJumpPredecessor } from '#@/src/v1/reach/reachability.ts';
-import { groundPreparation } from '#@/src/v1/route/ground.ts';
 import { movementGeometry } from '#@/src/v1/route/movement-geometry.ts';
 import type { Edge } from '#@/src/v1/route/routes.ts';
 import { type GroundStraightener, createGroundStraightener } from '#@/src/v1/route/straighten.ts';
@@ -308,26 +307,7 @@ function findConnections(
   reverse = false,
 ): { connections: GroundConnection[]; diagnostics: Diagnostics } {
   validateDiscovery(world, options);
-  const ground = groundPreparation(options.groundPlanner);
-  // A prepared graph owns immutable imported portals. Use its identity instead
-  // of serializing a potentially scene-sized portal array on every search batch.
-  // Standalone queries retain content checks for caller-mutated portal arrays.
-  const portalBinding =
-    ground?.surfaces === surfaces && ground.importedPortals === options.portals
-      ? ground
-      : JSON.stringify(options.portals);
-  const signature = JSON.stringify([
-    options.profile,
-    options.walls,
-    options.model,
-    options.maxVertical,
-    options.maxSlope,
-    options.maxDrop,
-    options.maxHorizontalDistance,
-    options.sampleSpacing,
-    options.activeBoost,
-  ]);
-  const evidence = motionEvidence(world, surfaces, signature, portalBinding);
+  const { evidence, signature, portalBinding } = discoveryEvidence(world, surfaces, options);
   if (cache) {
     const binding = cache.binding;
     if (

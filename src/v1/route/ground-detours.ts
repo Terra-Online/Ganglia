@@ -31,6 +31,37 @@ const pointsOf = (segments: Segment[], start?: Vec3): Vec3[] =>
     : [start!];
 const lengthOf = (points: Vec3[]) =>
   points.slice(1).reduce((sum, point: Vec3, index) => sum + distance(points[index], point), 0);
+const minimumDuration = (segments: Segment[], locomotion: LocomotionOptions) => {
+  const maximumSpeed = Math.max(locomotion.sprintSpeed, locomotion.dash?.speed ?? 0);
+  let duration = 0,
+    coordinateScale = 1,
+    operations = segments.length + 1;
+  for (const segment of segments) {
+    if (segment.mode !== 'walk') {
+      duration += segment.times.at(-1)!;
+      continue;
+    }
+    for (let i = 1; i < segment.points.length; i++) {
+      const a = segment.points[i - 1],
+        b = segment.points[i],
+        length = distance(a, b);
+      duration += length / maximumSpeed;
+      for (let axis = 0; axis < 3; axis++)
+        coordinateScale = Math.max(coordinateScale, Math.abs(a[axis]), Math.abs(b[axis]));
+      operations += 1 + Math.ceil(length / (locomotion.speed * 0.1));
+      if (locomotion.dash)
+        operations += Math.ceil(length / (locomotion.dash.speed * locomotion.dash.duration));
+    }
+  }
+  // Ignore stamina, acceleration and cooldown costs. Leave slack for skipped
+  // subnanometre remnants, dash splits and sampled-clock rounding; near ties
+  // must still reach the ordinary scheduler and its unchanged acceptance test.
+  const slack =
+    operations *
+    (1e-9 / maximumSpeed +
+      64 * Number.EPSILON * Math.max(1, coordinateScale / maximumSpeed, duration));
+  return Math.max(0, duration - slack);
+};
 const straightenWalking = (
   route: CompleteRoute,
   straighten: GroundStraightener,
@@ -250,6 +281,10 @@ export function pruneGroundDetours(
         ...walk.segments,
         ...comparison.segments.slice(to.index),
       ].map(({ gait: _gait, ...segment }) => segment);
+      const lowerCost = best.arrivalCost + minimumDuration(segments, locomotion);
+      const comparisonSlack =
+        64 * Number.EPSILON * Math.max(1, Math.abs(lowerCost), Math.abs(best.cost));
+      if (lowerCost > best.cost - 0.01 + comparisonSlack) continue;
       const points = pointsOf(segments, best.points[0]);
       let goalHit = comparison.goalHit;
       if (goalHit && goalHit.segment >= to.index)

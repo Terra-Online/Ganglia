@@ -5,6 +5,7 @@ import type { GroundConnection } from '#@/src/route.ts';
 import { type Bounds, createBoundsIndex } from '#@/src/v1/geo/bounds.ts';
 import { type SharedPortal, surfacePortals, directedPortals } from '#@/src/v1/geo/surfaces.ts';
 import { createWallChecker } from '#@/src/v1/geo/walls.ts';
+import { discoveryEvidence } from '#@/src/v1/motion/evidence.ts';
 import { jumpConnection, jumpDuration } from '#@/src/v1/motion/jumps.ts';
 import { landingCandidates } from '#@/src/v1/motion/landings.ts';
 import type { GroundPlanner } from '#@/src/v1/route/ground.ts';
@@ -376,6 +377,7 @@ export function findJumpConnections(
   } = options ?? {};
   validateDiscovery(world, options);
   const blocked = createWallChecker(walls, profile);
+  const { evidence } = discoveryEvidence(world, surfaces, options);
   const diagnostics: DiscoveryDiagnostics &
     Required<
       Pick<
@@ -633,13 +635,9 @@ export function findJumpConnections(
     const nav = project(seed, { maxVertical })[0];
     if (!nav || componentOf(nav.surface) !== component) diagnostics.rejected.projection++;
     else {
-      const sampled = standingFoot(nav, world, {
-        profile,
-        maxVertical,
-        maxSlope,
-        blocked,
-        project,
-      });
+      const sampled = evidence.standing(JSON.stringify([nav.position, nav.surface]), () =>
+        standingFoot(nav, world, { profile, maxVertical, maxSlope, blocked, project }),
+      );
       if (sampled.reason) diagnostics.rejected[sampled.reason]++;
       else if (componentOf(sampled.surface) !== component) diagnostics.rejected.projection++;
       else {
@@ -993,13 +991,15 @@ export function findJumpConnections(
           return null;
         }
         diagnostics.attempted++;
-        const arc = jumpConnection(start.position, end.position, {
-          ...model,
-          profile,
-          walls,
-          mode,
-          sweep: (from, to, body) => world.sweepCapsule(from, to, body),
-        });
+        const arc = evidence.arc(JSON.stringify([start.position, end.position, { mode }]), () =>
+          jumpConnection(start.position, end.position, {
+            ...model,
+            profile,
+            walls,
+            mode,
+            sweep: (from, to, body) => world.sweepCapsule(from, to, body),
+          }),
+        );
         if (!arc) {
           diagnostics.rejected.motion++;
           continue;
