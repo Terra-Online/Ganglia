@@ -31,7 +31,11 @@ import { groundPreparation } from '#@/src/v1/route/ground.ts';
 import { movementGeometry } from '#@/src/v1/route/movement-geometry.ts';
 import type { Edge } from '#@/src/v1/route/routes.ts';
 import { type GroundStraightener, createGroundStraightener } from '#@/src/v1/route/straighten.ts';
-import { boundaryTree, boundaryOrder } from '#@/src/v1/search/boundary-order.ts';
+import {
+  boundaryTree,
+  boundaryOrderIterator,
+  interleaveBoundaryOrders,
+} from '#@/src/v1/search/boundary-order.ts';
 import { createCandidateBounds } from '#@/src/v1/search/candidate-bounds.ts';
 import {
   type DiscoveryOptions,
@@ -739,11 +743,14 @@ function findConnections(
           diversity,
         ),
       };
+    // Resuming a cursor requires the same query binding and action revision.
+    // Identical distance-field inputs leave costs untouched; changed inputs
+    // discard the old cursor before its lazy comparisons can read those maps.
     const order = (
       eligible: (boundary: IndexedBoundary) => boolean,
       compare: (a: IndexedBoundary, b: IndexedBoundary) => number,
     ) =>
-      boundaryOrder(
+      boundaryOrderIterator(
         prepared.boundaryOrder!.tree,
         eligible,
         stable(compare),
@@ -781,15 +788,10 @@ function findConnections(
               ordering.source[a.ordinal] - ordering.source[b.ordinal],
           )
         : [];
-    const orderedEdges = frontier
-      ? interleave(
-          [sourceEdges, visibleEdges].filter((edges) => edges.length),
-          boundaries.length,
-        )
-      : interleave(
-          [sourceEdges, goalEdges, otherEdges].filter((edges) => edges.length),
-          boundaries.length * 3,
-        );
+    const orderedEdges = interleaveBoundaryOrders(
+      frontier ? [sourceEdges, visibleEdges] : [sourceEdges, goalEdges, otherEdges],
+      frontier ? boundaries.length : boundaries.length * 3,
+    );
     const seedStream = function* (boundary: IndexedBoundary): Generator<Seed> {
       // Preserve the original budgeted seed prefix. Proven empty regions still
       // consume their old slots, without projection or spatial-query work.
@@ -846,7 +848,7 @@ function findConnections(
     // a dense patch, then round-robin the remaining offsets across all ledges.
     seedIterator = (function* (): Generator<Seed> {
       let streams = [];
-      for (const boundary of new Set<IndexedBoundary>(orderedEdges)) {
+      for (const boundary of orderedEdges) {
         const stream = seedStream(boundary),
           next = stream.next();
         if (!next.done) {

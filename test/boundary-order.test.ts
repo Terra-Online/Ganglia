@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { boundaryOrder, boundaryTree } from '#@/src/v1/search/boundary-order.ts';
+import {
+  boundaryOrder,
+  boundaryOrderIterator,
+  boundaryTree,
+  interleaveBoundaryOrders,
+} from '#@/src/v1/search/boundary-order.ts';
 
 test('bounded discovery covers separate regions before exhausting nearby entries', () => {
   const entries = [
@@ -36,4 +41,50 @@ test('bounded discovery covers separate regions before exhausting nearby entries
     boundaryOrder(tree, () => true, compare, entries.length),
     all,
   );
+});
+
+test('lazy boundary ordering resumes the same regional round-robin across tied ranks', () => {
+  const entries = [
+    { id: 'a0', midpoint: [0, 0, 0], score: 3 },
+    { id: 'a1', midpoint: [0.1, 0, 0], score: 1 },
+    { id: 'b0', midpoint: [10, 0, 0], score: 1 },
+    { id: 'b1', midpoint: [10.1, 0, 0], score: 1 },
+    { id: 'c0', midpoint: [0, 4, 10], score: 2 },
+  ];
+  const tree = boundaryTree(entries, 8, 2, 0.5);
+  const compare = (a: (typeof entries)[number], b: (typeof entries)[number]) => a.score - b.score;
+  const iterator = boundaryOrderIterator(tree, () => true, compare, entries.length);
+  assert.equal(iterator.next().value?.id, 'a1');
+  assert.equal(iterator.next().value?.id, 'b0');
+  assert.deepEqual(
+    Array.from(iterator, (entry) => entry.id),
+    ['c0', 'a0', 'b1'],
+  );
+  assert.deepEqual(
+    Array.from(
+      boundaryOrderIterator(tree, (entry) => entry.id !== 'a0', compare, 3),
+      (entry) => entry.id,
+    ),
+    ['a1', 'b0', 'c0'],
+  );
+});
+
+test('streamed boundary merging deduplicates after raw ordering slots without draining unused tails', () => {
+  const orders = [['a', 'b', 'c'], ['a', 'd'], [], ['e', 'b']];
+  for (const [limit, expected] of [
+    [0, []],
+    [1, ['a']],
+    [2, ['a']],
+    [3, ['a', 'e']],
+    [4, ['a', 'e', 'b']],
+    [6, ['a', 'e', 'b', 'd']],
+    [10, ['a', 'e', 'b', 'd', 'c']],
+  ] as const) {
+    assert.deepEqual(Array.from(interleaveBoundaryOrders(orders, limit)), expected);
+  }
+  const guarded = function* () {
+    yield 'a';
+    throw new Error('Unused boundary tail was consumed');
+  };
+  assert.deepEqual(Array.from(interleaveBoundaryOrders([guarded(), ['a', 'b']], 2)), ['a']);
 });

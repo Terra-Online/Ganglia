@@ -7,6 +7,7 @@ import type { Surface, Vec3 } from '#@/src/index.ts';
 import { createPhysicalPreparation } from '#@/src/solver/host.ts';
 import { type PhysicalInput, gangliaV1Defaults } from '#@/src/solver/index.ts';
 import { createGoalProjector } from '#@/src/v1/motion/goals.ts';
+import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
 import { refineGoalGround } from '#@/src/v1/solver/ground-refinement.ts';
 
 const floor = (id: string, left: number, right: number, height: number): Surface => ({
@@ -63,6 +64,19 @@ test('recovers a body-width landing omitted by coarse erosion while preserving l
       goal,
       model,
     });
+    const planner = createGroundPlanner(coarse, {
+      ...options,
+      walls: [],
+      speed: 5,
+      maxVertical: 0.5,
+    });
+    const prepared = await refineGoalGround(geometry, coarse, {
+      build: options,
+      goal,
+      model,
+      project: planner.project,
+    });
+    assert.deepEqual(prepared, refined);
     const world = createCollisionWorld(geometry, { bounds: options.bounds });
     const indexed = await refineGoalGround(geometry, coarse, {
       build: options,

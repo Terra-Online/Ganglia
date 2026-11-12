@@ -39,13 +39,13 @@ export const boundaryTree = <T extends Entry>(
     entrySlots: new Map<T, number>(entries.map((entry, index) => [entry, index])),
   });
 };
-export const boundaryOrder = <T>(
+export const boundaryOrderIterator = <T>(
   tree: BoundaryTree<T>,
   eligible: (entry: T) => boolean,
   compare: (a: T, b: T) => number,
   limit: number,
-): T[] => {
-  if (limit <= 0) return [];
+): Generator<T> => {
+  if (limit <= 0) return (function* () {})();
   const best = new Array<T | null>(tree.count),
     included = new Uint8Array(tree.entryCount);
   const rank = (node: TreeNode<T>): T | null => {
@@ -90,13 +90,42 @@ export const boundaryOrder = <T>(
       active = pending;
     }
   };
-  if (rank(tree) === null) return [];
-  const iterator = stream(tree),
-    result = [];
-  while (result.length < limit) {
-    const next = iterator.next();
-    if (next.done) break;
-    result.push(next.value);
-  }
-  return result;
+  if (rank(tree) === null) return (function* () {})();
+  return (function* (): Generator<T> {
+    const iterator = stream(tree);
+    for (let count = 0; count < limit; count++) {
+      const next = iterator.next();
+      if (next.done) return;
+      yield next.value;
+    }
+  })();
 };
+
+export const boundaryOrder = <T>(
+  tree: BoundaryTree<T>,
+  eligible: (entry: T) => boolean,
+  compare: (a: T, b: T) => number,
+  limit: number,
+): T[] => Array.from(boundaryOrderIterator(tree, eligible, compare, limit));
+
+// The limit applies before deduplication, matching an interleaved array followed
+// by a Set. Repeated boundaries still occupy their original ordering slots.
+export function* interleaveBoundaryOrders<T>(orders: Iterable<T>[], limit: number): Generator<T> {
+  let active = orders.map((order) => order[Symbol.iterator]());
+  const seen = new Set<T>();
+  let count = 0;
+  while (active.length && count < limit) {
+    const pending = [];
+    for (const iterator of active) {
+      if (count >= limit) break;
+      const next = iterator.next();
+      if (next.done) continue;
+      pending.push(iterator);
+      count++;
+      if (seen.has(next.value)) continue;
+      seen.add(next.value);
+      yield next.value;
+    }
+    active = pending;
+  }
+}

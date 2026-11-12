@@ -3,13 +3,15 @@ import type { CollisionGeometry, Surface, Vec3 } from '#@/src/geometry.ts';
 import type { InteractionGoal, JumpModel } from '#@/src/movement.ts';
 import { buildGroundSurfaces } from '#@/src/v1/geo/build.ts';
 import { surfaceGraph } from '#@/src/v1/geo/surfaces.ts';
-import { createGoalProjector } from '#@/src/v1/motion/goals.ts';
+import { type GoalProjector, createGoalProjector } from '#@/src/v1/motion/goals.ts';
 import { jumpDuration } from '#@/src/v1/motion/jumps.ts';
 type Options = {
   build: BuildOptions;
   goal: Vec3;
   interaction?: InteractionGoal;
   model: JumpModel;
+  /** Prepared geometric projection over these same immutable coarse surfaces. */
+  project?: GoalProjector;
   /** complete inclusive XZ AABB candidates from this exact geometry, in input triangle order. */
   queryTriangles?: (bounds: NonNullable<BuildOptions['bounds']>) => number[];
 };
@@ -24,9 +26,15 @@ type Options = {
 export const refineGoalGround = async (
   geometry: CollisionGeometry,
   surfaces: Surface[],
-  { build, goal, interaction, model, queryTriangles }: Options,
+  {
+    build,
+    goal,
+    interaction,
+    model,
+    queryTriangles,
+    project = createGoalProjector(surfaces),
+  }: Options,
 ) => {
-  const project = createGoalProjector(surfaces);
   const duration = jumpDuration(goal[1], goal[1], { ...model, mode: 'jump' });
   if (!duration || !build.bounds) {
     return { surfaces: [], bounds: null };
@@ -125,10 +133,10 @@ export const refineGoalGround = async (
     if (
       surface.vertices.some(
         (point) =>
-          project(point, {
+          project.closest(point, {
             maxVertical: build.cellHeight * 2,
             interaction: { radius: build.profile.radius },
-          }).length,
+          }) !== undefined,
       )
     ) {
       covered.add(root(surface.id));

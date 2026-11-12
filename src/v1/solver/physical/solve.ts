@@ -614,6 +614,7 @@ export const solvePhysicalRoute = async (
           goal,
           interaction: request.interaction,
           model,
+          project: groundPlanner.project,
           queryTriangles: world.trianglesInBounds?.bind(world),
         });
         if (refined.surfaces.length) {
