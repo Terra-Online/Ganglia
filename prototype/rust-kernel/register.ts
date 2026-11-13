@@ -39,3 +39,9 @@ import { createRustGoalGeometry } from '#@/prototype/rust-kernel/goal-binding.ts
 import { installGoalGeometryPrototype } from '#@/src/v1/motion/goals.ts';
 
 if (process.env.GANGLIA_RUST_GOALS === '1') installGoalGeometryPrototype(createRustGoalGeometry);
+
+import { createRustCandidateSearch } from '#@/prototype/rust-kernel/candidate-binding.ts';
+import { installCandidateSearchPrototype } from '#@/src/v1/search/candidate-search.ts';
+
+if (process.env.GANGLIA_RUST_CANDIDATE === '1')
+  installCandidateSearchPrototype(createRustCandidateSearch);

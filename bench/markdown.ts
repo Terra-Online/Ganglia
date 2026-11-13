@@ -19,6 +19,7 @@ export interface MarkdownReport extends Report {
     nativeCollision?: boolean;
     nativeGroundTrace?: boolean;
     nativeGoals?: boolean;
+    nativeCandidate?: boolean;
   };
   catalogTraining?: {
     algorithm: 'approximate-static-actions';
@@ -92,7 +93,7 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
     '',
     ...(report.prototype
       ? [
-          `Local prototype: \`${report.prototype.implementation}\`; native scheduler: ${report.prototype.nativeLocomotion ?? false}; native ground tracing: ${report.prototype.nativeGroundTrace ?? false}; native goal geometry: ${report.prototype.nativeGoals ?? false}; locomotion label limit: ${report.prototype.locomotionLabelLimit ?? 256}; prototype source SHA-256: \`${report.prototype.sourceSha256}\`.`,
+          `Local prototype: \`${report.prototype.implementation}\`; native scheduler: ${report.prototype.nativeLocomotion ?? false}; native ground tracing: ${report.prototype.nativeGroundTrace ?? false}; native goal geometry: ${report.prototype.nativeGoals ?? false}; native candidate search: ${report.prototype.nativeCandidate ?? false}; locomotion label limit: ${report.prototype.locomotionLabelLimit ?? 256}; prototype source SHA-256: \`${report.prototype.sourceSha256}\`.`,
           '',
         ]
       : []),

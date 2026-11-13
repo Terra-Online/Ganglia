@@ -1,3 +1,4 @@
+mod candidate_search;
 mod collision;
 mod goals;
 mod ground_trace;

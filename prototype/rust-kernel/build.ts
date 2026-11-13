@@ -1,12 +1,16 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, renameSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, mkdirSync, realpathSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { nativeLibraryPath } from '#@/prototype/rust-kernel/native.ts';
 
-const root = fileURLToPath(new URL('../../', import.meta.url));
-const target = `${root}.local/cache/rust-transfers`;
+const root = realpathSync(fileURLToPath(new URL('../../', import.meta.url)));
+// Linked .local directories share artifacts, while Cargo incremental state belongs
+// to one checkout. Stable checkout identity avoids cross-worktree reuse by mtime.
+const checkout = createHash('sha256').update(root).digest('hex').slice(0, 16);
+const target = `${root}/.local/cache/rust-targets/${checkout}`;
 execFileSync(
   'cargo',
   ['build', '--release', '--locked', '--manifest-path', 'prototype/rust-kernel/Cargo.toml'],
