@@ -874,8 +874,7 @@ export function planJumpRoute(
   options: JumpRouteOptions,
   initial?: InitialGroundProof,
 ): JumpResult {
-  const seeds: GroundConnection[] = [];
-  const selected = selectCatalogActions(world, surfaces, starts, goal, options, seeds);
+  const { actions: selected, seeds } = selectCatalogActions(world, surfaces, starts, goal, options);
   if (selected.length) {
     const connections = [...(options.connections ?? []), ...selected];
     const route = options.groundPlanner!.plan(starts, goal, {

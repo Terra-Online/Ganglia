@@ -77,11 +77,12 @@ test('training stores motion proofs and frozen fresh starts solve through a smal
     const starts = arrival([1, 0, 0]);
     starts[0].id = 'fresh';
     starts[0].cost = 3;
-    const selected = selectCatalogActions(world, surfaces, starts, goal, settings);
+    const selected = selectCatalogActions(world, surfaces, starts, goal, settings).actions;
     assert.ok(selected.length > 0 && selected.length <= 16);
     assert.ok(selected.every((action) => action.id.startsWith('@catalog/') && !action.terminal));
     assert.deepEqual(
-      selectCatalogActions(world, surfaces, starts, goal, { ...settings, connections: selected }),
+      selectCatalogActions(world, surfaces, starts, goal, { ...settings, connections: selected })
+        .actions,
       selected,
     );
     const proof = settings.groundPlanner.plan(starts, goal, { connections: selected });
@@ -96,11 +97,12 @@ test('training stores motion proofs and frozen fresh starts solve through a smal
     assert.equal(result.route.start, 'fresh');
     assert.ok(actionCatalogStats().hits > 0);
     selected[0].points[0][0] = 123456;
-    const again = selectCatalogActions(world, surfaces, starts, goal, settings);
+    const again = selectCatalogActions(world, surfaces, starts, goal, settings).actions;
     assert.notEqual(again[0].points[0][0], 123456);
     assert.equal(actionCatalogStats().added, before);
     assert.deepEqual(
-      selectCatalogActions(world, surfaces, starts, goal, { ...settings, activeBoost: 'speed' }),
+      selectCatalogActions(world, surfaces, starts, goal, { ...settings, activeBoost: 'speed' })
+        .actions,
       [],
     );
     assert.deepEqual(
@@ -110,14 +112,14 @@ test('training stores motion proofs and frozen fresh starts solve through a smal
         starts,
         goal,
         settings,
-      ),
+      ).actions,
       [],
     );
     assert.deepEqual(
       selectCatalogActions(world, surfaces, starts, goal, {
         ...settings,
         profile: { ...options.profile, radius: 0.4 },
-      }),
+      }).actions,
       [],
     );
   } finally {
@@ -174,11 +176,14 @@ test('coarse catalog prefixes seed the normal full-budget root search without re
     ];
     const goal: Vec3 = [16, 0, 0];
     for (const currentStarts of [[starts[1]], starts]) {
-      const seeds: GroundConnection[] = [];
-      assert.deepEqual(
-        selectCatalogActions(world, surfaces, currentStarts, goal, settings, seeds),
-        [],
+      const { actions, seeds } = selectCatalogActions(
+        world,
+        surfaces,
+        currentStarts,
+        goal,
+        settings,
       );
+      assert.deepEqual(actions, []);
       assert.ok(seeds.length > 0 && seeds.length <= 8);
       const proof: InitialGroundProof = {
         planner,
@@ -282,7 +287,7 @@ test('static coarse actions cross distinct goal refinements with fresh support a
     setActionCatalogPhase('frozen');
     const starts = arrival([1, 0, 0]);
     const goal: Vec3 = [15, 0, 0];
-    const selected = selectCatalogActions(world, second, starts, goal, current);
+    const selected = selectCatalogActions(world, second, starts, goal, current).actions;
     assert.ok(selected.length > 0);
     assert.ok(
       selected.every(
@@ -301,7 +306,7 @@ test('static coarse actions cross distinct goal refinements with fresh support a
       selectCatalogActions(world, changed, starts, goal, {
         ...options,
         groundPlanner: createGroundPlanner(changed, options),
-      }),
+      }).actions,
       [],
     );
   } finally {
@@ -324,7 +329,7 @@ test('refined endpoint actions remain local while repeated refined IDs cannot cr
     assert.ok(trained.connections.some((action) => action.toSurface === 'refined/0'));
     setActionCatalogPhase('frozen');
     const starts = arrival([1, 0, 0]);
-    const selected = selectCatalogActions(world, first, starts, [9, 0, 0], training);
+    const selected = selectCatalogActions(world, first, starts, [9, 0, 0], training).actions;
     assert.ok(selected.some((action) => action.toSurface === 'refined/0'));
     const proof = training.groundPlanner.plan(starts, [9, 0, 0], { connections: selected });
     assert.equal(proof.status, 'complete');
@@ -336,7 +341,7 @@ test('refined endpoint actions remain local while repeated refined IDs cannot cr
       selectCatalogActions(world, second, arrival([1, 0, 0]), [16, 0, 0], {
         ...options,
         groundPlanner: createGroundPlanner(second, options),
-      }),
+      }).actions,
       [],
     );
   } finally {
@@ -358,15 +363,15 @@ test('current refinement walking connectivity replaces the catalog graph in both
     registerCatalogSurfaces(bridge, base, options.portals);
     assert.equal(planJumpRoute(base, world, starts, goal, original).route.status, 'complete');
     setActionCatalogPhase('frozen');
-    const selected = selectCatalogActions(world, base, starts, goal, original);
+    const selected = selectCatalogActions(world, base, starts, goal, original).actions;
     assert.ok(selected.length > 0);
     assert.equal(
       original.groundPlanner.plan(starts, goal, { connections: selected }).status,
       'complete',
     );
-    assert.deepEqual(selectCatalogActions(world, bridge, starts, goal, refined), []);
+    assert.deepEqual(selectCatalogActions(world, bridge, starts, goal, refined).actions, []);
     assert.equal(refined.groundPlanner.plan(starts, goal).status, 'complete');
-    const again = selectCatalogActions(world, base, starts, goal, original);
+    const again = selectCatalogActions(world, base, starts, goal, original).actions;
     assert.ok(again.length > 0);
     assert.equal(
       original.groundPlanner.plan(starts, goal, { connections: again }).status,
@@ -395,7 +400,7 @@ test('fresh starts discover cheaper actions away from the trained route without 
     const before = actionCatalogStats().added;
     const starts = arrival([2, 0, 8]),
       goal: Vec3 = [9, 0, 8];
-    const selected = selectCatalogActions(world, surfaces, starts, goal, settings);
+    const selected = selectCatalogActions(world, surfaces, starts, goal, settings).actions;
     const incumbent = planner.plan(starts, goal, { connections: selected });
     assert.equal(incumbent.status, 'complete');
     const plan = planner.plan;
@@ -436,7 +441,7 @@ test('frozen chains honor zero and positive broad comparison limits for fresh st
     setActionCatalogPhase('frozen');
     const starts = arrival([2, 0, 8]),
       goal: Vec3 = [9, 0, 8];
-    const selected = selectCatalogActions(world, surfaces, starts, goal, settings);
+    const selected = selectCatalogActions(world, surfaces, starts, goal, settings).actions;
     const incumbent = planner.plan(starts, goal, { connections: selected });
     assert.equal(incumbent.status, 'complete');
     for (const limit of [0, 16, 64]) {

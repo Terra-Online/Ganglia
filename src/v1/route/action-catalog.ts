@@ -242,6 +242,11 @@ function retain(bank: Bank, key: string, proof: Proof) {
   bank.actions.set(key, proof);
 }
 
+interface CatalogSelection {
+  actions: GroundConnection[];
+  seeds: GroundConnection[];
+}
+
 /** Select several positive chains by estimated travel time, retaining at most
  * sixteen actions. SCC walking ignores exact entry cost and resource state, so
  * only a fresh GroundPlanner solve may accept their combined action set.
@@ -253,17 +258,16 @@ export function selectCatalogActions(
   starts: GroundArrival[],
   goal: Vec3,
   options: JumpRouteOptions,
-  seeds?: GroundConnection[],
-): GroundConnection[] {
-  if (phase !== 'frozen') return [];
+): CatalogSelection {
+  if (phase !== 'frozen') return { actions: [], seeds: [] };
   counts.frozenCalls++;
   const scope = scopeFor(world, surfaces, options);
-  if (!scope) return [];
+  if (!scope) return { actions: [], seeds: [] };
   const local = scope.local.get(surfaces);
-  const selected = local ? rankActions(scope, local, starts, goal, options) : [];
-  return selected.length
+  const selected = local && rankActions(scope, local, starts, goal, options);
+  return selected?.actions.length
     ? selected
-    : rankActions(scope, scope.shared, starts, goal, options, seeds);
+    : rankActions(scope, scope.shared, starts, goal, options, true);
 }
 
 function rankActions(
@@ -272,9 +276,9 @@ function rankActions(
   starts: GroundArrival[],
   goal: Vec3,
   options: JumpRouteOptions,
-  seeds?: GroundConnection[],
-): GroundConnection[] {
-  if (!bank.actions.size) return [];
+  collectSeeds = false,
+): CatalogSelection {
+  if (!bank.actions.size) return { actions: [], seeds: [] };
   const prepared = groundPreparation(options.groundPlanner)!;
   let graph = scope.graphs.get(prepared);
   if (!graph || graph.bank !== bank) {
@@ -333,7 +337,7 @@ function rankActions(
         ? []
         : [{ component, position: start.position, elapsed: start.cost }];
     });
-  if (!goals.size || !roots.length) return [];
+  if (!goals.size || !roots.length) return { actions: [], seeds: [] };
   const reachesGoal = (component: number) =>
     [...goals].some((goal) => reachable(component).has(goal));
   // This ranking estimates walking by straight horizontal distance. It guides
@@ -354,8 +358,8 @@ function rankActions(
   };
   const gap = (position: Vec3) =>
     Math.hypot(position[0] - goal[0], position[1] - goal[1], position[2] - goal[2]);
-  const rootGap = seeds ? Math.min(...roots.map((root) => gap(root.position))) : 0;
-  const prefixes = seeds ? new Map<number, { state: State; gap: number }>() : undefined;
+  const rootGap = collectSeeds ? Math.min(...roots.map((root) => gap(root.position))) : 0;
+  const prefixes = collectSeeds ? new Map<number, { state: State; gap: number }>() : undefined;
   const heap = createMinHeap<State>();
   const best = new Map<string, number>();
   const extend = (current: Omit<State, 'cost'>) => {
@@ -426,13 +430,13 @@ function rankActions(
         counts.seedSelections++;
         counts.seededEdges += actions.size;
         counts.seededComponents += terminals;
-        seeds!.push(...[...actions.values()].map(copy));
+        return { actions: [], seeds: [...actions.values()].map(copy) };
       }
     }
-    return [];
+    return { actions: [], seeds: [] };
   }
   counts.candidateChains += alternatives;
   counts.selections++;
   counts.selectedEdges += selected.size;
-  return [...selected.values()].map(copy);
+  return { actions: [...selected.values()].map(copy), seeds: [] };
 }
