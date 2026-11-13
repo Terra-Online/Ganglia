@@ -344,9 +344,9 @@ function solveJumpRoute(
     }
     const improvementBudget =
       stage === 'catalog'
-        ? Math.min(128, remaining)
+        ? Math.min(128, remaining, options.maxShortcutCandidates ?? remaining)
         : Math.min(remaining, options.maxShortcutCandidates ?? remaining);
-    if (improvementBudget <= 0 && stage !== 'catalog') {
+    if (improvementBudget <= 0) {
       unspent = Math.min(unspent, Math.max(0, remaining));
       continue;
     }

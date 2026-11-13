@@ -416,3 +416,54 @@ test('fresh starts discover cheaper actions away from the trained route without 
     setActionCatalogPhase('disabled');
   }
 });
+
+test('frozen chains honor zero and positive broad comparison limits for fresh starts', () => {
+  const surfaces = [floor('start', 0, 4, 0, -10, 10), floor('goal', 7, 11, 0, -10, 10)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const planner = createGroundPlanner(surfaces, options);
+  const settings = { ...options, groundPlanner: planner };
+  try {
+    setActionCatalogPhase('training');
+    registerCatalogSurfaces(surfaces, surfaces);
+    assert.equal(
+      planJumpRoute(surfaces, world, arrival([2, 0, -8]), [9, 0, -8], {
+        ...settings,
+        maxCandidates: 16,
+        maxShortcutCandidates: 0,
+      }).route.status,
+      'complete',
+    );
+    setActionCatalogPhase('frozen');
+    const starts = arrival([2, 0, 8]),
+      goal: Vec3 = [9, 0, 8];
+    const selected = selectCatalogActions(world, surfaces, starts, goal, settings);
+    const incumbent = planner.plan(starts, goal, { connections: selected });
+    assert.equal(incumbent.status, 'complete');
+    for (const limit of [0, 16, 64]) {
+      const result = planJumpRoute(surfaces, world, starts, goal, {
+        ...settings,
+        maxShortcutCandidates: limit,
+      });
+      assert.equal(result.route.status, 'complete');
+      if (!limit) {
+        assert.deepEqual(result.route, incumbent);
+        assert.deepEqual(result.diagnostics.searches, []);
+      } else {
+        assert.ok(result.route.cost < incumbent.cost - 1);
+        const broad = result.diagnostics.searches.find((search) => search.reason === 'searched');
+        const local = result.diagnostics.searches.filter(
+          (search) => search.reason === 'route-shortcuts',
+        );
+        assert.ok(broad && broad.limits.arcAttempts === limit * 2);
+        assert.equal(local.length, 1);
+        assert.ok(local[0].limits.arcAttempts <= 256);
+        assert.deepEqual(
+          result.route,
+          planner.plan(starts, goal, { connections: result.connections }),
+        );
+      }
+    }
+  } finally {
+    setActionCatalogPhase('disabled');
+  }
+});
