@@ -21,6 +21,7 @@ import {
   type ShortcutDiagnostics,
   type FrontierDiagnostics,
   type ShortcutCache,
+  closeShortcutCursors,
   findJumpFrontier,
   findJumpShortcuts,
 } from '#@/src/v1/search/shortcuts.ts';
@@ -608,205 +609,241 @@ function planBaseRoute(
   catalogSeeds: GroundConnection[] = [],
 ): JumpResult {
   const shared: ShortcutCache = {};
-  const goalPlanner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
-  const existing = new Set((options.connections ?? []).map((action) => action.id));
-  const seeds = catalogSeeds.filter((action) => !existing.has(action.id));
-  const directedOptions = seeds.length
-    ? { ...options, connections: [...(options.connections ?? []), ...seeds] }
-    : options;
-  // A new action overlay requires a fresh original-start-to-goal resource proof.
-  // Keep authored options unchanged: their entry-fallback gate is independent of seeds.
-  if (seeds.length) initial = undefined;
-  const airborneOnly =
-    options.interaction?.airborne &&
-    !goalPlanner.project(goal, {
-      maxVertical: options.maxVertical,
-      interaction: options.interaction,
-    }).length;
-  // An airborne event has no ground node. Discover its complete flight first,
-  // then search the supported departure using the ordinary entry machinery.
-  const result: JumpResult = airborneOnly
-    ? {
-        route: { status: 'unmapped' },
-        connections: options.connections ?? [],
-        diagnostics: {
-          strategy: 'surface-action-graph',
-          groundStatus: 'unmapped',
-          baselineCost: null,
-          selectedCost: null,
-          truncated: false,
-          searches: [],
-        },
-      }
-    : planDirectedRoute(
+  try {
+    const goalPlanner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
+    const existing = new Set((options.connections ?? []).map((action) => action.id));
+    const seeds = catalogSeeds.filter((action) => !existing.has(action.id));
+    const directedOptions = seeds.length
+      ? { ...options, connections: [...(options.connections ?? []), ...seeds] }
+      : options;
+    // A new action overlay requires a fresh original-start-to-goal resource proof.
+    // Keep authored options unchanged: their entry-fallback gate is independent of seeds.
+    if (seeds.length) initial = undefined;
+    const airborneOnly =
+      options.interaction?.airborne &&
+      !goalPlanner.project(goal, {
+        maxVertical: options.maxVertical,
+        interaction: options.interaction,
+      }).length;
+    // An airborne event has no ground node. Discover its complete flight first,
+    // then search the supported departure using the ordinary entry machinery.
+    const result: JumpResult = airborneOnly
+      ? {
+          route: { status: 'unmapped' },
+          connections: options.connections ?? [],
+          diagnostics: {
+            strategy: 'surface-action-graph',
+            groundStatus: 'unmapped',
+            baselineCost: null,
+            selectedCost: null,
+            truncated: false,
+            searches: [],
+          },
+        }
+      : planDirectedRoute(
+          surfaces,
+          world,
+          starts,
+          goal,
+          { ...directedOptions, groundPlanner: goalPlanner },
+          shared,
+          'final',
+          initial,
+        );
+    if (seeds.length) result.diagnostics.catalogSeedActions = seeds.length;
+    if (options.interaction?.airborne && result.route.status !== 'complete') {
+      const planner = goalPlanner;
+      const airborne = planAirborneGoal(
         surfaces,
         world,
         starts,
         goal,
-        { ...directedOptions, groundPlanner: goalPlanner },
-        shared,
-        'final',
-        initial,
+        { ...options, groundPlanner: planner, interaction: options.interaction },
+        (position: Vec3, maxCost: number) =>
+          planDirectedRoute(
+            surfaces,
+            world,
+            starts,
+            position,
+            {
+              ...options,
+              groundPlanner: planner,
+              interaction: undefined,
+              endpointTolerance: Math.min(options.maxVertical, options.profile.radius),
+              connections: result.connections,
+              maxShortcutCandidates: options.activeBoost ? options.maxCandidates : 0,
+              ...(Number.isFinite(maxCost) ? { costBound: maxCost, boundGoal: position } : {}),
+            },
+            shared,
+            'entry',
+          ),
       );
-  if (seeds.length) result.diagnostics.catalogSeedActions = seeds.length;
-  if (options.interaction?.airborne && result.route.status !== 'complete') {
-    const planner = goalPlanner;
-    const airborne = planAirborneGoal(
-      surfaces,
-      world,
-      starts,
-      goal,
-      { ...options, groundPlanner: planner, interaction: options.interaction },
-      (position: Vec3, maxCost: number) =>
-        planDirectedRoute(
-          surfaces,
-          world,
-          starts,
-          position,
-          {
-            ...options,
-            groundPlanner: planner,
-            interaction: undefined,
-            endpointTolerance: Math.min(options.maxVertical, options.profile.radius),
-            connections: result.connections,
-            maxShortcutCandidates: options.activeBoost ? options.maxCandidates : 0,
-            ...(Number.isFinite(maxCost) ? { costBound: maxCost, boundGoal: position } : {}),
-          },
-          shared,
-          'entry',
-        ),
+      result.diagnostics.airborne = airborne.diagnostics;
+      result.diagnostics.truncated ||= airborne.diagnostics.truncated;
+      if (airborne.route.status === 'complete')
+        return {
+          ...result,
+          route: airborne.route,
+          connections: airborne.connections,
+          diagnostics: { ...result.diagnostics, selectedCost: airborne.route.cost },
+        };
+    }
+    if (result.route.status === 'complete' || !options.connections?.length) return result;
+    const planner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
+    // Failed discovery still contains physically validated actions. Entry searches
+    // continue that pool and its geometry preparation within this immutable query.
+    let known = result.connections;
+    const probe = (position: Vec3, target: Vec3, interaction?: JumpRouteOptions['interaction']) =>
+      planner.plan([{ id: '@device-entry', position, state: 'available', cost: 0 }], target, {
+        interaction,
+        endpointTolerance: options.endpointTolerance,
+        connections: known,
+      }).status === 'complete';
+    // Screen entries lazily so an early complete route can be published without
+    // first solving every pair of device approaches. Exact-coordinate duplicates
+    // share the same fresh entry state; distinct positions retain their own trial.
+    const sources = [
+      ...new Map<string, GroundConnection>(
+        known
+          .filter((edge) => edge.state === 'open' && !edge.terminal)
+          .map((edge) => [JSON.stringify(edge.points[0]), edge]),
+      ).values(),
+    ];
+    let eligible = false;
+    const geometry = movementGeometry(surfaces, { ...options, groundPlanner: planner });
+    const regions = new Map<GroundConnection, string | number>(
+      sources.map((edge) => {
+        const support = geometry.projectSupport(
+          edge.points[0],
+          edge.endpointTolerance ?? 1e-6,
+          edge.fromSurface,
+        );
+        const component =
+          support && geometry.topology.components[geometry.topology.ids.get(support.surface)!];
+        return [edge, component ?? edge.id];
+      }),
     );
-    result.diagnostics.airborne = airborne.diagnostics;
-    result.diagnostics.truncated ||= airborne.diagnostics.truncated;
-    if (airborne.route.status === 'complete')
-      return {
-        ...result,
-        route: airborne.route,
-        connections: airborne.connections,
-        diagnostics: { ...result.diagnostics, selectedCost: airborne.route.cost },
-      };
-  }
-  if (result.route.status === 'complete' || !options.connections?.length) return result;
-  const planner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
-  // Failed discovery still contains physically validated actions. Entry searches
-  // continue that pool and its geometry preparation within this immutable query.
-  let known = result.connections;
-  const probe = (position: Vec3, target: Vec3, interaction?: JumpRouteOptions['interaction']) =>
-    planner.plan([{ id: '@device-entry', position, state: 'available', cost: 0 }], target, {
-      interaction,
-      endpointTolerance: options.endpointTolerance,
-      connections: known,
-    }).status === 'complete';
-  // Screen entries lazily so an early complete route can be published without
-  // first solving every pair of device approaches. Exact-coordinate duplicates
-  // share the same fresh entry state; distinct positions retain their own trial.
-  const sources = [
-    ...new Map<string, GroundConnection>(
-      known
-        .filter((edge) => edge.state === 'open' && !edge.terminal)
-        .map((edge) => [JSON.stringify(edge.points[0]), edge]),
-    ).values(),
-  ];
-  let eligible = false;
-  const geometry = movementGeometry(surfaces, { ...options, groundPlanner: planner });
-  const regions = new Map<GroundConnection, string | number>(
-    sources.map((edge) => {
-      const support = geometry.projectSupport(
-        edge.points[0],
-        edge.endpointTolerance ?? 1e-6,
-        edge.fromSurface,
-      );
-      const component =
-        support && geometry.topology.components[geometry.topology.ids.get(support.surface)!];
-      return [edge, component ?? edge.id];
-    }),
-  );
-  const arrivals = starts.filter((start) => start.state === 'available');
-  const scores = new Map(
-    sources.map((edge) => [
-      edge,
-      Math.min(
-        ...arrivals.map(
-          (start) =>
-            start.cost +
-            Math.hypot(...edge.points[0].map((value, axis) => value - start.position[axis])) /
-              options.speed,
+    const arrivals = starts.filter((start) => start.state === 'available');
+    const scores = new Map(
+      sources.map((edge) => [
+        edge,
+        Math.min(
+          ...arrivals.map(
+            (start) =>
+              start.cost +
+              Math.hypot(...edge.points[0].map((value, axis) => value - start.position[axis])) /
+                options.speed,
+          ),
         ),
-      ),
-    ]),
-  );
-  sources.sort((a, b) => scores.get(a)! - scores.get(b)!);
-  const entryBudget = Math.min(
-    options.maxCandidates,
-    Math.max(128, Math.floor(options.maxCandidates / 8)),
-  );
-  let entryRemaining = options.maxCandidates;
-  const attempts: NonNullable<JumpDiagnostics['deviceApproaches']> = {
-    budgetPerGoal: entryBudget,
-    goals: sources.length,
-    searches: [],
-  };
-  const searchedRegions = new Set<string | number>();
-  for (const [index, edge] of sources.entries()) {
-    const region = regions.get(edge);
-    // One entry discovery covers a mutually walk-reachable ground region. This
-    // reuses the existing directed ground proof without solving every entry pair.
-    if (region !== undefined && region !== null && searchedRegions.has(region)) continue;
-    options.onProgress?.({ phase: 'device-entry-search', completed: index, total: sources.length });
-    if (!probe(edge.points[0], goal, options.interaction)) {
+      ]),
+    );
+    sources.sort((a, b) => scores.get(a)! - scores.get(b)!);
+    const entryBudget = Math.min(
+      options.maxCandidates,
+      Math.max(128, Math.floor(options.maxCandidates / 8)),
+    );
+    let entryRemaining = options.maxCandidates;
+    const attempts: NonNullable<JumpDiagnostics['deviceApproaches']> = {
+      budgetPerGoal: entryBudget,
+      goals: sources.length,
+      searches: [],
+    };
+    const searchedRegions = new Set<string | number>();
+    for (const [index, edge] of sources.entries()) {
+      const region = regions.get(edge);
+      // One entry discovery covers a mutually walk-reachable ground region. This
+      // reuses the existing directed ground proof without solving every entry pair.
+      if (region !== undefined && region !== null && searchedRegions.has(region)) continue;
+      options.onProgress?.({
+        phase: 'device-entry-search',
+        completed: index,
+        total: sources.length,
+      });
+      if (!probe(edge.points[0], goal, options.interaction)) {
+        options.onProgress?.({
+          phase: 'device-entry-search',
+          completed: index + 1,
+          total: sources.length,
+          status: 'no-verified-route',
+        });
+        continue;
+      }
+      if (entryRemaining <= 0) {
+        result.diagnostics.truncated = true;
+        break;
+      }
+      eligible = true;
+      if (region !== undefined && region !== null) searchedRegions.add(region);
+      const budget = Math.min(entryBudget, entryRemaining);
+      const trial = planDirectedRoute(
+        surfaces,
+        world,
+        starts,
+        edge.points[0],
+        {
+          ...options,
+          groundPlanner: planner,
+          connections: known,
+          interaction: undefined,
+          waypoints: undefined,
+          maxShortcutCandidates: 0,
+          maxCandidates: budget,
+        },
+        shared,
+        'entry',
+      );
+      entryRemaining -= budget;
+      result.diagnostics.truncated ||= trial.diagnostics.truncated;
+      known = trial.connections;
+      const route = planner.plan(starts, goal, {
+        interaction: options.interaction,
+        connections: trial.connections,
+      });
+      attempts.searches.push({
+        device: edge.id,
+        budget,
+        status: route.status,
+        discovery: trial.diagnostics,
+      });
       options.onProgress?.({
         phase: 'device-entry-search',
         completed: index + 1,
         total: sources.length,
-        status: 'no-verified-route',
+        status: route.status,
       });
-      continue;
+      if (route.status === 'complete') {
+        const improvement = solveJumpRoute(
+          surfaces,
+          world,
+          starts,
+          goal,
+          {
+            ...options,
+            groundPlanner: planner,
+            connections: trial.connections,
+            maxCandidates: trial.diagnostics.unusedCandidates ?? 0,
+          },
+          shared,
+          'final',
+          route,
+        );
+        return {
+          ...result,
+          route: improvement.route,
+          connections: improvement.connections,
+          diagnostics: {
+            ...result.diagnostics,
+            selectedCost: improvement.route.status === 'complete' ? improvement.route.cost : null,
+            deviceApproaches: attempts,
+            deviceImprovement: improvement.diagnostics,
+          },
+        };
+      }
     }
-    if (entryRemaining <= 0) {
-      result.diagnostics.truncated = true;
-      break;
-    }
-    eligible = true;
-    if (region !== undefined && region !== null) searchedRegions.add(region);
-    const budget = Math.min(entryBudget, entryRemaining);
-    const trial = planDirectedRoute(
-      surfaces,
-      world,
-      starts,
-      edge.points[0],
-      {
-        ...options,
-        groundPlanner: planner,
-        connections: known,
-        interaction: undefined,
-        waypoints: undefined,
-        maxShortcutCandidates: 0,
-        maxCandidates: budget,
-      },
-      shared,
-      'entry',
-    );
-    entryRemaining -= budget;
-    result.diagnostics.truncated ||= trial.diagnostics.truncated;
-    known = trial.connections;
-    const route = planner.plan(starts, goal, {
-      interaction: options.interaction,
-      connections: trial.connections,
-    });
-    attempts.searches.push({
-      device: edge.id,
-      budget,
-      status: route.status,
-      discovery: trial.diagnostics,
-    });
-    options.onProgress?.({
-      phase: 'device-entry-search',
-      completed: index + 1,
-      total: sources.length,
-      status: route.status,
-    });
-    if (route.status === 'complete') {
-      const improvement = solveJumpRoute(
+    if (!eligible) {
+      // New action chains supplement an unresolved primary query. Earlier feasible
+      // searches keep their original discovery and shortcut budgets.
+      const continuation = solveJumpRoute(
         surfaces,
         world,
         starts,
@@ -814,56 +851,30 @@ function planBaseRoute(
         {
           ...options,
           groundPlanner: planner,
-          connections: trial.connections,
-          maxCandidates: trial.diagnostics.unusedCandidates ?? 0,
+          connections: known,
+          maxCandidates: Math.min(128, options.maxCandidates),
+          maxShortcutCandidates: 0,
         },
         shared,
-        'final',
-        route,
+        'relations',
       );
       return {
-        ...result,
-        route: improvement.route,
-        connections: improvement.connections,
+        ...continuation,
         diagnostics: {
           ...result.diagnostics,
-          selectedCost: improvement.route.status === 'complete' ? improvement.route.cost : null,
-          deviceApproaches: attempts,
-          deviceImprovement: improvement.diagnostics,
+          selectedCost: continuation.diagnostics.selectedCost,
+          knownActionChains: continuation.diagnostics,
         },
       };
     }
+    result.connections = known;
+    result.diagnostics.deviceApproaches = attempts;
+    return result;
+  } finally {
+    // Direction, entry and final attempts may resume each other's frontiers.
+    // The root owns those iterators until every fallback has finished.
+    closeShortcutCursors(shared);
   }
-  if (!eligible) {
-    // New action chains supplement an unresolved primary query. Earlier feasible
-    // searches keep their original discovery and shortcut budgets.
-    const continuation = solveJumpRoute(
-      surfaces,
-      world,
-      starts,
-      goal,
-      {
-        ...options,
-        groundPlanner: planner,
-        connections: known,
-        maxCandidates: Math.min(128, options.maxCandidates),
-        maxShortcutCandidates: 0,
-      },
-      shared,
-      'relations',
-    );
-    return {
-      ...continuation,
-      diagnostics: {
-        ...result.diagnostics,
-        selectedCost: continuation.diagnostics.selectedCost,
-        knownActionChains: continuation.diagnostics,
-      },
-    };
-  }
-  result.connections = known;
-  result.diagnostics.deviceApproaches = attempts;
-  return result;
 }
 /** Sampling limits can leave valid routes undiscovered; completion does not establish global optimality. */
 export function planJumpRoute(

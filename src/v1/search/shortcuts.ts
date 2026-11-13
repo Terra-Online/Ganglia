@@ -205,6 +205,14 @@ const closeCursor = (cursor: Cursor | undefined) => {
   if (cursor) for (const query of cursor.active) query?.iterator.return(undefined);
 };
 
+/** Release only resumable enumeration state when its physical query owner ends. */
+export function closeShortcutCursors(cache: ShortcutCache) {
+  closeCursor(cache.forwardCursor);
+  closeCursor(cache.reverseCursor);
+  delete cache.forwardCursor;
+  delete cache.reverseCursor;
+}
+
 const distance = (a: readonly number[], b: readonly number[]) =>
   Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const horizontal = (a: readonly number[], b: readonly number[]) =>
@@ -1086,120 +1094,133 @@ function findConnections(
   }
   let queryIndex = 0,
     activeQueries = active.length;
-  while (
-    refill &&
-    activeQueries &&
-    diagnostics.neighbourChecks < diagnostics.limits.neighbourChecks
-  ) {
-    const index = queryIndex++ % active.length,
-      query = active[index];
-    if (!query) continue;
-    const start = query.start;
-    let ends: Iterable<Witness>;
-    if (query.boundary) {
-      const next = query.iterator.next();
-      if (next.done) {
-        active[index] = null;
-        activeQueries--;
-        continue;
-      }
-      diagnostics.neighbourChecks++;
-      ends = project(boundaryLanding(next.value, start.position, profile.radius / 2), {
-        maxVertical,
-      });
-    } else {
-      const next = query.iterator.next();
-      if (next.done) {
-        active[index] = null;
-        activeQueries--;
-        continue;
-      }
-      diagnostics.neighbourChecks++;
-      if (dominated && fullSources.has(start.cell) && dominated(start, next.value)) {
-        diagnostics.dominatedFaces++;
-        continue;
-      }
-      ends = landingCandidates(next.value, start.position, to, model, profile.radius, goalWitness);
-    }
-    for (const end of ends) {
-      if (!end || end.surface === start.surface) continue;
-      const identity = cursor ? pairKey(start, end) : null;
-      if (cursor && (rejectedPairs.has(identity!) || cursor.pairSeen.has(identity!))) continue;
-      const span = horizontal(start.position, end.position),
-        drop = start.position[1] - end.position[1];
-      if (span > maxHorizontalDistance || drop > maxDrop + 2 * endpointTolerance) continue;
-      const duration = jumpDuration(
-        start.position[1] + endpointTolerance,
-        end.position[1] - endpointTolerance,
-        { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' },
-      );
-      if (
-        duration === null ||
-        span > duration * model.maxHorizontalSpeed ||
-        !withinCostBound(
-          start.position,
-          end.position,
-          Math.max(0, span - 2 * profile.radius) / airSpeed,
-        ) ||
-        lowerBound(
-          start.position,
-          end.position,
-          span / Math.max(Number.EPSILON, model.maxHorizontalSpeed),
-        ) >= durationLimit
-      )
-        continue;
-      const nominal = jumpDuration(start.position[1], end.position[1], {
-        ...model,
-        mode: model.maxJumpHeight > 0 ? 'jump' : 'drop',
-      });
-      const remaining = departure.has(end.surface)
-        ? departure.get(end.surface)! + distance(centers.get(end.surface)!, end.position)
-        : distance(end.position, to);
-      const score = (start.walk + remaining) / speed + (nominal ?? duration);
-      const key = `${start.cell}:${cellOf(end.position)}`;
-      const group = pairs.get(key) ?? [];
-      cursor?.pairSeen.add(identity!);
-      const uncertain = nominal === null || span > nominal * model.maxHorizontalSpeed;
-      const compare = (entry: Candidate) =>
-        Number(uncertain) - Number(entry.uncertain) || score - entry.score || 0;
-      // Retain fine pullbacks for railings without letting one dense triangle
-      // patch displace transfers elsewhere in the scene. Admit only competitive
-      // witnesses, preserving stable ties without sorting the whole bucket again.
-      if (!frontier && group.length === insets.length) {
-        if (compare(group.at(-1)!) >= 0) continue;
-        group.pop();
-      }
-      const candidate: Candidate = {
-        start,
-        end,
-        cell: key,
-        score,
-        connected: approach.has(start.surface) && departure.has(end.surface),
-        uncertain,
-      };
-      if (frontier) {
-        group.push(candidate);
-        group.sort(
-          (a: Candidate, b: Candidate) =>
-            Number(a.uncertain) - Number(b.uncertain) || a.score - b.score,
-        );
-        if (group.length > insets.length) {
-          group.pop();
-          cursor!.representativeLimited = true;
+  try {
+    while (
+      refill &&
+      activeQueries &&
+      diagnostics.neighbourChecks < diagnostics.limits.neighbourChecks
+    ) {
+      const index = queryIndex++ % active.length,
+        query = active[index];
+      if (!query) continue;
+      const start = query.start;
+      let ends: Iterable<Witness>;
+      if (query.boundary) {
+        const next = query.iterator.next();
+        if (next.done) {
+          active[index] = null;
+          activeQueries--;
+          continue;
         }
+        diagnostics.neighbourChecks++;
+        ends = project(boundaryLanding(next.value, start.position, profile.radius / 2), {
+          maxVertical,
+        });
       } else {
-        let index = group.length;
-        group.push(candidate);
-        while (index > 0 && compare(group[index - 1]) < 0) {
-          group[index] = group[index - 1];
-          index--;
+        const next = query.iterator.next();
+        if (next.done) {
+          active[index] = null;
+          activeQueries--;
+          continue;
         }
-        group[index] = candidate;
+        diagnostics.neighbourChecks++;
+        if (dominated && fullSources.has(start.cell) && dominated(start, next.value)) {
+          diagnostics.dominatedFaces++;
+          continue;
+        }
+        ends = landingCandidates(
+          next.value,
+          start.position,
+          to,
+          model,
+          profile.radius,
+          goalWitness,
+        );
       }
-      pairs.set(key, group);
-      if (dominated && group.length === insets.length && !group.at(-1)!.uncertain)
-        fullSources.add(start.cell);
+      for (const end of ends) {
+        if (!end || end.surface === start.surface) continue;
+        const identity = cursor ? pairKey(start, end) : null;
+        if (cursor && (rejectedPairs.has(identity!) || cursor.pairSeen.has(identity!))) continue;
+        const span = horizontal(start.position, end.position),
+          drop = start.position[1] - end.position[1];
+        if (span > maxHorizontalDistance || drop > maxDrop + 2 * endpointTolerance) continue;
+        const duration = jumpDuration(
+          start.position[1] + endpointTolerance,
+          end.position[1] - endpointTolerance,
+          { ...model, mode: model.maxJumpHeight > 0 ? 'jump' : 'drop' },
+        );
+        if (
+          duration === null ||
+          span > duration * model.maxHorizontalSpeed ||
+          !withinCostBound(
+            start.position,
+            end.position,
+            Math.max(0, span - 2 * profile.radius) / airSpeed,
+          ) ||
+          lowerBound(
+            start.position,
+            end.position,
+            span / Math.max(Number.EPSILON, model.maxHorizontalSpeed),
+          ) >= durationLimit
+        )
+          continue;
+        const nominal = jumpDuration(start.position[1], end.position[1], {
+          ...model,
+          mode: model.maxJumpHeight > 0 ? 'jump' : 'drop',
+        });
+        const remaining = departure.has(end.surface)
+          ? departure.get(end.surface)! + distance(centers.get(end.surface)!, end.position)
+          : distance(end.position, to);
+        const score = (start.walk + remaining) / speed + (nominal ?? duration);
+        const key = `${start.cell}:${cellOf(end.position)}`;
+        const group = pairs.get(key) ?? [];
+        cursor?.pairSeen.add(identity!);
+        const uncertain = nominal === null || span > nominal * model.maxHorizontalSpeed;
+        const compare = (entry: Candidate) =>
+          Number(uncertain) - Number(entry.uncertain) || score - entry.score || 0;
+        // Retain fine pullbacks for railings without letting one dense triangle
+        // patch displace transfers elsewhere in the scene. Admit only competitive
+        // witnesses, preserving stable ties without sorting the whole bucket again.
+        if (!frontier && group.length === insets.length) {
+          if (compare(group.at(-1)!) >= 0) continue;
+          group.pop();
+        }
+        const candidate: Candidate = {
+          start,
+          end,
+          cell: key,
+          score,
+          connected: approach.has(start.surface) && departure.has(end.surface),
+          uncertain,
+        };
+        if (frontier) {
+          group.push(candidate);
+          group.sort(
+            (a: Candidate, b: Candidate) =>
+              Number(a.uncertain) - Number(b.uncertain) || a.score - b.score,
+          );
+          if (group.length > insets.length) {
+            group.pop();
+            cursor!.representativeLimited = true;
+          }
+        } else {
+          let index = group.length;
+          group.push(candidate);
+          while (index > 0 && compare(group[index - 1]) < 0) {
+            group[index] = group[index - 1];
+            index--;
+          }
+          group[index] = candidate;
+        }
+        pairs.set(key, group);
+        if (dominated && group.length === insets.length && !group.at(-1)!.uncertain)
+          fullSources.add(start.cell);
+      }
     }
+  } finally {
+    // These searches cannot resume. Returning their generators releases native
+    // heaps now while preserving the charged work and remaining-query counts.
+    if (!frontier || !cache) for (const query of active) query?.iterator.return(undefined);
   }
   if (cursor) {
     const next = queryIndex % Math.max(1, active.length);

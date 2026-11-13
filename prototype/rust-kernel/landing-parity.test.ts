@@ -8,16 +8,24 @@ import { createRustLandingEnumeration } from '#@/prototype/rust-kernel/landing-b
 import { createCollisionWorld } from '#@/src/collision.ts';
 import type { Surface, Vec3 } from '#@/src/geometry.ts';
 import type { JumpModel } from '#@/src/movement.ts';
-import { boundsRoot, createBoundsIndex, type Bounds } from '#@/src/v1/geo/bounds.ts';
+import {
+  boundsRoot,
+  createBoundsIndex,
+  type Bounds,
+  type BoundsNode,
+} from '#@/src/v1/geo/bounds.ts';
 import { createJumpEnvelope } from '#@/src/v1/reach/reachability.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
+import { planJumpRoute } from '#@/src/v1/route/jump-planner.ts';
 import {
   installLandingEnumerationPrototype,
+  type LandingEnumerationFactory,
   type LandingNearestQuery,
 } from '#@/src/v1/search/landing-enumeration.ts';
 import {
   findJumpFrontier,
   findJumpShortcuts,
+  closeShortcutCursors,
   type ShortcutCache,
   type ShortcutOptions,
 } from '#@/src/v1/search/shortcuts.ts';
@@ -250,6 +258,142 @@ const settings = {
   maxLinks: 8,
   model,
 };
+
+const observeLandingStreams = () => {
+  const native = createRustLandingEnumeration(4);
+  const counts = { started: 0, closed: 0, exhausted: 0 };
+  const factory: LandingEnumerationFactory = function* <T extends Bounds, G>(
+    root: BoundsNode<T, G>,
+    query: LandingNearestQuery,
+  ) {
+    counts.started++;
+    try {
+      yield* native(root, query);
+      counts.exhausted++;
+    } finally {
+      counts.closed++;
+    }
+  };
+  return { factory, counts };
+};
+
+test('one-shot landing searches return unfinished native streams without changing physical work', () => {
+  const previous = installLandingEnumerationPrototype();
+  try {
+    const surfaces = [
+      floor('start', 0, 4, 4, -2, 2),
+      floor('middle', 7, 11, 2, -2, 2),
+      floor('goal', 14, 18, 0, -2, 2),
+    ];
+    const world = createCollisionWorld(collisionGeometry(surfaces));
+    const query = {
+      ...settings,
+      from: [2, 4, 0] as Vec3,
+      to: [16, 0, 0] as Vec3,
+      maxCandidates: 4,
+    };
+    const expected = findJumpFrontier(surfaces, world, query);
+    const frontier = observeLandingStreams();
+    installLandingEnumerationPrototype(frontier.factory);
+    assert.deepEqual(findJumpFrontier(surfaces, world, query), expected);
+    assert.ok(frontier.counts.started > 0);
+    assert.equal(frontier.counts.closed, frontier.counts.started);
+    assert.ok(
+      frontier.counts.closed > frontier.counts.exhausted,
+      'budget-limited streams must be explicitly returned',
+    );
+
+    const ramped = [
+      floor('upper', 0, 4, 4, -2, 2),
+      {
+        id: 'ramp',
+        vertices: [
+          [0, 4, 2],
+          [4, 4, 2],
+          [4, 0, 20],
+          [0, 0, 20],
+        ] as Vec3[],
+      },
+      floor('back', 0, 15, 0, 20, 24),
+      ...Array.from({ length: 4 }, (_, x) =>
+        Array.from({ length: 11 }, (_, z) =>
+          floor(`lower/${x}/${z}`, 7 + 2 * x, 9 + 2 * x, 0, -2 + 2 * z, 2 * z),
+        ),
+      ).flat(),
+    ];
+    const rampWorld = createCollisionWorld(collisionGeometry(ramped));
+    const planner = createGroundPlanner(ramped, settings);
+    const from: Vec3 = [2, 4, 0],
+      to: Vec3 = [10, 0, 0];
+    const baseline = planner.plan(
+      [{ id: 'start', position: from, cost: 0, state: 'available' }],
+      to,
+    );
+    assert.equal(baseline.status, 'complete');
+    if (baseline.status !== 'complete') return;
+    const shortcutQuery = { ...settings, from, to, baseline, maxCandidates: 4 };
+    installLandingEnumerationPrototype(undefined);
+    const shortcutExpected = findJumpShortcuts(ramped, rampWorld, shortcutQuery, {});
+    const shortcut = observeLandingStreams();
+    installLandingEnumerationPrototype(shortcut.factory);
+    assert.deepEqual(findJumpShortcuts(ramped, rampWorld, shortcutQuery, {}), shortcutExpected);
+    assert.ok(shortcut.counts.started > 0);
+    assert.equal(shortcut.counts.closed, shortcut.counts.started);
+    assert.ok(shortcut.counts.closed > shortcut.counts.exhausted);
+  } finally {
+    installLandingEnumerationPrototype(previous);
+  }
+});
+
+test('cached frontiers retain live native streams across resumes and release them when the root owner ends', () => {
+  const previous = installLandingEnumerationPrototype();
+  const jsCache: ShortcutCache = {},
+    nativeCache: ShortcutCache = {};
+  try {
+    const surfaces = [
+      floor('start', 0, 4, 4, -2, 2),
+      floor('middle', 7, 11, 2, -2, 2),
+      floor('goal', 14, 18, 0, -2, 2),
+    ];
+    const world = createCollisionWorld(collisionGeometry(surfaces));
+    const query = {
+      ...settings,
+      from: [2, 4, 0] as Vec3,
+      to: [16, 0, 0] as Vec3,
+      maxCandidates: 4,
+    };
+    const observed = observeLandingStreams();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      installLandingEnumerationPrototype(undefined);
+      const expected = findJumpFrontier(surfaces, world, query, jsCache);
+      installLandingEnumerationPrototype(observed.factory);
+      const actual = findJumpFrontier(surfaces, world, query, nativeCache);
+      assert.deepEqual(actual, expected);
+      assert.equal(actual.diagnostics.cursor?.resumed, attempt > 0);
+    }
+    assert.ok(
+      observed.counts.started > observed.counts.closed,
+      'a resumable frontier retains pending streams',
+    );
+    closeShortcutCursors(nativeCache);
+    assert.equal(observed.counts.closed, observed.counts.started);
+
+    installLandingEnumerationPrototype(undefined);
+    const starts = [{ id: 'root', position: query.from, cost: 0, state: 'available' as const }];
+    const options = { ...settings, maxCandidates: 4, maxShortcutCandidates: 0, runAirSpeed: 6.5 };
+    const expected = planJumpRoute(surfaces, world, starts, query.to, options);
+    const root = observeLandingStreams();
+    installLandingEnumerationPrototype(root.factory);
+    assert.deepEqual(planJumpRoute(surfaces, world, starts, query.to, options), expected);
+    assert.ok(root.counts.started > 0);
+    assert.equal(root.counts.closed, root.counts.started);
+    assert.ok(root.counts.closed > root.counts.exhausted);
+  } finally {
+    closeShortcutCursors(jsCache);
+    closeShortcutCursors(nativeCache);
+    installLandingEnumerationPrototype(previous);
+  }
+});
 
 test('native landing batches preserve complete frontier resume, action revisions and shortcut diagnostics', () => {
   const surfaces = [
