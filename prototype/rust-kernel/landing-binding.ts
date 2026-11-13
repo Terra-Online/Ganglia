@@ -19,22 +19,22 @@ interface NativeIndex {
 }
 interface NativeQuery {
   bounds: Float64Array;
-  target: number[];
-  anchor: number[];
-  padding: number[];
+  target: readonly number[];
+  anchor: readonly number[];
+  padding: readonly number[];
   maxHorizontalDistance: number;
   rise: number;
   fall: number;
   tolerance: number;
   scale: number;
-  cost?: {
-    approachTime: number;
-    inset: number;
-    radius: number;
-    airSpeed: number;
-    boundSpeed: number;
-    goal: number[];
-    limit: number;
+  readonly cost?: {
+    readonly approachTime: number;
+    readonly inset: number;
+    readonly radius: number;
+    readonly airSpeed: number;
+    readonly boundSpeed: number;
+    readonly goal: readonly number[];
+    readonly limit: number;
   };
 }
 const { LandingEnumerationIndex, LandingFlight } = loadNativeLibrary() as {
@@ -226,12 +226,17 @@ export function createRustLandingEnumeration(batchSize = 32): LandingEnumeration
       const { anchor } = query;
       const rise = flight.model.maxJumpHeight + 2 * endpointTolerance;
       const fall = maxDrop + 2 * endpointTolerance;
+      // Bounds remain a private buffer because the native cursor retains this
+      // typed array. Plain array parameters are copied into owned Rust Vecs.
+      const bounds = new Float64Array(6);
+      bounds.set(query.bounds.min);
+      bounds.set(query.bounds.max, 3);
       const cursor = compiled.index.cursor(
         {
-          bounds: Float64Array.from([...query.bounds.min, ...query.bounds.max]),
-          target: [...query.target],
-          anchor: [...anchor],
-          padding: [...padding],
+          bounds,
+          target: query.target,
+          anchor,
+          padding,
           maxHorizontalDistance: query.envelope.maxHorizontalDistance,
           rise,
           fall,
@@ -245,7 +250,7 @@ export function createRustLandingEnumeration(batchSize = 32): LandingEnumeration
             rise,
             fall,
           ),
-          ...(query.cost ? { cost: { ...query.cost, goal: [...query.cost.goal] } } : {}),
+          cost: query.cost,
         },
         flightOwner,
       );

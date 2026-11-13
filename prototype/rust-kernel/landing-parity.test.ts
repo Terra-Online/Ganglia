@@ -181,6 +181,43 @@ test('landing enumeration retains tangencies, analytic reach fallback and overfl
   }
 });
 
+test('paused landing cursors own their parameter snapshots while later streams read changed inputs', () => {
+  const entries = Array.from({ length: 129 }, (_, id) => ({
+    id,
+    min: [id, 0, 0],
+    max: [id, 0, 0],
+  }));
+  const index = createBoundsIndex(entries);
+  const target = [0, 0, 0],
+    anchor = [0, 0, 0],
+    padding = [0, 0, 0],
+    goal = [9, 0, 0];
+  const bounds = { min: [0, -1, -1], max: [128, 1, 1] };
+  const query: LandingNearestQuery = {
+    bounds,
+    target,
+    anchor,
+    envelope: { model, maxDrop: 80, maxHorizontalDistance: 200, endpointTolerance: 0.25, padding },
+    cost: { approachTime: 0, inset: 0, radius: 0.3, airSpeed: 6.5, boundSpeed: 7, goal, limit: 2 },
+  };
+  const expected = [...index.nearest(bounds, target, predicate(query))];
+  assert.ok(expected.length > 8);
+  const factory = createRustLandingEnumeration(1);
+  const paused = factory(boundsRoot(index)!, query);
+  const first = paused.next();
+  assert.strictEqual(first.value, expected[0]);
+  target[0] = 100;
+  anchor[0] = 100;
+  padding[0] = 20;
+  goal[0] = 100;
+  bounds.min[0] = 80;
+  bounds.max[0] = 120;
+  const changed = [...index.nearest(bounds, target, predicate(query))];
+  assert.ok(changed.length > 8);
+  assert.deepEqual([...factory(boundsRoot(index)!, query)], changed);
+  assert.deepEqual([first.value, ...paused], expected);
+});
+
 const floor = (id: string, x0: number, x1: number, y: number, z0: number, z1: number): Surface => ({
   id,
   vertices: [
