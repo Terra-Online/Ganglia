@@ -133,6 +133,9 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
   const pieces: Complete[] = [];
   const evidence: unknown[] = [];
   const failures = new Map<string, string>();
+  // Keep only the last full attempt in this root query. A completed bounded failure
+  // is not a global reachability claim; identical work proceeds to the same fallback.
+  let physicalFailure: { key: string; reason?: string; truncated: boolean } | undefined;
   let truncated = false;
   let cursor = 0,
     end = -1,
@@ -329,9 +332,13 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
           margin,
           corridor,
         });
-        if (!ground) return progress('incomplete', 'builder-unavailable');
-        if (ground.status === 'failed') return progress('incomplete', ground.message);
-        if (ground.status !== 'ready') return progress('pending');
+        if (!ground || ground.status !== 'ready') {
+          if (stage === 2) physicalFailure = undefined;
+          if (!ground) return progress('incomplete', 'builder-unavailable');
+          return ground.status === 'failed'
+            ? progress('incomplete', ground.message)
+            : progress('pending');
+        }
         const final = end === candidates.length - 1;
         let supportedTarget = target;
         // Final interactions carry their own approach proof; an earlier window's
@@ -362,20 +369,44 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
           interaction: final ? request.interaction : undefined,
           waypoints: [...(request.waypoints ?? []), ...coarseWaypoints([corridor])],
         };
-        const job = await builder.solve(
-          ground,
-          local,
-          true,
-          physicalWork(([0, 1, 2] as const)[stage]),
-        );
-        if (!job) return progress('incomplete', 'solver-unavailable');
-        if (job.status === 'failed') return progress('incomplete', job.message);
-        if (job.status !== 'ready') return progress('pending');
+        const revision = stage === 2 ? builder.physicalRevision?.(ground) : undefined;
+        const physicalKey =
+          revision === undefined
+            ? undefined
+            : JSON.stringify([
+                revision,
+                local.arrival,
+                local.target,
+                local.interaction,
+                local.waypoints,
+                local.walls,
+                local.solverConfig,
+              ]);
+        if (stage === 2 && (physicalKey === undefined || physicalFailure?.key !== physicalKey))
+          physicalFailure = undefined;
+        const failed = physicalKey === undefined ? undefined : physicalFailure;
+        let job: Job | null | undefined;
+        if (!failed) {
+          job = await builder.solve(ground, local, true, physicalWork(([0, 1, 2] as const)[stage]));
+          if (!job || job.status !== 'ready') {
+            if (stage === 2) physicalFailure = undefined;
+            if (!job) return progress('incomplete', 'solver-unavailable');
+            return job.status === 'failed'
+              ? progress('incomplete', job.message)
+              : progress('pending');
+          }
+        }
         if (signal?.aborted) return progress('incomplete', 'aborted');
-        const result = builder.route(job);
+        // Failure consumers use only reason/truncation, never a retained route or job.
+        const result: ReturnType<typeof builder.route> = failed
+          ? {
+              reason: failed.reason,
+              diagnostics: { truncated: failed.truncated },
+            }
+          : builder.route(job!);
         const route = result?.route;
         const diagnostics = result.diagnostics;
-        truncated ||=
+        const attemptTruncated =
           Boolean(
             diagnostics &&
             typeof diagnostics === 'object' &&
@@ -386,6 +417,13 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
             route?.search?.truncated ||
             (route?.status === 'complete' && route.locomotion?.search?.truncated),
           );
+        truncated ||= attemptTruncated;
+        if (!failed && stage === 2)
+          physicalFailure =
+            physicalKey !== undefined && route && route.status !== 'complete'
+              ? { key: physicalKey, reason: result.reason, truncated: attemptTruncated }
+              : undefined;
+        if (route?.status === 'complete') physicalFailure = undefined;
         if (route?.status === 'complete') {
           const exit = route.points.at(-1)!;
           if (pieces.length && distance(position, route.points[0]) > 1e-4)

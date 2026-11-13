@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { Surface } from '#@/src/geometry.ts';
-import type { Route } from '#@/src/route.ts';
+import type { Route, GroundConnection } from '#@/src/route.ts';
 import type { WindowResources, WindowRequest, WindowJob } from '#@/src/solver/resources.ts';
 import { setActionCatalogPhase } from '#@/src/v1/route/action-catalog.ts';
+import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
 import {
   createWindowGroundCache,
   createWindowRoute,
@@ -14,7 +15,7 @@ import {
 type Job = WindowJob & {
   output: string;
   collision: string;
-  result?: { route?: Route; reason?: string };
+  result?: { route?: Route; reason?: string; diagnostics?: { truncated: boolean } };
 };
 type Resources = WindowResources<WindowRequest, Job>;
 const groundPath = 'fixture';
@@ -368,6 +369,218 @@ const floor = (id: string, from: number, to: number, height = 0): Surface => ({
     [to, height, 1],
     [from, height, 1],
   ],
+});
+
+// A real disconnected ground planner fails until the full physical pass receives
+// a verified transfer. The ground key stays fixed when that transfer becomes usable.
+const attemptFixture = ({
+  certified,
+  changes = false,
+  split = false,
+}: {
+  certified: boolean;
+  changes?: boolean;
+  split?: boolean;
+}) => {
+  const ground = [floor('origin', 0, 4), floor('landing', 7, 12)];
+  if (split) ground.push(floor('far', 18, 22));
+  const options = { speed: 5, maxVertical: 0.1, walls: [], profile: { radius: 0.1, height: 1.8 } };
+  const planner = createGroundPlanner(ground, options);
+  const transfer: GroundConnection = {
+    id: 'cross-gap',
+    mode: 'launch',
+    state: 'open',
+    points: [
+      [3, 0, 0],
+      [8, 0, 0],
+    ],
+    times: [0, 1],
+  };
+  const full: { from: number; to: number; status: Route['status'] }[] = [];
+  let queries = 0;
+  const builder: Resources = {
+    query: async () => {
+      queries++;
+      return {
+        status: 'ready',
+        output: 'same-ground',
+        collision: changes && full.length ? 'open' : 'closed',
+      };
+    },
+    key: () => 'same-ground',
+    ground: async () => ({ surfaces: ground, options }),
+    ...(certified ? { physicalRevision: (job: Job) => `physics/${job.collision}` } : {}),
+    solve: async (job, local, _start, work) => {
+      const connections = work.step === 2 && (split || job.collision === 'open') ? [transfer] : [];
+      const route = planner.plan([local.arrival], local.target, { connections });
+      if (work.step === 2)
+        full.push({ from: local.arrival.position[0], to: local.target[0], status: route.status });
+      return {
+        ...job,
+        result: {
+          route,
+          reason: route.status === 'complete' ? undefined : 'gap-budget',
+          diagnostics: { truncated: work.step === 2 && route.status !== 'complete' },
+        },
+      };
+    },
+    route: (job) => job.result ?? {},
+  };
+  const search = () =>
+    createWindowRoute(
+      builder,
+      { ...request, target: [split ? 20 : 10, 0, 0] },
+      split
+        ? [
+            [0, 0, 0],
+            [10, 0, 0],
+            [20, 0, 0],
+          ]
+        : [
+            [0, 0, 0],
+            [10, 0, 0],
+          ],
+      settings,
+    );
+  return { search, full, builder, queries: () => queries };
+};
+const finishWindow = async (search: ReturnType<typeof createWindowRoute>, signal?: AbortSignal) => {
+  let result = await search.advance({ signal });
+  for (let index = 0; index < 30 && result.status === 'pending'; index++)
+    result = await search.advance({ signal });
+  assert.notEqual(result.status, 'pending');
+  return result;
+};
+
+test('a certified repeated full failure preserves the result while still checking expanded coverage', async () => {
+  const original = attemptFixture({ certified: false });
+  const reused = attemptFixture({ certified: true });
+  const expected = await finishWindow(original.search());
+  const actual = await finishWindow(reused.search());
+  assert.deepEqual(actual, expected);
+  assert.equal(actual.status, 'incomplete');
+  assert.equal(actual.diagnostics.truncated, true);
+  assert.equal(original.full.length, 2);
+  assert.equal(reused.full.length, 1);
+  assert.equal(reused.queries(), original.queries());
+  assert.deepEqual(await finishWindow(reused.search()), expected);
+  assert.equal(reused.full.length, 2);
+});
+
+test('a new complete physics revision can discover a route with the same ground key', async () => {
+  const fixture = attemptFixture({ certified: true, changes: true });
+  const result = await finishWindow(fixture.search());
+  assert.equal(result.status, 'complete');
+  if (result.status === 'complete') {
+    assert.deepEqual(result.route.points[0], [0, 0, 0]);
+    assert.deepEqual(result.route.points.at(-1), [10, 0, 0]);
+    assert.ok(result.route.segments.some((segment) => segment.connection === 'cross-gap'));
+  }
+  assert.deepEqual(
+    fixture.full.map((query) => query.status),
+    ['no-verified-route', 'complete'],
+  );
+});
+
+test('unknown reports or resource progress require a fresh full physical attempt', async () => {
+  const expected = await finishWindow(attemptFixture({ certified: false }).search());
+  for (const uncertain of ['missing-report', 'pending-ground', 'unknown-revision']) {
+    const fixture = attemptFixture({ certified: true });
+    if (uncertain === 'missing-report') {
+      const solve = fixture.builder.solve;
+      fixture.builder.solve = async (...args) => {
+        const job = await solve(...args);
+        return args[3].step === 2 && fixture.full.length === 1 && job
+          ? { ...job, result: { reason: 'gap-budget', diagnostics: { truncated: true } } }
+          : job;
+      };
+    } else if (uncertain === 'pending-ground') {
+      const query = fixture.builder.query,
+        solve = fixture.builder.solve;
+      let waiting = false;
+      let previousStep: number | undefined;
+      fixture.builder.solve = (...args) => {
+        previousStep = args[3].step;
+        return solve(...args);
+      };
+      fixture.builder.query = async (...args) => {
+        const job = await query(...args);
+        if (!waiting && fixture.full.length === 1 && previousStep === 1 && job) {
+          waiting = true;
+          return { ...job, status: 'building' };
+        }
+        return job;
+      };
+    } else
+      fixture.builder.physicalRevision = () => (fixture.full.length ? undefined : 'physics/closed');
+    assert.deepEqual(await finishWindow(fixture.search()), expected, uncertain);
+    assert.equal(fixture.full.length, 2, uncertain);
+  }
+});
+
+test('lower-work failures with no route do not discard the last full failure', async () => {
+  const fixture = attemptFixture({ certified: true });
+  const solve = fixture.builder.solve;
+  fixture.builder.solve = async (...args) => {
+    const job = await solve(...args);
+    return args[3].step !== 2 && job ? { ...job, result: { reason: 'no-verified-route' } } : job;
+  };
+  const result = await finishWindow(fixture.search());
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.diagnostics.truncated, true);
+  if (result.status === 'incomplete') assert.equal(result.reason, 'gap-budget');
+  assert.equal(fixture.full.length, 1);
+});
+
+test('cancellation during repeated-attempt resource loading still stops before fallback', async () => {
+  const run = async (certified: boolean) => {
+    const fixture = attemptFixture({ certified });
+    const controller = new AbortController();
+    const solve = fixture.builder.solve,
+      query = fixture.builder.query,
+      route = fixture.builder.route;
+    let previousStep: number | undefined;
+    let routeReads = 0;
+    fixture.builder.route = (job) => {
+      routeReads++;
+      return route(job);
+    };
+    fixture.builder.solve = (...args) => {
+      previousStep = args[3].step;
+      return solve(...args);
+    };
+    fixture.builder.query = async (...args) => {
+      const job = await query(...args);
+      if (fixture.full.length === 1 && previousStep === 1) controller.abort();
+      return job;
+    };
+    return {
+      result: await finishWindow(fixture.search(), controller.signal),
+      calls: fixture.full.length,
+      routeReads,
+    };
+  };
+  const original = await run(false),
+    reused = await run(true);
+  assert.deepEqual(reused.result, original.result);
+  assert.equal(reused.result.status, 'incomplete');
+  if (reused.result.status === 'incomplete') assert.equal(reused.result.reason, 'aborted');
+  assert.equal(reused.calls, 1);
+  assert.equal(original.calls, 2);
+  assert.equal(reused.routeReads, 5);
+  assert.equal(original.routeReads, 5);
+});
+
+test('a failed distant window cannot suppress a useful shorter physical query', async () => {
+  const fixture = attemptFixture({ certified: true, split: true });
+  const result = await finishWindow(fixture.search());
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.completedWindows, 1);
+  assert.deepEqual(fixture.full, [
+    { from: 0, to: 20, status: 'no-verified-route' },
+    { from: 0, to: 10, status: 'complete' },
+    { from: 10, to: 20, status: 'no-verified-route' },
+  ]);
 });
 
 for (const scenario of [

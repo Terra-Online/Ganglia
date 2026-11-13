@@ -14,6 +14,7 @@ import {
 import { createPhysicalPreparation, type PhysicalWork } from '@opendfieldmap/ganglia/solver/host';
 
 import { createTimings } from '#@/bench/timings.ts';
+import { actionCatalogStats } from '#@/src/v1/route/action-catalog.ts';
 
 type Source = { buildGuid: string; contentHash: string };
 type Ground = {
@@ -24,6 +25,8 @@ type Ground = {
   build: { bounds: { min: [number, number]; max: [number, number] } };
 };
 type Report = {
+  status?: 'candidate' | 'unavailable';
+  optimizing?: boolean;
   route?: Route;
   reason?: string;
   supportBoxes?: RouteResult['supportBoxes'];
@@ -122,6 +125,7 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
   };
   const preparationStarted = performance.now();
   const binding = JSON.stringify(hashes);
+  const physicalBinding = JSON.stringify([hashes, gameAdapterSha256]);
   // Lane-local caches keep mutable preparation isolated across concurrent solves.
   // Timed input reads are served from the preloaded snapshot.
   const caches = Array.from({ length: concurrency }, () => {
@@ -202,8 +206,33 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
       }
     },
     key: () => files.ground,
+    physicalRevision: () => {
+      const bank = actionCatalogStats();
+      // Training changes physical evidence. Frozen/disabled banks and all loaded
+      // file contents are fixed; include bank changes rather than trusting ground alone.
+      return bank.phase === 'training' || concurrency !== 1
+        ? undefined
+        : JSON.stringify([
+            physicalBinding,
+            bank.phase,
+            bank.added,
+            bank.evicted,
+            bank.scopeResets,
+            bank.scopes,
+          ]);
+    },
     ground: async () => ground,
-    route: (job) => job.result ?? {},
+    route: (job) => {
+      const result = job.result ?? {};
+      // The adapter's final unavailable report omits its failed Route. Preserve
+      // that explicit outcome without treating empty/provisional jobs as failures.
+      return !result.route &&
+        result.status === 'unavailable' &&
+        result.optimizing === false &&
+        result.reason === 'no-verified-route'
+        ? { ...result, route: { status: 'no-verified-route' } }
+        : result;
+    },
     wait: async () => {},
     close: async () => {
       for (const cache of caches) cache.clear();

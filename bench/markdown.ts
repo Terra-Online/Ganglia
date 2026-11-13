@@ -87,7 +87,7 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
           '',
         ]
       : []),
-    'Input loading and solver preparation are excluded. The measured batch recomputes queries after one full-batch prewarm; no completed-route cache is used. Speedup describes this workload on this machine, not a cross-scene guarantee.',
+    'Within each root query, identical completed failed physical attempts may reuse their reason and truncation when the provider certifies the complete physics revision. Fresh queries and complete routes are recomputed. Input loading and solver preparation are excluded. The measured batch recomputes queries after one full-batch prewarm; no completed-route cache is used. Speedup describes this workload on this machine, not a cross-scene guarantee.',
     '',
     `Revision: \`${report.revision}\`; source SHA-256: \`${report.sourceSha256}\`; Node: \`${report.node}\`.`,
     '',
