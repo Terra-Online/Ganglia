@@ -1,4 +1,5 @@
-import { Worker } from 'node:worker_threads';
+import { fork, type ChildProcess } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 
 import type {
   PreparedRouteSolver,
@@ -10,6 +11,7 @@ import type {
 } from '@opendfieldmap/ganglia';
 
 import { sceneIdentity, type SceneMetadata } from '#@/bench/scene.ts';
+import { QUERY_SLO_MS } from '#@/bench/slo.ts';
 import { createTimings, mergeTimings, type Timings } from '#@/bench/timings.ts';
 
 export const workerMemory = () => {
@@ -17,16 +19,25 @@ export const workerMemory = () => {
   return { rssBytes: memory.rss, heapUsedBytes: memory.heapUsed };
 };
 type Memory = ReturnType<typeof workerMemory>;
-
+export type WorkerResult = RouteResult & {
+  diagnostics: RouteResult['diagnostics'] & {
+    solveWallMs: number;
+    timedOut: boolean;
+    observedWallMs?: number;
+  };
+};
+type RegionFiles = { ground: string; collision: string };
 export interface WorkerSetup {
   config: SolverConfig;
   dataRoot: string;
   extractor: string;
   scene?: string;
   index: number;
+  preparation?: { config: string; devices?: string };
 }
 export type WorkerRequest =
-  | { type: 'solve'; id: number; query: RouteQuery; cancel?: SharedArrayBuffer; events: boolean }
+  | { type: 'setup'; setup: WorkerSetup }
+  | { type: 'solve'; id: number; query: RouteQuery; events: boolean }
   | { type: 'close' };
 export type WorkerReply =
   | {
@@ -37,30 +48,41 @@ export type WorkerReply =
       preparationMs: number;
       memory: Memory;
     }
-  | { type: 'result'; id: number; result: RouteResult; timings: Timings; memory: Memory }
+  | {
+      type: 'result';
+      id: number;
+      result: RouteResult;
+      timings: Timings;
+      memory: Memory;
+      metadata?: SceneMetadata;
+    }
   | { type: 'event'; id: number; event: RouteEvent }
+  | { type: 'region'; files: RegionFiles }
   | { type: 'error'; id: number; error: string }
   | { type: 'closed' };
-
 type Task = {
   message: Extract<WorkerRequest, { type: 'solve' }>;
   resolve: (result: RouteResult) => void;
   reject: (error: unknown) => void;
   options: SolveOptions;
   cleanup: () => void;
-  callbackError?: { cause: unknown };
+  started?: number;
+  timer?: ReturnType<typeof setTimeout>;
 };
 type Slot = {
-  worker: Worker;
+  index: number;
+  worker?: ChildProcess;
+  exited?: Promise<void>;
   active?: Task;
   ready: boolean;
-  heapUsedSampledPeakBytes: number;
-  shutdown?: () => void;
+  retired: boolean;
+  rssBytes: number;
+  rssPeakBytes: number;
+  heapPeakBytes: number;
 };
 
-/** Entire queries stay inside one prepared isolate: planner, windows, physical
- * preparation and caches never cross the seam. Threads share no mutable solver
- * state, and only queries, optional events and final results are transported. */
+/** The parent owns query deadlines. A separate process can be killed even when
+ * synchronous JS or native search cannot yield to an AbortSignal. */
 export async function prepareWorkerSolver(options: {
   count: number;
   config: SolverConfig;
@@ -68,42 +90,276 @@ export async function prepareWorkerSolver(options: {
   extractor: string;
   scene?: string;
   entry?: URL;
+  timeoutMs?: number;
+  preparation?: WorkerSetup['preparation'];
+  onRegion?: (files: RegionFiles) => void;
 }) {
+  const timeoutMs = options.timeoutMs ?? QUERY_SLO_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > QUERY_SLO_MS)
+    throw new Error('Invalid query timeout');
+  if (!Number.isSafeInteger(options.count) || options.count < 1)
+    throw new Error('Invalid worker count');
+  if (options.preparation && options.count !== 1)
+    throw new Error('Preparation requires one worker');
   const startup = performance.now();
   const config = { ...options.config };
-  let inputLoadMs = 0;
+  if (!Number.isSafeInteger(config.batchConcurrency) || config.batchConcurrency < 1)
+    throw new Error('Invalid worker concurrency');
   const timings = createTimings();
   const queued: Task[] = [];
-  const slots: Slot[] = [];
-  let first: Extract<WorkerReply, { type: 'ready' }> | undefined;
+  const slots: Slot[] = Array.from({ length: options.count }, (_, index) => ({
+    index,
+    ready: false,
+    retired: false,
+    rssBytes: 0,
+    rssPeakBytes: 0,
+    heapPeakBytes: 0,
+  }));
+  let prepared: Extract<WorkerReply, { type: 'ready' }> | undefined;
+  let latest: SceneMetadata | undefined;
+  let inputLoadMs = 0,
+    recoverySetupMs = 0,
+    recoveryCount = 0;
   let processRssSampledPeakBytes = process.memoryUsage().rss;
   let serial = 0,
     nextSlot = 0;
-  let closed = false;
+  let closed = false,
+    paused = false;
   let failure: Error | undefined;
+  let recovering: Promise<void> | undefined;
   let closing: Promise<void> | undefined;
   let notifyDrained: (() => void) | undefined;
+  const restored = new Set<() => void>();
+  const activeCount = () => slots.filter((slot) => slot.active).length;
   const drained = () => {
-    if (!queued.length && slots.every((slot) => !slot.active)) notifyDrained?.();
+    if (!paused && !recovering) {
+      for (const resolve of restored) resolve();
+      restored.clear();
+    }
+    if (!queued.length && !activeCount() && !paused && !recovering) notifyDrained?.();
+  };
+  const kill = (slot: Slot) => {
+    if (slot.retired) return;
+    slot.ready = false;
+    slot.retired = true;
+    const worker = slot.worker;
+    if (!worker?.pid || worker.exitCode !== null || worker.signalCode !== null) return;
+    // Exporter subprocesses inherit this detached process group. Killing the
+    // group prevents timed-out preparation from continuing filesystem work.
+    try {
+      if (process.platform === 'win32') worker.kill('SIGKILL');
+      else process.kill(-worker.pid, 'SIGKILL');
+    } catch (error) {
+      // A sibling can exit between its OS process disappearing and Node's exit
+      // event. macOS may report EPERM for that vanished process group.
+      if (error instanceof Error && 'code' in error && error.code === 'EPERM') {
+        worker.kill('SIGKILL');
+        return;
+      }
+      if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error;
+    }
+  };
+  const clean = (task: Task) => {
+    clearTimeout(task.timer);
+    task.cleanup();
   };
   const fail = (error: Error) => {
     failure ??= error;
+    paused = false;
     for (const task of queued.splice(0)) {
-      task.cleanup();
+      clean(task);
       task.reject(failure);
     }
     for (const slot of slots) {
-      slot.active?.cleanup();
-      slot.active?.reject(failure);
-      slot.active = undefined;
-      slot.shutdown?.();
-      void slot.worker.terminate();
+      if (slot.active) {
+        clean(slot.active);
+        slot.active.reject(failure);
+        slot.active = undefined;
+      }
+      kill(slot);
     }
     drained();
   };
-  const dispatch = () => {
-    if (failure) return;
-    let active = slots.filter((slot) => slot.active).length;
+  const metadata = (value: SceneMetadata) => {
+    if (latest) {
+      const matches = options.preparation
+        ? latest.scene === value.scene &&
+          isDeepStrictEqual(latest.source, value.source) &&
+          latest.kernelSha256 === value.kernelSha256 &&
+          latest.gameAdapterSha256 === value.gameAdapterSha256 &&
+          Object.entries(latest.hashes).every(([name, hash]) => value.hashes[name] === hash)
+        : sceneIdentity(latest) === sceneIdentity(value);
+      if (!matches) throw new Error('Scene worker input/source identity mismatch');
+    }
+    latest = value;
+  };
+  const sample = (slot: Slot, memory: Memory) => {
+    slot.rssBytes = memory.rssBytes;
+    slot.rssPeakBytes = Math.max(slot.rssPeakBytes, memory.rssBytes);
+    slot.heapPeakBytes = Math.max(slot.heapPeakBytes, memory.heapUsedBytes);
+    processRssSampledPeakBytes = Math.max(
+      processRssSampledPeakBytes,
+      process.memoryUsage().rss + slots.reduce((sum, item) => sum + item.rssBytes, 0),
+    );
+  };
+  const measured = (result: RouteResult, task: Task, timedOut = false): WorkerResult => {
+    const observedWallMs = performance.now() - task.started!;
+    return {
+      ...result,
+      diagnostics: {
+        ...result.diagnostics,
+        solveWallMs: timedOut ? timeoutMs : observedWallMs,
+        timedOut,
+        ...(timedOut ? { observedWallMs } : {}),
+      },
+    };
+  };
+  const interrupted = (reason: 'timeout' | 'aborted'): RouteResult => ({
+    route: { status: 'no-verified-route' },
+    connections: [],
+    reason,
+    diagnostics: { truncated: true },
+  });
+  const retire = (slot: Slot, reason: 'timeout' | 'aborted', error?: unknown) => {
+    const task = slot.active;
+    if (!task) return;
+    slot.active = undefined;
+    paused = true;
+    clean(task);
+    kill(slot);
+    if (error !== undefined) task.reject(error);
+    else task.resolve(measured(interrupted(reason), task, reason === 'timeout'));
+    dispatch();
+  };
+  const start = (slot: Slot) =>
+    new Promise<void>((resolve, reject) => {
+      const worker = fork(options.entry ?? new URL('./worker.ts', import.meta.url), [], {
+        serialization: 'advanced',
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+      });
+      slot.worker = worker;
+      slot.retired = false;
+      slot.ready = false;
+      let ready = false;
+      slot.exited = new Promise<void>((exited) =>
+        worker.once('exit', () => {
+          slot.rssBytes = 0;
+          exited();
+        }),
+      );
+      worker.on('message', (message: WorkerReply) => {
+        if (slot.worker !== worker || slot.retired) return;
+        try {
+          if (message.type === 'ready') {
+            metadata(message.metadata);
+            prepared ??= message;
+            inputLoadMs = Math.max(inputLoadMs, message.inputLoadMs);
+            timings.preparationMs += message.preparationMs;
+            sample(slot, message.memory);
+            slot.ready = ready = true;
+            resolve();
+            return;
+          }
+          if (message.type === 'closed') return;
+          if (message.type === 'region') {
+            options.onRegion?.(message.files);
+            return;
+          }
+          const task = slot.active;
+          if (!task || task.message.id !== message.id)
+            throw new Error('Unexpected scene worker response');
+          if (performance.now() - task.started! >= timeoutMs) {
+            retire(slot, 'timeout');
+            return;
+          }
+          if (message.type === 'event') {
+            try {
+              task.options.onEvent?.(message.event);
+            } catch (error) {
+              retire(slot, 'aborted', error);
+            }
+            return;
+          }
+          if (message.type === 'result' && message.metadata) metadata(message.metadata);
+          slot.active = undefined;
+          clean(task);
+          if (message.type === 'error') task.reject(new Error(message.error));
+          else {
+            sample(slot, message.memory);
+            mergeTimings(timings, message.timings);
+            task.resolve(measured(message.result, task));
+          }
+          dispatch();
+        } catch (error) {
+          const cause = error instanceof Error ? error : new Error(String(error));
+          reject(cause);
+          fail(cause);
+        }
+      });
+      worker.on('error', (error) => {
+        reject(error);
+        fail(error);
+      });
+      worker.on('exit', (code, signal) => {
+        if (slot.worker !== worker || slot.retired) {
+          if (!ready) reject(new Error('Scene worker stopped before ready'));
+          return;
+        }
+        if (!closing || slot.active || queued.length || !ready || code !== 0) {
+          const error = new Error(`Scene worker exited unexpectedly (${signal ?? code})`);
+          reject(error);
+          fail(error);
+        }
+      });
+      worker.send(
+        {
+          type: 'setup',
+          setup: {
+            config,
+            dataRoot: options.dataRoot,
+            extractor: options.extractor,
+            scene: options.scene,
+            index: slot.index,
+            preparation: options.preparation,
+          },
+        } satisfies WorkerRequest,
+        (error) => {
+          if (error) {
+            reject(error);
+            fail(error);
+          }
+        },
+      );
+    });
+  const recover = () => {
+    if (recovering || activeCount() || failure) return;
+    const started = performance.now();
+    recovering = (async () => {
+      const dead = slots.filter((slot) => slot.retired);
+      await Promise.all(dead.map((slot) => slot.exited));
+      if (failure) return;
+      await Promise.all(dead.map(start));
+      recoveryCount += dead.length;
+    })()
+      .catch((error) => fail(error instanceof Error ? error : new Error(String(error))))
+      .finally(() => {
+        recoverySetupMs += performance.now() - started;
+        recovering = undefined;
+        paused = false;
+        dispatch();
+      });
+  };
+  function dispatch() {
+    if (failure) {
+      drained();
+      return;
+    }
+    if (paused) {
+      recover();
+      return;
+    }
+    let active = activeCount();
     for (
       let checked = 0;
       checked < slots.length && queued.length && active < config.batchConcurrency;
@@ -112,174 +368,86 @@ export async function prepareWorkerSolver(options: {
       const slot = slots[nextSlot];
       nextSlot = (nextSlot + 1) % slots.length;
       if (!slot.ready || slot.active) continue;
-      const task = queued.shift();
-      if (!task) break;
+      const task = queued.shift()!;
       slot.active = task;
+      task.started = performance.now();
+      task.timer = setTimeout(() => retire(slot, 'timeout'), timeoutMs);
       active++;
-      try {
-        slot.worker.postMessage(task.message);
-      } catch (error) {
-        fail(error instanceof Error ? error : new Error(String(error)));
-        return;
-      }
+      const worker = slot.worker!;
+      worker.send(task.message, (error) => {
+        if (error && slot.worker === worker && !slot.retired) fail(error);
+      });
     }
     drained();
-  };
+  }
   try {
-    await Promise.all(
-      Array.from(
-        { length: options.count },
-        (_, index) =>
-          new Promise<void>((resolve, reject) => {
-            const worker = new Worker(options.entry ?? new URL('./worker.ts', import.meta.url), {
-              workerData: {
-                config,
-                dataRoot: options.dataRoot,
-                extractor: options.extractor,
-                scene: options.scene,
-                index,
-              } satisfies WorkerSetup,
-            });
-            const slot: Slot = { worker, ready: false, heapUsedSampledPeakBytes: 0 };
-            slots.push(slot);
-            worker.on('message', (message: WorkerReply) => {
-              if (message.type === 'ready' || message.type === 'result') {
-                // RSS covers the process, while heapUsed belongs to this V8 isolate.
-                processRssSampledPeakBytes = Math.max(
-                  processRssSampledPeakBytes,
-                  message.memory.rssBytes,
-                );
-                slot.heapUsedSampledPeakBytes = Math.max(
-                  slot.heapUsedSampledPeakBytes,
-                  message.memory.heapUsedBytes,
-                );
-              }
-              if (message.type === 'ready') {
-                if (first && sceneIdentity(first.metadata) !== sceneIdentity(message.metadata)) {
-                  const error = new Error('Scene worker input/source identity mismatch');
-                  reject(error);
-                  fail(error);
-                  return;
-                }
-                first ??= message;
-                inputLoadMs = Math.max(inputLoadMs, message.inputLoadMs);
-                timings.preparationMs += message.preparationMs;
-                slot.ready = true;
-                resolve();
-                dispatch();
-                return;
-              }
-              if (message.type === 'closed') {
-                slot.shutdown?.();
-                return;
-              }
-              const task = slot.active;
-              if (!task || task.message.id !== message.id) {
-                fail(new Error('Unexpected scene worker response'));
-                return;
-              }
-              if (message.type === 'event') {
-                try {
-                  task.options.onEvent?.(message.event);
-                } catch (error) {
-                  task.callbackError = { cause: error };
-                  if (task.message.cancel) Atomics.store(new Int32Array(task.message.cancel), 0, 1);
-                }
-                return;
-              }
-              slot.active = undefined;
-              task.cleanup();
-              if (message.type === 'error') task.reject(new Error(message.error));
-              else {
-                mergeTimings(timings, message.timings);
-                if (task.callbackError !== undefined) task.reject(task.callbackError.cause);
-                else task.resolve(message.result);
-              }
-              dispatch();
-            });
-            worker.on('error', (error) => {
-              reject(error);
-              fail(error);
-            });
-            worker.on('exit', (code) => {
-              if (!closing || slot.active || queued.length || !slot.ready) {
-                const error = new Error(`Scene worker exited unexpectedly (${code})`);
-                reject(error);
-                fail(error);
-              }
-              slot.shutdown?.();
-            });
-          }),
-      ),
-    );
+    await Promise.all(slots.map(start));
   } catch (error) {
     fail(error instanceof Error ? error : new Error(String(error)));
-    await Promise.all(slots.map((slot) => slot.worker.terminate()));
+    await Promise.all(slots.map((slot) => slot.exited));
     throw error;
   }
-  if (!first) throw new Error('No scene workers prepared');
   timings.workerStartupMs = performance.now() - startup;
-  const prepared = first;
+  if (!prepared || !latest) throw new Error('No scene workers prepared');
   const submit = (query: RouteQuery, solveOptions: SolveOptions = {}) => {
     if (failure) return Promise.reject(failure);
     if (closed) return Promise.reject(new Error('Scene worker solver is closed'));
     return new Promise<RouteResult>((resolve, reject) => {
-      // An atomic flag is visible during synchronous CPU work; abort messages
-      // alone cannot be handled until a worker yields its event loop.
-      const cancel =
-        solveOptions.signal || solveOptions.onEvent ? new SharedArrayBuffer(4) : undefined;
-      const abort = () => {
-        if (cancel) Atomics.store(new Int32Array(cancel), 0, 1);
-      };
-      if (solveOptions.signal?.aborted) abort();
-      else solveOptions.signal?.addEventListener('abort', abort, { once: true });
-      queued.push({
-        message: {
-          type: 'solve',
-          id: ++serial,
-          query,
-          cancel,
-          events: Boolean(solveOptions.onEvent),
-        },
+      const task: Task = {
+        message: { type: 'solve', id: ++serial, query, events: Boolean(solveOptions.onEvent) },
+        options: solveOptions,
         resolve,
         reject,
-        options: solveOptions,
         cleanup: () => solveOptions.signal?.removeEventListener('abort', abort),
-      });
+      };
+      const abort = () => {
+        const slot = slots.find((slot) => slot.active === task);
+        if (slot) retire(slot, 'aborted');
+        else {
+          const index = queued.indexOf(task);
+          if (index !== -1) queued.splice(index, 1);
+          clean(task);
+          task.started = performance.now();
+          resolve(measured(interrupted('aborted'), task));
+          drained();
+        }
+      };
+      if (solveOptions.signal?.aborted) {
+        abort();
+        return;
+      }
+      solveOptions.signal?.addEventListener('abort', abort, { once: true });
+      queued.push(task);
       dispatch();
     });
   };
   const solver: PreparedRouteSolver = {
     config: Object.freeze(prepared.config),
     solve: submit,
-    solveBatch(queries, batchOptions) {
-      if (failure) return Promise.reject(failure);
-      if (closed) return Promise.reject(new Error('Scene worker solver is closed'));
-      return Promise.all(queries.map((query) => submit(query, batchOptions)));
+    async solveBatch(queries, batchOptions) {
+      const results = await Promise.all(queries.map((query) => submit(query, batchOptions)));
+      // A batch boundary also closes its recovery interval, so a caller can
+      // subtract setup time without moving it into the next batch's timing.
+      while (paused || recovering) await new Promise<void>((resolve) => restored.add(resolve));
+      if (failure) throw failure;
+      return results;
     },
     close() {
       if (!closing) {
         closed = true;
+        const priorFailure = failure;
         closing = (async () => {
-          if (queued.length || slots.some((slot) => slot.active))
+          if (queued.length || activeCount() || paused || recovering)
             await new Promise<void>((resolve) => {
               notifyDrained = resolve;
             });
           if (!failure)
-            await Promise.all(
-              slots.map(
-                (slot) =>
-                  new Promise<void>((resolve) => {
-                    slot.shutdown = resolve;
-                    try {
-                      slot.worker.postMessage({ type: 'close' } satisfies WorkerRequest);
-                    } catch (error) {
-                      fail(error instanceof Error ? error : new Error(String(error)));
-                    }
-                  }),
-              ),
-            );
-          await Promise.all(slots.map((slot) => slot.worker.terminate()));
+            for (const slot of slots)
+              slot.worker!.send({ type: 'close' } satisfies WorkerRequest, (error) => {
+                if (error) fail(error);
+              });
+          await Promise.all(slots.map((slot) => slot.exited));
+          if (failure && !priorFailure) throw failure;
         })();
       }
       return closing;
@@ -289,16 +457,36 @@ export async function prepareWorkerSolver(options: {
     solver,
     inputLoadMs,
     timings,
+    get recoverySetupMs() {
+      return recoverySetupMs;
+    },
+    get recoveryCount() {
+      return recoveryCount;
+    },
     metadata: {
       ...prepared.metadata,
+      get hashes() {
+        return latest!.hashes;
+      },
+      get inputBytes() {
+        return latest!.inputBytes;
+      },
       execution: {
-        mode: 'worker-threads',
+        mode: 'child-processes',
         workers: slots.length,
         lanes: Math.min(slots.length, config.batchConcurrency),
+        timeoutMs,
+        get recoverySetupMs() {
+          return recoverySetupMs;
+        },
+        get recoveryCount() {
+          return recoveryCount;
+        },
         get memory() {
           return {
             processRssSampledPeakBytes,
-            workerHeapUsedSampledPeakBytes: slots.map((slot) => slot.heapUsedSampledPeakBytes),
+            workerProcessRssSampledPeakBytes: slots.map((slot) => slot.rssPeakBytes),
+            workerHeapUsedSampledPeakBytes: slots.map((slot) => slot.heapPeakBytes),
           };
         },
       },
