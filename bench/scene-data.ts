@@ -4,12 +4,13 @@ import { resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import type { GroundOptions, Surface } from '@opendfieldmap/ganglia';
-import type { Corridor } from '@opendfieldmap/ganglia/solver';
+import type { Corridor, SceneNavigation } from '@opendfieldmap/ganglia/solver';
 import { physicalCoverage, physicalTileSpan } from '@opendfieldmap/ganglia/solver/host';
 
 export type Source = { buildGuid: string; contentHash: string };
 type Bounds = { min: [number, number]; max: [number, number] };
 type Tile = { x: number; z: number };
+type Navigation = SceneNavigation & { scene: string; source: Source };
 export type Ground = {
   scene: string;
   source: Source;
@@ -54,7 +55,7 @@ export async function loadSceneData(dataRoot: string, scene: string) {
     inputs.set(name, value);
     return value as T;
   };
-  const navigation = await read<Ground>(resolve(dataRoot, `routing/${scene}-ground-all.json`));
+  const navigation = await read<Navigation>(resolve(dataRoot, `routing/${scene}-ground-all.json`));
   const movementFile = resolve(dataRoot, 'routing/movement-settings-current.json');
   const movement = await read<{
     source: Source;
