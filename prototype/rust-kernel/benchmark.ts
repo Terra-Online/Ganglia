@@ -51,6 +51,7 @@ const features = {
   GANGLIA_RUST_CANDIDATE: process.env.GANGLIA_RUST_CANDIDATE ?? '0',
   GANGLIA_RUST_ROUTE: process.env.GANGLIA_RUST_ROUTE ?? '0',
   GANGLIA_RUST_LANDING: process.env.GANGLIA_RUST_LANDING ?? '0',
+  GANGLIA_RUST_LANDING_BATCH: process.env.GANGLIA_RUST_LANDING_BATCH ?? '32',
 };
 const sourceSha256 = await sourceHash(root, ['prototype/rust-kernel']);
 if (native)
@@ -104,6 +105,8 @@ if (args.includes('--json') || args.includes('--markdown')) {
     nativeCandidate: native && features.GANGLIA_RUST_CANDIDATE === '1',
     nativeRoute: native && features.GANGLIA_RUST_ROUTE === '1',
     nativeLanding: native && features.GANGLIA_RUST_LANDING === '1',
+    nativeLandingBatchSize: Number(features.GANGLIA_RUST_LANDING_BATCH),
+    nativeLandingDiagnostics: native && Boolean(process.env.GANGLIA_RUST_LANDING_DIAGNOSTICS),
     ...(native ? { binarySha256 } : {}),
   };
   console.log(

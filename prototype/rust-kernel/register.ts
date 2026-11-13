@@ -55,4 +55,6 @@ import { createRustLandingEnumeration } from '#@/prototype/rust-kernel/landing-b
 import { installLandingEnumerationPrototype } from '#@/src/v1/search/landing-enumeration.ts';
 
 if (process.env.GANGLIA_RUST_LANDING === '1')
-  installLandingEnumerationPrototype(createRustLandingEnumeration());
+  installLandingEnumerationPrototype(
+    createRustLandingEnumeration(Number(process.env.GANGLIA_RUST_LANDING_BATCH ?? 32)),
+  );

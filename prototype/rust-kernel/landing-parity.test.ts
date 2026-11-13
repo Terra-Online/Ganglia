@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
 import { createRustLandingEnumeration } from '#@/prototype/rust-kernel/landing-binding.ts';
@@ -69,7 +72,7 @@ test('landing batches preserve filtered hierarchy ties, pruning and every paused
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     return seed / 2 ** 32;
   };
-  const factories = [1, 7, 32].map(createRustLandingEnumeration);
+  const factories = [1, 4, 7, 32].map(createRustLandingEnumeration);
   let total = 0;
   for (let trial = 0; trial < 60; trial++) {
     const base = [0, 1e7, 1e18][trial % 3];
@@ -273,5 +276,69 @@ test('native landing batches preserve complete frontier resume, action revisions
     }
   } finally {
     installLandingEnumerationPrototype(previous);
+  }
+});
+
+test('opt-in landing counters distinguish encoded trees, reused views and discarded prefetch by phase', () => {
+  const cache = resolve('.local/cache');
+  mkdirSync(cache, { recursive: true });
+  const directory = mkdtempSync(resolve(cache, 'landing-diagnostics-test-'));
+  const output = resolve(directory, 'counts.json');
+  const binding = new URL('./landing-binding.ts', import.meta.url).href;
+  const bounds = new URL('../../src/v1/geo/bounds.ts', import.meta.url).href;
+  try {
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+      import { createRustLandingEnumeration } from ${JSON.stringify(binding)};
+      import { createBoundsIndex, boundsRoot } from ${JSON.stringify(bounds)};
+      const entries = Array.from({length:8},(_,id)=>({id,min:[0,0,0],max:[0,0,0]}));
+      const index = createBoundsIndex(entries), root = boundsRoot(index);
+      const query = { bounds:{min:[-10,-10,-10],max:[10,10,10]},target:[0,0,0],anchor:[0,0,0],
+        envelope:{model:${JSON.stringify(model)},maxDrop:10,maxHorizontalDistance:10,endpointTolerance:0.25}};
+      const factory = createRustLandingEnumeration(4);
+      console.error(JSON.stringify({phase:'catalog-training',queries:1}));
+      const first = factory(root,query);first.next();first.return();
+      console.error(JSON.stringify({phase:'batch',queries:1}));
+      const second = factory(root,query);second.next();second.next();second.return();
+    `,
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GANGLIA_RUST_LANDING_DIAGNOSTICS: output,
+          GANGLIA_RUST_LANDING_BATCH: '4',
+        },
+      },
+    );
+    assert.equal(child.status, 0, child.stderr);
+    const report = JSON.parse(readFileSync(output, 'utf8'));
+    assert.equal(report.formalPerformance, false);
+    assert.equal(report.batchSize, 4);
+    const training = report.phases['catalog-training'],
+      batch = report.phases.batch;
+    assert.equal(training.treesEncoded, 1);
+    assert.equal(training.encodedRows, 9);
+    assert.equal(training.encodedEntries, 8);
+    assert.ok(training.encodedBytes > 9 * 60);
+    assert.equal(training.idsReturned, 4);
+    assert.equal(training.idsYielded, 1);
+    assert.equal(training.discardedBuffered, 3);
+    assert.equal(training.bufferedAtSnapshot, 0);
+    assert.equal(batch.treesEncoded, 0);
+    assert.equal(batch.treeCacheHits, 1);
+    assert.equal(batch.batchCalls, 1);
+    assert.equal(batch.streamsStarted, 1);
+    assert.equal(batch.streamsClosed, 1);
+    assert.equal(batch.idsReturned, 4);
+    assert.equal(batch.idsYielded, 2);
+    assert.equal(batch.discardedBuffered, 2);
+    assert.equal(batch.bufferedAtSnapshot, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
