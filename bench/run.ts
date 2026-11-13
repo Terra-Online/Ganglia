@@ -34,9 +34,11 @@ export async function runBenchmark(
   solver: PreparedRouteSolver,
   cases: readonly { id: string; query: RouteQuery }[],
   onPhase?: (phase: 'prewarm' | 'batch') => void,
+  rounds = 1,
 ) {
   const queries = cases.map((item) => item.query);
   try {
+    if (!Number.isSafeInteger(rounds) || rounds < 1) throw new Error('Invalid benchmark rounds');
     onPhase?.('prewarm');
     let started = performance.now();
     const warm = await solver.solveBatch(queries);
@@ -44,23 +46,40 @@ export async function runBenchmark(
     if (warm.length !== cases.length)
       throw new Error('Prewarm returned a different number of results');
     onPhase?.('batch');
-    started = performance.now();
-    const batch = await solver.solveBatch(queries);
-    const wallMs = performance.now() - started;
-    if (batch.length !== cases.length)
-      throw new Error('Batch returned a different number of results');
+    const wallSamplesMs: number[] = [];
+    const stable = cases.map(() => ({ outcome: true, truncation: true }));
+    let batch: readonly RouteResult[] = [];
+    for (let round = 0; round < rounds; round++) {
+      started = performance.now();
+      batch = await solver.solveBatch(queries);
+      wallSamplesMs.push(performance.now() - started);
+      if (batch.length !== cases.length)
+        throw new Error('Batch returned a different number of results');
+      batch.forEach((result, i) => {
+        stable[i].outcome =
+          isDeepStrictEqual(outcome(result), outcome(warm[i])) && stable[i].outcome;
+        stable[i].truncation =
+          result.diagnostics.truncated === warm[i].diagnostics.truncated && stable[i].truncation;
+      });
+    }
     const results = batch.map((result, i) => ({
       id: cases[i].id,
       ...summarize(result),
-      sameOutcomeAsPrewarm: isDeepStrictEqual(outcome(result), outcome(warm[i])),
-      sameTruncationAsPrewarm: result.diagnostics.truncated === warm[i].diagnostics.truncated,
+      sameOutcomeAsPrewarm: stable[i].outcome,
+      sameTruncationAsPrewarm: stable[i].truncation,
     }));
+    const totalWallMs = wallSamplesMs.reduce((sum, sample) => sum + sample, 0);
+    // Keep the reference metric comparable to a single complete workload batch.
+    const wallMs = totalWallMs / rounds;
     return {
       config: solver.config,
       prewarmMs,
       batch: {
+        rounds,
+        wallSamplesMs,
+        totalWallMs,
         wallMs,
-        queriesPerSecond: cases.length / (wallMs / 1000),
+        queriesPerSecond: (rounds * cases.length) / (totalWallMs / 1000),
         ...(solver.config.batchConcurrency === 1
           ? { meanSerialQueryMs: wallMs / cases.length }
           : {}),

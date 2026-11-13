@@ -27,6 +27,7 @@ const { values } = parseArgs({
     extractor: { type: 'string', default: resolve(root, '.local/repos/Atlos/talos/.cache/noclip') },
     concurrency: { type: 'string' },
     workers: { type: 'string', default: '1' },
+    rounds: { type: 'string', default: '1' },
     config: { type: 'string' },
     reference: { type: 'string' },
     limit: { type: 'string' },
@@ -39,11 +40,13 @@ const { values } = parseArgs({
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--catalog-train <count; opt-in approximate static-action algorithm>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
+    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--catalog-train <count; opt-in approximate static-action algorithm>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--rounds <measured batches; default 1>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
   );
 else {
   try {
     if (values.json && values.markdown) throw new Error('Choose --json or --markdown');
+    const rounds = Number(values.rounds);
+    if (!Number.isSafeInteger(rounds) || rounds < 1) throw new Error('Invalid benchmark rounds');
     const limits = {
       geometricMeanCostRatio: Number(values['max-mean-cost-ratio']),
       worstCostRatio: Number(values['max-worst-cost-ratio']),
@@ -167,10 +170,15 @@ else {
           stats: actionCatalogStats(),
         };
       }
-      const report = await runBenchmark(solver, selected, (phase) => {
-        console.error(JSON.stringify({ phase, queries: selected.length }));
-        if (phase === 'batch') resetTimings(timings);
-      });
+      const report = await runBenchmark(
+        solver,
+        selected,
+        (phase) => {
+          console.error(JSON.stringify({ phase, queries: selected.length, rounds }));
+          if (phase === 'batch') resetTimings(timings);
+        },
+        rounds,
+      );
       if (catalogTraining && actionCatalogStats().added !== catalogTraining.stats.added)
         throw new Error('Frozen catalog changed during holdout');
       if ((await sourceHash(root, ['src', 'bench'])) !== sourceSha256)
@@ -194,7 +202,7 @@ else {
           (catalogTraining
             ? 'Approximate static-action algorithm: the reported training queries record nonterminal static ordinary motion proofs using original discovery. Training time is excluded from measured holdout and reported separately. The catalog freezes before fresh-start holdout prewarm. Up to eight travel-time-ranked candidate chains, with at most sixteen unique actions, are jointly checked by the real planner and runs a broad comparison of at most 128 candidates and one incumbent-local pass of at most 128 candidates before returning, without recursive refinement. Failed candidates retain original discovery budgets. Frozen queries use physical detour pruning for each first window and retain outer comparisons across preceding window pieces; training retains both comparison phases. '
             : '') +
-          'Within each root query, the file provider certifies complete physics revisions so identical completed failed physical attempts can reuse their reason and truncation; fresh queries and complete routes are recomputed. All dataset file reads, JSON decoding, source verification, hashing, scene-worker startup and solver preparation finish before prewarm. One full unmeasured batch prewarms the same prepared solver and worker-local scene and physical caches. The measured batch recomputes queries without completed-route caching and reads inputs from memory only. It includes scene-worker dispatch/queueing/IPC, normalization, remaining lazy computation, candidate search, target approach, physical windows and retries. Inclusive phase timers describe measured work only and may overlap across scene workers. OS scheduling/JIT/GC uncontrolled.',
+          'Within each root query, the file provider certifies complete physics revisions so identical completed failed physical attempts can reuse their reason and truncation; fresh queries and complete routes are recomputed. All dataset file reads, JSON decoding, source verification, hashing, scene-worker startup and solver preparation finish before prewarm. One full unmeasured batch prewarms the same prepared solver and worker-local scene and physical caches. Every measured round submits the full batch, recomputes queries without completed-route caching and reads inputs from memory only. batch.wallMs is the arithmetic mean of the complete batch samples; batch.totalWallMs is their sum and every sample is reported. All rounds must match prewarm outcomes and truncation. It includes scene-worker dispatch/queueing/IPC, normalization, remaining lazy computation, candidate search, target approach, physical windows and retries. Inclusive phase timers sum work across all measured rounds, may overlap across scene workers, and must not be added to the average batch wall time. OS scheduling/JIT/GC uncontrolled.',
         ...report,
         ...(reference && referenceBytes
           ? {
@@ -225,11 +233,12 @@ else {
           );
         console.log(`Prewarm: ${(report.prewarmMs / 1000).toFixed(2)} s; excluded`);
         console.log(
-          `Batch: ${report.batch.queriesPerSecond.toFixed(3)} queries/s; ${report.batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${selected.length} outcomes match prewarm`,
+          `Batch (${rounds} rounds, average ${report.batch.wallMs.toFixed(3)} ms, total ${report.batch.totalWallMs.toFixed(3)} ms): ${report.batch.queriesPerSecond.toFixed(3)} queries/s; ${report.batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${selected.length} outcomes match prewarm`,
         );
+        console.log(`Complete batch samples (ms): ${report.batch.wallSamplesMs.join(', ')}`);
         if (report.batch.meanSerialQueryMs !== undefined)
           console.log(
-            `Mean serial query wall time: ${report.batch.meanSerialQueryMs.toFixed(3)} ms (batch / queries)`,
+            `Mean serial query wall time: ${report.batch.meanSerialQueryMs.toFixed(3)} ms (average batch / queries)`,
           );
         console.log(
           `Quality: ${report.batch.quality.completed}/${selected.length} complete; total modeled travel time: ${report.batch.quality.totalCostSeconds ?? 'incomplete'} s`,

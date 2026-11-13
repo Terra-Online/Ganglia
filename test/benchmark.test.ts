@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { qualityGate } from '#@/bench/quality.ts';
 import { runBenchmark } from '#@/bench/run.ts';
 import type { RouteQuery, RouteResult } from '#@/src/solver/contract.ts';
 import { gangliaV1Defaults } from '#@/src/solver/index.ts';
 
-test('prewarm and measurement submit whole batches on one solver with ordered results', async () => {
+test('one prewarm and repeated measurements submit whole ordered batches and close once', async () => {
   const cases: readonly { id: string; query: RouteQuery }[] = [1, 2, 3].map((id) => ({
     id: String(id),
     query: { starts: [], goal: [id, 0, 0] },
@@ -47,9 +48,18 @@ test('prewarm and measurement submit whole batches on one solver with ordered re
     },
     cases,
     (phase) => phases.push(phase),
+    3,
   );
-  assert.equal(batches, 2);
+  assert.equal(batches, 4);
   assert.equal(closes, 1);
+  assert.equal(report.batch.rounds, 3);
+  assert.equal(report.batch.wallSamplesMs.length, 3);
+  assert.equal(
+    report.batch.totalWallMs,
+    report.batch.wallSamplesMs.reduce((sum, ms) => sum + ms, 0),
+  );
+  assert.equal(report.batch.wallMs, report.batch.totalWallMs / 3);
+  assert.equal(report.batch.queriesPerSecond, 9 / (report.batch.totalWallMs / 1000));
   assert.deepEqual(phases, ['prewarm', 'batch']);
   assert.deepEqual(
     report.batch.results.map((row) => row.id),
@@ -116,4 +126,92 @@ test('partial geometry from prewarm cannot count as a complete measured outcome'
   );
   assert.equal(report.batch.results[0].partial, false);
   assert.equal(report.batch.results[0].sameOutcomeAsPrewarm, false);
+});
+
+test('a middle-round lost or changed route and truncation remain unstable after recovery', async () => {
+  const cases: { id: string; query: RouteQuery }[] = [1, 2, 3].map((id) => ({
+    id: String(id),
+    query: { starts: [], goal: [id, 0, 0] },
+  }));
+  let batches = 0,
+    closes = 0;
+  const report = await runBenchmark(
+    {
+      config: gangliaV1Defaults,
+      solve: async () => {
+        throw new Error('Unexpected single solve');
+      },
+      solveBatch: async (queries) => {
+        const broken = ++batches === 3;
+        return queries.map((query, index): RouteResult => ({
+          route:
+            broken && index === 0
+              ? { status: 'no-verified-route' }
+              : {
+                  status: 'complete',
+                  start: 'player',
+                  arrivalCost: 0,
+                  cost: 1,
+                  length: 1,
+                  points: [query.goal, broken && index === 1 ? [99, 0, 0] : [0, 0, 0]],
+                  segments: [],
+                },
+          connections: [],
+          diagnostics: { truncated: broken && index === 2 },
+        }));
+      },
+      close: async () => {
+        closes++;
+      },
+    },
+    cases,
+    undefined,
+    3,
+  );
+  assert.equal(batches, 4);
+  assert.equal(closes, 1);
+  assert.ok(report.batch.results.every((row) => row.status === 'complete' && !row.truncated));
+  assert.deepEqual(
+    report.batch.results.map((row) => row.sameOutcomeAsPrewarm),
+    [false, false, true],
+  );
+  assert.deepEqual(
+    report.batch.results.map((row) => row.sameTruncationAsPrewarm),
+    [true, true, false],
+  );
+  assert.equal(qualityGate(report.batch.results, undefined).passed, false);
+});
+
+test('a later measured batch failure closes the solver without running more rounds', async () => {
+  let batches = 0,
+    closes = 0;
+  await assert.rejects(
+    runBenchmark(
+      {
+        config: gangliaV1Defaults,
+        solve: async () => {
+          throw new Error('Unexpected single solve');
+        },
+        solveBatch: async () => {
+          if (++batches === 3) throw new Error('later worker failure');
+          return [
+            {
+              route: { status: 'no-verified-route' },
+              connections: [],
+              diagnostics: { truncated: false },
+            },
+          ];
+        },
+        close: async () => {
+          closes++;
+        },
+      },
+      [{ id: 'failure', query: { starts: [], goal: [0, 0, 0] } }],
+      undefined,
+      4,
+    ),
+    /later worker failure/,
+  );
+  assert.equal(batches, 3);
+  assert.equal(closes, 1);
 });

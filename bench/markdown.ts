@@ -48,17 +48,20 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
     '| Metric | Result |',
     '| --- | ---: |',
     `| Batch throughput | ${number(batch.queriesPerSecond, 5)} queries/s |`,
-    `| Batch wall time | ${number(batch.wallMs / 1000)} s |`,
+    `| Mean complete batch wall time | ${number(batch.wallMs / 1000)} s |`,
+    `| Measured rounds | ${batch.rounds ?? 1} |`,
+    `| Total measured batch wall time | ${number((batch.totalWallMs ?? batch.wallMs) / 1000)} s |`,
+    `| Complete batch samples (ms) | ${(batch.wallSamplesMs ?? [batch.wallMs]).map((sample) => number(sample)).join(', ')} |`,
     ...(batch.meanSerialQueryMs === undefined
       ? []
       : [
-          `| Mean serial query wall time (batch / queries) | ${number(batch.meanSerialQueryMs)} ms |`,
+          `| Mean serial query wall time (average batch / queries) | ${number(batch.meanSerialQueryMs)} ms |`,
         ]),
     `| Excluded full-batch prewarm | ${number(report.prewarmMs / 1000)} s |`,
     `| Complete routes | ${batch.quality.completed}/${batch.results.length} |`,
     `| Truncated discovery | ${batch.results.filter((r) => r.truncated).length}/${batch.results.length} |`,
     `| Total modeled travel time | ${number(batch.quality.totalCostSeconds, 6)} s |`,
-    `| Results matching prewarm | ${batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${batch.results.length} |`,
+    `| Results matching prewarm in every round | ${batch.results.filter((r) => r.sameOutcomeAsPrewarm && r.sameTruncationAsPrewarm).length}/${batch.results.length} |`,
   ];
   if (report.catalogTraining) {
     const training = report.catalogTraining;
@@ -88,7 +91,7 @@ export function benchmarkMarkdown(report: MarkdownReport): string {
           '',
         ]
       : []),
-    'Within each root query, identical completed failed physical attempts may reuse their reason and truncation when the provider certifies the complete physics revision. Fresh queries and complete routes are recomputed. Input loading and solver preparation are excluded. The measured batch recomputes queries after one full-batch prewarm; no completed-route cache is used. Speedup describes this workload on this machine, not a cross-scene guarantee.',
+    'Within each root query, identical completed failed physical attempts may reuse their reason and truncation when the provider certifies the complete physics revision. Fresh queries and complete routes are recomputed. Input loading and solver preparation are excluded. Every measured round recomputes the full workload after one excluded full-batch prewarm; no completed-route cache is used. Wall time is the arithmetic mean of all complete batch samples; total wall time is their sum, and throughput counts all measured queries. Outcomes and truncation must match prewarm in every round. Inclusive phase timers sum all measured rounds and must not be added to the average wall time. Speedup describes this workload on this machine, not a cross-scene guarantee.',
     '',
     `Revision: \`${report.revision}\`; source SHA-256: \`${report.sourceSha256}\`; Node: \`${report.node}\`.`,
     '',
