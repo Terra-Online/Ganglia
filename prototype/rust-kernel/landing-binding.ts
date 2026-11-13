@@ -63,44 +63,75 @@ const encode = (
   counts?: LandingCounters,
 ) => {
   const started = counts ? performance.now() : 0;
-  const boxes: number[] = [],
-    offsets = [0],
-    children: number[] = [],
-    entryIds: number[] = [];
-  const entries: Bounds[] = [];
+  let rows = 0,
+    edges = 0,
+    entryCount = 0;
+  const measure = (node: BoundsNode<Bounds, unknown>): void => {
+    rows++;
+    if (node.entries) {
+      rows += node.entries.length;
+      edges += node.entries.length;
+      entryCount += node.entries.length;
+    } else {
+      edges += 2;
+      measure(node.left);
+      measure(node.right);
+    }
+  };
+  measure(root);
+  const boxes = new Float64Array(rows * 6),
+    offsets = new Uint32Array(rows + 1),
+    children = new Uint32Array(edges),
+    entryIds = new Uint32Array(rows);
+  const entries = new Array<Bounds>(entryCount);
+  let row = 0,
+    edge = 0,
+    entry = 0;
+  const writeBounds = (id: number, value: Bounds) => {
+    const offset = id * 6;
+    boxes[offset] = value.min[0];
+    boxes[offset + 1] = value.min[1];
+    boxes[offset + 2] = value.min[2];
+    boxes[offset + 3] = value.max[0];
+    boxes[offset + 4] = value.max[1];
+    boxes[offset + 5] = value.max[2];
+  };
   // This is the filtered hierarchy itself. Retaining loose branch bounds and
   // child/leaf order is necessary for the nearest heap's equal-distance order.
-  const pending: { box: Bounds; branch?: BoundsNode<Bounds, unknown> }[] = [
-    { box: root, branch: root },
-  ];
-  for (let node = 0; node < pending.length; node++) {
-    const { box: value, branch } = pending[node];
-    boxes.push(...value.min, ...value.max);
-    if (branch?.entries) {
-      entryIds.push(none);
-      for (const entry of branch.entries) {
-        children.push(pending.length);
-        pending.push({ box: entry });
+  // Row IDs do not break heap ties, so depth-first numbering avoids a second
+  // per-row work queue. Reserve each row's child slots before descending.
+  const write = (node: BoundsNode<Bounds, unknown>): number => {
+    const id = row++;
+    writeBounds(id, node);
+    entryIds[id] = none;
+    offsets[id] = edge;
+    const first = edge;
+    if (node.entries) {
+      edge += node.entries.length;
+      for (let index = 0; index < node.entries.length; index++) {
+        const value = node.entries[index],
+          child = row++;
+        children[first + index] = child;
+        offsets[child] = edge;
+        entryIds[child] = entry;
+        entries[entry++] = value;
+        writeBounds(child, value);
       }
-    } else if (branch) {
-      entryIds.push(none);
-      children.push(pending.length, pending.length + 1);
-      pending.push(
-        { box: branch.left, branch: branch.left },
-        { box: branch.right, branch: branch.right },
-      );
     } else {
-      entryIds.push(entries.length);
-      entries.push(value);
+      edge += 2;
+      children[first] = write(node.left);
+      children[first + 1] = write(node.right);
     }
-    offsets.push(children.length);
-  }
+    return id;
+  };
+  write(root);
+  offsets[rows] = edges;
   const model = flight.model;
   const snapshot = {
-    boxes: Float64Array.from(boxes),
-    offsets: Uint32Array.from(offsets),
-    children: Uint32Array.from(children),
-    entryIds: Uint32Array.from(entryIds),
+    boxes,
+    offsets,
+    children,
+    entryIds,
     reachTable: flight.table ?? new Float64Array(),
     minimumBin: flight.minimumBin,
     gravity: model.gravity,
@@ -117,7 +148,7 @@ const encode = (
   const constructed = counts ? performance.now() : 0;
   if (counts) {
     counts.treesEncoded++;
-    counts.encodedRows += pending.length;
+    counts.encodedRows += rows;
     counts.encodedEntries += entries.length;
     counts.encodedBytes +=
       snapshot.boxes.byteLength +
