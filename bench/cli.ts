@@ -39,11 +39,12 @@ const { values } = parseArgs({
     'max-worst-cost-ratio': { type: 'string', default: '1.05' },
   },
 });
-if (values.help)
+if (values.help) {
   console.log(
     'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--scene <name; default map02>] [--extractor <path>] [--workload <json-file | map02-long-range | map02-long-detours | map02-stress>] [--offset <index>] [--catalog-train <count; opt-in approximate static-action algorithm>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--rounds <measured batches; default 1>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
   );
-else {
+  console.log('GANGLIA_BENCHMARK_HEAP_MB sets the Node heap cap in MiB (default 6144).');
+} else {
   try {
     if (values.json && values.markdown) throw new Error('Choose --json or --markdown');
     const rounds = Number(values.rounds);
