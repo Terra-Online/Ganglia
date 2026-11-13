@@ -9,7 +9,7 @@ import { projectPoint } from '#@/src/v1/geo/surfaces.ts';
 import { jumpDuration } from '#@/src/v1/motion/jumps.ts';
 import { registerCatalogSurfaces } from '#@/src/v1/route/action-catalog.ts';
 import { pruneGroundDetours } from '#@/src/v1/route/ground-detours.ts';
-import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
+import { createGroundPlanner, extendGroundPlanner } from '#@/src/v1/route/ground.ts';
 import { planJumpRoute, type InitialGroundProof } from '#@/src/v1/route/jump-planner.ts';
 import { refineGoalGround } from '#@/src/v1/solver/ground-refinement.ts';
 import { createDeviceConnections as deviceConnections } from '#@/src/v1/solver/physical/devices.ts';
@@ -626,7 +626,10 @@ export const solvePhysicalRoute = async (
           queryTriangles: world.trianglesInBounds?.bind(world),
         });
         if (refined.surfaces.length) {
-          const combined = [...surfaces, ...refined.surfaces];
+          const combined = extendGroundPlanner(groundPlanner, refined.surfaces, {
+            ...options,
+            connections: [],
+          });
           // Retain coarse preparation beside bounded target refinements. This
           // avoids rebuilding shared geometry as independent queries alternate;
           // binding and wall changes still invalidate the derived preparations.
@@ -634,8 +637,7 @@ export const solvePhysicalRoute = async (
           context.cache?.release('moving');
           return {
             refined,
-            surfaces: combined,
-            planner: createGroundPlanner(combined, { ...options, connections: [] }),
+            ...combined,
           };
         }
         return { refined, surfaces, planner: groundPlanner };

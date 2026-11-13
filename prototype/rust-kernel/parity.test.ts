@@ -200,7 +200,89 @@ test('native ground traces preserve supported crossings and wall rejection acros
 
 import { createRustGoalGeometry } from '#@/prototype/rust-kernel/goal-binding.ts';
 import { projectPoint } from '#@/src/v1/geo/surfaces.ts';
-import { type GoalClip, closestOnSurface } from '#@/src/v1/motion/goals.ts';
+import {
+  type GoalClip,
+  type GoalProjectionOptions,
+  closestOnSurface,
+  installGoalGeometryPrototype,
+} from '#@/src/v1/motion/goals.ts';
+import {
+  createGroundPlanner,
+  extendGroundPlanner,
+  groundPreparation,
+} from '#@/src/v1/route/ground.ts';
+
+test('composed coarse and fine projectors match combined JavaScript and native witnesses exactly', () => {
+  const previous = installGoalGeometryPrototype();
+  try {
+    for (const scale of [1e-4, 1, 1e6]) {
+      const face = (id: string, x: number, y: number): Surface => ({
+        id,
+        vertices: [
+          [x, y, 0],
+          [x + 4 * scale, y, 0],
+          [x + 4 * scale, y, 4 * scale],
+          [x, y, 4 * scale],
+        ],
+      });
+      const coarse = [face('base', 0, 0), face('upper', 0, 2 * scale)];
+      const fine = [
+        face('tie', 0, 0),
+        face('near', 0, 0.25 * scale),
+        face('remote', 1e9 * scale, 0),
+      ];
+      const options = {
+        speed: 7,
+        maxVertical: scale,
+        walls: [],
+        profile: { radius: scale / 10, height: 2 * scale },
+      };
+      const build = () => {
+        const derived = extendGroundPlanner(
+          createGroundPlanner(coarse, options),
+          fine,
+          options,
+        ).planner;
+        return { derived, full: createGroundPlanner([...coarse, ...fine], options) };
+      };
+      installGoalGeometryPrototype();
+      const js = build();
+      installGoalGeometryPrototype(createRustGoalGeometry);
+      const native = build();
+      for (const target of [
+        [-0, -0, -0],
+        [scale, 0.125 * scale, scale],
+        [4 * scale, scale, 2 * scale],
+      ] as Vec3[]) {
+        for (const query of [
+          { maxVertical: 3 * scale },
+          { interaction: { radius: 3 * scale } },
+          {
+            interaction: {
+              radius: 3 * scale,
+              maxVertical: scale / 2,
+              facing: [1, 0, 0],
+              halfAngle: 45,
+            },
+          },
+        ] as GoalProjectionOptions[]) {
+          const expected = js.full.project(target, query);
+          for (const planner of [js.derived, native.full, native.derived]) {
+            assert.deepEqual(planner.project(target, query), expected);
+            assert.deepEqual(planner.project.closest(target, query), expected[0]);
+            for (const name of [undefined, 'base', 'upper', 'tie', 'near', 'remote'])
+              assert.deepEqual(
+                groundPreparation(planner)!.projectSupport(target, 3 * scale, name),
+                groundPreparation(js.full)!.projectSupport(target, 3 * scale, name),
+              );
+          }
+        }
+      }
+    }
+  } finally {
+    installGoalGeometryPrototype(previous);
+  }
+});
 
 test('native goal geometry preserves seeded clipping witnesses and surface ties across scales', () => {
   let seed = 0x746ad1ff;

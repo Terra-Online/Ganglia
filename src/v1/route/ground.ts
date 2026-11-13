@@ -83,6 +83,72 @@ export function planGroundRoute(
  * This does not establish a globally shortest path across every possible corridor.
  */
 export function createGroundPlanner(surfaces: Surface[], options: GroundOptions): GroundPlanner {
+  return prepareGroundPlanner(surfaces, options);
+}
+
+/** Append immutable refinement faces while sharing only coarse projection indices.
+ * Portals, walking graph and straightening still use the complete combined mesh.
+ */
+export function extendGroundPlanner(
+  parent: GroundPlanner,
+  fine: Surface[],
+  options: GroundOptions,
+) {
+  const coarse = preparations.get(parent)!;
+  const surfaces = [...coarse.surfaces, ...fine];
+  return { surfaces, planner: prepareGroundPlanner(surfaces, options, { coarse, fine }) };
+}
+
+function appendGoalProjector(coarse: GoalProjector, fine: GoalProjector): GoalProjector {
+  const project: GoalProjector = (target, options) => {
+    const a = coarse(target, options),
+      b = fine(target, options);
+    if (!options.interaction)
+      return b.length && (!a.length || b[0].distance < a[0].distance) ? b : a;
+    const result = [];
+    let left = 0,
+      right = 0;
+    // Full projection sorts by distance and original face ordinal. Every coarse
+    // face precedes every appended face, independently of either BVH's traversal.
+    while (left < a.length || right < b.length) {
+      if (right < b.length && (left === a.length || b[right].distance < a[left].distance))
+        result.push(b[right++]);
+      else result.push(a[left++]);
+    }
+    return result;
+  };
+  project.closest = (target, options) => {
+    const a = coarse.closest(target, options),
+      b = fine.closest(target, options);
+    return b && (!a || b.distance < a.distance) ? b : a;
+  };
+  return project;
+}
+
+function appendSupportProjector(
+  coarse: Preparation,
+  fine: ReturnType<typeof createSupportProjector>,
+): ReturnType<typeof createSupportProjector> {
+  const { projectSupport, byId } = coarse;
+  return (position, maxVertical, surface) => {
+    if (surface !== undefined)
+      return byId.has(surface)
+        ? projectSupport(position, maxVertical, surface)
+        : fine(position, maxVertical, surface);
+    const a = projectSupport(position, maxVertical),
+      b = fine(position, maxVertical);
+    return b &&
+      (!a || Math.abs(b.position[1] - position[1]) < Math.abs(a.position[1] - position[1]))
+      ? b
+      : a;
+  };
+}
+
+function prepareGroundPlanner(
+  surfaces: Surface[],
+  options: GroundOptions,
+  extension?: { coarse: Preparation; fine: Surface[] },
+): GroundPlanner {
   const { speed, maxVertical, walls, profile, connections = [] } = options;
   // Compare action times at the fastest permitted ground gait. The existing
   // resource scheduler verifies the complete selected motion sequence afterwards.
@@ -95,9 +161,13 @@ export function createGroundPlanner(surfaces: Surface[], options: GroundOptions)
   let supportRoute: ReturnType<typeof createRoutePlanner> | undefined;
   const baseCenters = new Map<string, Vec3>(base.nodes.map((node) => [node.id, node.position]));
   const byId = new Map<string, Surface>(surfaces.map((surface) => [surface.id, surface]));
-  const projectSupport = createSupportProjector(surfaces, byId);
+  const projectSupport = extension
+    ? appendSupportProjector(extension.coarse, createSupportProjector(extension.fine, byId))
+    : createSupportProjector(surfaces, byId);
   const straighten = createGroundStraightener(surfaces, options, portals);
-  const projectGoal = createGoalProjector(surfaces);
+  const projectGoal = extension
+    ? appendGoalProjector(extension.coarse.projectGoal, createGoalProjector(extension.fine))
+    : createGoalProjector(surfaces);
   const visibility = new Map<string, Map<string, Vec3[]>>();
   const failedVisibility = new Map<string, Set<string>>();
   let endpointKeys = new Map<string, string>();

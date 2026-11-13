@@ -37,8 +37,10 @@ export type GoalGeometryFactory = (
   surfaces: readonly Pick<Surface, 'id' | 'vertices'>[],
 ) => GoalGeometry;
 let prototypeGeometry: GoalGeometryFactory | undefined;
-export function installGoalGeometryPrototype(factory: GoalGeometryFactory) {
+export function installGoalGeometryPrototype(factory?: GoalGeometryFactory) {
+  const previous = prototypeGeometry;
   prototypeGeometry = factory;
+  return previous;
 }
 
 const finitePoint = (point: unknown): point is Vec3 =>
