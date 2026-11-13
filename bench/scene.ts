@@ -5,7 +5,7 @@ import { resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { Surface, GroundOptions, Route } from '@opendfieldmap/ganglia';
+import type { Route } from '@opendfieldmap/ganglia';
 import {
   type SceneResources,
   type RouteResult,
@@ -13,16 +13,15 @@ import {
 } from '@opendfieldmap/ganglia/solver';
 import { createPhysicalPreparation, type PhysicalWork } from '@opendfieldmap/ganglia/solver/host';
 
+import {
+  loadSceneData,
+  type SceneData,
+  type PhysicalRegion,
+  type Source,
+  type PhysicalFiles,
+} from '#@/bench/scene-data.ts';
 import { createTimings } from '#@/bench/timings.ts';
 
-type Source = { buildGuid: string; contentHash: string };
-type Ground = {
-  scene: string;
-  source: Source;
-  surfaces: Surface[];
-  options: GroundOptions;
-  build: { bounds: { min: [number, number]; max: [number, number] } };
-};
 type Report = {
   status?: 'candidate' | 'unavailable';
   optimizing?: boolean;
@@ -31,11 +30,11 @@ type Report = {
   supportBoxes?: RouteResult['supportBoxes'];
   diagnostics?: unknown;
 };
-type Job = { status: 'ready'; result?: Report };
+type Job = { status: 'ready'; region: PhysicalRegion; result?: Report };
 // The game adapter owns exporter validation and normalization; no frontend modules are loaded.
-type GameAdapter = {
+export type GameAdapter = {
   preparePhysicalRoute(
-    resources: { ground: string; collision: string; movement: string; devices?: string },
+    resources: PhysicalFiles,
     request: WindowRequest,
     context: { cache: unknown },
   ): Promise<{ solve(options: { work: PhysicalWork }): Promise<Report> }>;
@@ -47,40 +46,14 @@ export const sceneIdentity = (metadata: {
   kernelSha256: string;
 }) => JSON.stringify([metadata.hashes, metadata.gameAdapterSha256, metadata.kernelSha256]);
 
-export async function loadScene(dataRoot: string, extractor: string, concurrency: number) {
+export async function loadScene(
+  dataRoot: string,
+  extractor: string,
+  concurrency: number,
+  scene = 'map02',
+) {
   const loadingStarted = performance.now();
-  const files: { ground: string; collision: string; movement: string; devices?: string } = {
-    ground: resolve(dataRoot, 'scene-map02/ground.json'),
-    collision: resolve(dataRoot, 'scene-map02/collision.json'),
-    movement: resolve(dataRoot, 'routing/movement-settings-current.json'),
-    devices: resolve(dataRoot, 'routing/map02-traversal-devices.json'),
-  };
-  const hashes: Record<string, string> = {};
-  const inputs = new Map<string, unknown>();
-  let inputBytes = 0;
-  const read = async <T>(name: string): Promise<T> => {
-    if (inputs.has(name)) return inputs.get(name) as T;
-    const bytes = await readFile(name);
-    inputBytes += bytes.byteLength;
-    hashes[name] = createHash('sha256').update(bytes).digest('hex');
-    const value: unknown = JSON.parse(bytes.toString());
-    inputs.set(name, value);
-    return value as T;
-  };
-  const ground = await read<Ground>(files.ground);
-  const navigation = await read<Ground>(resolve(dataRoot, 'routing/map02-ground-all.json'));
-  if (ground.scene !== navigation.scene || !isDeepStrictEqual(ground.source, navigation.source))
-    throw new Error('Navigation and physics snapshot mismatch');
-  // Hash all consumed input bytes, including resources decoded by the game adapter.
-  for (const file of [files.collision, files.movement]) await read<unknown>(file);
-  if (files.devices) {
-    try {
-      await read<unknown>(files.devices);
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
-      files.devices = undefined;
-    }
-  }
+  const dataset = await loadSceneData(dataRoot, scene);
   const entry = resolve(extractor, 'packages/extractor/src/game/physical-input.ts');
   const resolvedKernel = createRequire(entry).resolve('@opendfieldmap/ganglia/solver');
   const kernelRoot = resolve(dirname(resolvedKernel), '../..');
@@ -101,8 +74,6 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
   const { preparePhysicalRoute } = (await import(
     pathToFileURL(resolve(extractor, 'packages/extractor/src/game/physical-input.ts')).href
   )) as GameAdapter;
-  const movement = await read<{ sustainedSprint: GroundOptions['locomotion'] }>(files.movement);
-  if (!movement.sustainedSprint) throw new Error('Missing locomotion settings');
   const adapterHash = createHash('sha256');
   for (const directory of ['packages/extractor/src', 'packages/formats/src']) {
     for (const name of (await readdir(resolve(extractor, directory), { recursive: true })).sort()) {
@@ -113,8 +84,55 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
     }
   }
   const gameAdapterSha256 = adapterHash.digest('hex');
-  const locomotion = movement.sustainedSprint;
   const inputLoadMs = performance.now() - loadingStarted;
+  const prepared = prepareSceneResources(
+    dataset,
+    preparePhysicalRoute,
+    concurrency,
+    gameAdapterSha256,
+  );
+  return {
+    input: {
+      kind: 'scene' as const,
+      scene: {
+        scene: dataset.navigation.scene,
+        source: dataset.navigation.source,
+        walls: [],
+        navigation: dataset.navigation,
+      },
+      resources: prepared.resources,
+      locomotion: dataset.locomotion,
+    },
+    inputLoadMs,
+    timings: prepared.timings,
+    metadata: {
+      scene: dataset.navigation.scene,
+      source: dataset.navigation.source,
+      hashes: dataset.hashes,
+      gameAdapterSha256,
+      kernelSha256,
+      resolvedKernel,
+      get inputBytes() {
+        return dataset.inputBytes;
+      },
+      execution: {
+        mode: 'inline',
+        workers: 0,
+        lanes: concurrency,
+        get memory() {
+          return prepared.memory();
+        },
+      },
+    },
+  };
+}
+
+export function prepareSceneResources(
+  dataset: SceneData,
+  preparePhysicalRoute: GameAdapter['preparePhysicalRoute'],
+  concurrency: number,
+  gameAdapterSha256: string,
+) {
   let processRssSampledPeakBytes = process.memoryUsage().rss;
   let mainHeapUsedSampledPeakBytes = process.memoryUsage().heapUsed;
   const sampleMemory = () => {
@@ -123,15 +141,26 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
     mainHeapUsedSampledPeakBytes = Math.max(mainHeapUsedSampledPeakBytes, memory.heapUsed);
   };
   const preparationStarted = performance.now();
-  const binding = JSON.stringify(hashes);
-  const physicalBinding = JSON.stringify([hashes, gameAdapterSha256]);
   // Lane-local caches keep mutable preparation isolated across concurrent solves.
   // Timed input reads are served from the preloaded snapshot.
   const caches = Array.from({ length: concurrency }, () => {
     const preparation = createPhysicalPreparation();
     return {
-      begin: async () => binding,
-      read: async (_slot: string, path: string) => inputs.get(path),
+      region: undefined as PhysicalRegion | undefined,
+      async begin(files: PhysicalFiles) {
+        if (
+          !this.region ||
+          files.ground !== this.region.files.ground ||
+          files.collision !== this.region.files.collision ||
+          files.movement !== this.region.files.movement
+        )
+          throw new Error('Physical preparation region mismatch');
+        return this.region.binding;
+      },
+      read: async (_slot: string, path: string) => {
+        if (!dataset.inputs.has(path)) throw new Error(`Physical input was not preloaded: ${path}`);
+        return dataset.inputs.get(path);
+      },
       preparation,
       clear: preparation.clear,
     };
@@ -172,31 +201,28 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
       }
   };
   const resources: SceneResources<Source, Job> = {
-    query: async (_scene, _source, _start, _target, options) => {
-      const bounds = options.corridor.bounds;
+    query: async (scene, source, start, target, options) => {
       if (
-        [0, 1].some(
-          (axis) =>
-            bounds.min[axis] < ground.build.bounds.min[axis] ||
-            bounds.max[axis] > ground.build.bounds.max[axis],
-        )
+        scene !== dataset.navigation.scene ||
+        !isDeepStrictEqual(source, dataset.navigation.source)
       )
-        throw new Error(
-          `Missing physical coverage ${JSON.stringify(bounds)}; dataset ${JSON.stringify(ground.build.bounds)}`,
-        );
-      return { status: 'ready' };
+        throw new Error('Physical query snapshot mismatch');
+      const region = dataset.select(start, target, options);
+      if (!region) throw new Error(`Missing physical coverage ${JSON.stringify(options.corridor)}`);
+      return { status: 'ready', region };
     },
-    solve: async (_job, request, _start, work) => {
+    solve: async (job, request, _start, work) => {
       const cache = await acquire();
+      cache.region = job.region;
       try {
         let started = performance.now();
-        const prepared = await preparePhysicalRoute(files, request, { cache });
+        const prepared = await preparePhysicalRoute(job.region.files, request, { cache });
         timings.normalizationMs += performance.now() - started;
         started = performance.now();
         const result = await prepared.solve({ work });
         timings.localSolveMs += performance.now() - started;
         observe(result);
-        return { status: 'ready', result };
+        return { status: 'ready', region: job.region, result };
       } finally {
         sampleMemory();
         const next = waiting.shift();
@@ -204,9 +230,10 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
         else idle.push(cache);
       }
     },
-    key: () => files.ground,
-    physicalRevision: () => (concurrency === 1 ? physicalBinding : undefined),
-    ground: async () => ground,
+    key: (job) => `${job.region.files.ground}:${dataset.hashes[job.region.files.ground]}`,
+    physicalRevision: (job) =>
+      concurrency === 1 ? JSON.stringify([job.region.binding, gameAdapterSha256]) : undefined,
+    ground: async (job) => job.region.ground,
     route: (job) => {
       const result = job.result ?? {};
       // The adapter's final unavailable report omits its failed Route. Preserve
@@ -224,31 +251,11 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
     },
   };
   return {
-    input: {
-      kind: 'scene' as const,
-      scene: { scene: ground.scene, source: ground.source, walls: [], navigation },
-      resources,
-      locomotion,
-    },
-    inputLoadMs,
+    resources,
     timings,
-    metadata: {
-      scene: ground.scene,
-      source: ground.source,
-      hashes,
-      gameAdapterSha256,
-      kernelSha256,
-      resolvedKernel,
-      inputBytes,
-      execution: {
-        mode: 'inline',
-        workers: 0,
-        lanes: concurrency,
-        get memory() {
-          sampleMemory();
-          return { processRssSampledPeakBytes, mainHeapUsedSampledPeakBytes };
-        },
-      },
+    memory() {
+      sampleMemory();
+      return { processRssSampledPeakBytes, mainHeapUsedSampledPeakBytes };
     },
   };
 }

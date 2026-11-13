@@ -14,7 +14,7 @@ import {
 if (!parentPort) throw new Error('Scene entry requires a worker thread');
 const port = parentPort;
 const setup = workerData as WorkerSetup;
-const scene = await loadScene(setup.dataRoot, setup.extractor, 1);
+const scene = await loadScene(setup.dataRoot, setup.extractor, 1, setup.scene);
 const solver = await prepareRouteSolver(setup.config, scene.input);
 const send = (message: WorkerReply) => port.postMessage(message);
 port.on('message', async (message: WorkerRequest) => {

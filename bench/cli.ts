@@ -24,6 +24,7 @@ const { values } = parseArgs({
     markdown: { type: 'boolean' },
     help: { type: 'boolean' },
     'data-root': { type: 'string', default: resolve(root, '.local/data') },
+    scene: { type: 'string', default: 'map02' },
     extractor: { type: 'string', default: resolve(root, '.local/repos/Atlos/talos/.cache/noclip') },
     concurrency: { type: 'string' },
     workers: { type: 'string', default: '1' },
@@ -40,7 +41,7 @@ const { values } = parseArgs({
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--catalog-train <count; opt-in approximate static-action algorithm>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--rounds <measured batches; default 1>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
+    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--scene <name; default map02>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--catalog-train <count; opt-in approximate static-action algorithm>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--rounds <measured batches; default 1>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
   );
 else {
   try {
@@ -129,9 +130,15 @@ else {
         config: fixed,
         dataRoot: values['data-root'],
         extractor: values.extractor,
+        scene: values.scene,
       });
     } else {
-      const scene = await loadScene(values['data-root'], values.extractor, concurrency);
+      const scene = await loadScene(
+        values['data-root'],
+        values.extractor,
+        concurrency,
+        values.scene,
+      );
       try {
         prepared = {
           solver: await prepareRouteSolver(fixed, scene.input),

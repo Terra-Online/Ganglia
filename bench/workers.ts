@@ -22,6 +22,7 @@ export interface WorkerSetup {
   config: SolverConfig;
   dataRoot: string;
   extractor: string;
+  scene?: string;
   index: number;
 }
 export type WorkerRequest =
@@ -65,6 +66,7 @@ export async function prepareWorkerSolver(options: {
   config: SolverConfig;
   dataRoot: string;
   extractor: string;
+  scene?: string;
   entry?: URL;
 }) {
   const startup = performance.now();
@@ -134,6 +136,7 @@ export async function prepareWorkerSolver(options: {
                 config,
                 dataRoot: options.dataRoot,
                 extractor: options.extractor,
+                scene: options.scene,
                 index,
               } satisfies WorkerSetup,
             });
