@@ -18,6 +18,7 @@ export interface SupportSnapshot {
 // Compare current contents on every lookup: rebuilding after caller mutation must
 // see the new geometry, and existing planners must retain their previous snapshot.
 const snapshots = new WeakMap<Surface, SupportSnapshot>();
+export const releaseSupportSnapshot = (surface: Surface) => snapshots.delete(surface);
 export const supportSnapshot = (surface: Surface): SupportSnapshot | null => {
   if (
     !surface ||

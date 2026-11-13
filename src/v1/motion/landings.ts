@@ -17,6 +17,7 @@ interface Metadata {
 }
 
 const metadata = new WeakMap<Surface, Metadata>();
+export const releaseLandingMetadata = (surface: Surface) => metadata.delete(surface);
 // Surface snapshots are immutable for the lifetime of a prepared scene.
 const metadataFor = (surface: Surface): Metadata => {
   let entry = metadata.get(surface);

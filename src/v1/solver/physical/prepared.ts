@@ -13,6 +13,7 @@ import {
   type PhysicalCache,
   type PhysicalContext,
 } from '#@/src/v1/solver/physical/solve.ts';
+import { releaseSupportCaches } from '#@/src/v1/solver/physical/support-cache.ts';
 
 export async function preparePhysicalSolver(
   input: PhysicalInput,
@@ -26,7 +27,8 @@ export async function preparePhysicalSolver(
   } = {},
 ): Promise<PreparedRouteSolver> {
   let scene: PhysicalInput | null = input;
-  let cache: PhysicalCache | null = context.cache ?? createPhysicalCache();
+  const ownedCache = context.cache ? undefined : createPhysicalCache();
+  let cache: PhysicalCache | null = context.cache ?? ownedCache!;
   const solve = async (query: RouteQuery, options: SolveOptions = {}): Promise<RouteResult> => {
     if (!scene || !cache) throw new Error('Route solver is closed');
     options.signal?.throwIfAborted();
@@ -130,6 +132,10 @@ export async function preparePhysicalSolver(
       return results;
     },
     async close() {
+      if (ownedCache && scene) {
+        ownedCache.clear();
+        releaseSupportCaches(scene.ground.surfaces);
+      }
       scene = null;
       cache = null;
     },

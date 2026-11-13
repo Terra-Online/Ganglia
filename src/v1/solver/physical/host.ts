@@ -3,6 +3,7 @@ import type { PhysicalInput } from '#@/src/solver/physical.ts';
 import { snapshotGangliaV1Config } from '#@/src/v1/prepare.ts';
 import { createPhysicalCache } from '#@/src/v1/solver/physical/preparation.ts';
 import { preparePhysicalSolver } from '#@/src/v1/solver/physical/prepared.ts';
+import { releaseSupportCaches } from '#@/src/v1/solver/physical/support-cache.ts';
 import { physicalWorkPlan, type PhysicalWork } from '#@/src/v1/solver/physical/work.ts';
 
 export {
@@ -16,8 +17,14 @@ export type { PhysicalWork } from '#@/src/v1/solver/physical/work.ts';
  * Cache slots and dependent invalidation stay private to the solver. */
 export function createPhysicalPreparation() {
   const cache = createPhysicalCache();
+  let surfaces: PhysicalInput['ground']['surfaces'] | undefined;
+  const clear = () => {
+    cache.clear();
+    if (surfaces) releaseSupportCaches(surfaces);
+    surfaces = undefined;
+  };
   return {
-    clear: () => cache.clear(),
+    clear,
     async solve(
       input: PhysicalInput,
       query: RouteQuery,
@@ -35,6 +42,10 @@ export function createPhysicalPreparation() {
       },
     ): Promise<RouteResult> {
       physicalWorkPlan(options.work);
+      if (surfaces !== input.ground.surfaces) {
+        clear();
+        surfaces = input.ground.surfaces;
+      }
       const solver = await preparePhysicalSolver(input, snapshotGangliaV1Config(options.config), {
         cache,
         generation: options.binding,

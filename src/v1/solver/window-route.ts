@@ -11,6 +11,7 @@ import { createGoalProjector } from '#@/src/v1/motion/goals.ts';
 import { catalogEvidenceRevision, isActionCatalogFrozen } from '#@/src/v1/route/action-catalog.ts';
 import { pruneGroundDetours } from '#@/src/v1/route/ground-detours.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
+import { releaseSupportCaches } from '#@/src/v1/solver/physical/support-cache.ts';
 import { physicalWork } from '#@/src/v1/solver/physical/work.ts';
 import { composeRoutes } from '#@/src/v1/solver/route-result.ts';
 type Complete = Extract<Route, { status: 'complete' }>;
@@ -27,9 +28,20 @@ type PreparedGround = {
  */
 export function createWindowGroundCache() {
   let current: { key: string; value: Promise<PreparedGround> } | undefined;
+  const clear = () => {
+    // A retired load can finish later. Its projector owns its snapshot, so only
+    // release the raw-input lookup memos after preparation has completed.
+    if (current)
+      void current.value.then(
+        (data) => releaseSupportCaches(data.surfaces),
+        () => {},
+      );
+    current = undefined;
+  };
   return {
     get(key: string, load: () => Promise<{ surfaces: Surface[]; options: GroundOptions }>) {
       if (current?.key !== key) {
+        clear();
         const value = load().then((data) => ({
           ...data,
           project: createGoalProjector(data.surfaces),
@@ -41,9 +53,7 @@ export function createWindowGroundCache() {
       }
       return current.value;
     },
-    clear() {
-      current = undefined;
-    },
+    clear,
   };
 }
 

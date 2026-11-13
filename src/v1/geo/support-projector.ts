@@ -5,6 +5,8 @@ import { projectPoint } from '#@/src/v1/geo/surfaces.ts';
 type Projection = ReturnType<typeof projectPoint>;
 
 const verticalIndices = new WeakMap<Surface[], ReturnType<typeof indexVerticalSupports>>();
+export const releaseVerticalProjectionIndex = (surfaces: Surface[]) =>
+  verticalIndices.delete(surfaces);
 function indexVerticalSupports(surfaces: Surface[]) {
   const entries = surfaces.map((surface, ordinal) => {
     const min: Vec3 = [Infinity, Infinity, Infinity],
