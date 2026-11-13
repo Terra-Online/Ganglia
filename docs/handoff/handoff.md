@@ -23,8 +23,20 @@ requests no new regions within that SLO. This establishes input availability for
 that execution, rather than corridor traversability. An earlier unlimited
 4.02-kilometre request exhausted search with a verified target-side fragment;
 it counts as incomplete even though the fragment's own route status is complete.
-The unlimited full-workload preparation was stopped when the SLO was introduced,
-preserving 92 physical regions. The capped execution needs its own validation.
+The unlimited preparation was stopped when the SLO was introduced. A capped
+whole-workload pass generated 27 more regions, and a frozen 119-region snapshot
+now preserves those inputs. The 4.02-kilometre request times out after 300 seconds
+in both prewarm and measurement, with zero complete routes. Full-workload input
+closure remains unverified; further preparation is paused.
+
+The integrated catalog optimization retains one topology and walking-reachability
+cache per prepared graph, with action adjacency scoped separately to each bank.
+On six local regression requests with a trained frozen catalog, three interleaved
+fresh-process pairs of fifteen measured batches average 313.53 milliseconds per
+query before the change and 303.62 afterward, a 3.16 percent reduction. All pairs
+improve, and every route outcome and modeled cost matches. This result describes
+the catalog-enabled local workload; the full-map request still times out. Format,
+lint, typecheck and 411 tests pass. Optimization is paused after this change.
 
 Large collision exports use optional local Node V8 snapshots with exact Float64
 coordinates and Uint32 indices. JSON hits a single-string size limit in dense

@@ -1623,3 +1623,35 @@ owned snapshots. The isolated prototype passes 42 focused tests with default and
 native hooks, and six existing real-scene requests retain all six exact route
 outcome hashes, stable prewarm results and the modeled-cost gate. Full-workload
 coverage validation with owner-driven retirement remains outstanding.
+
+
+## Five-minute SLO and catalog graph reuse, 2026-11-13
+
+Headless training, prewarm, measured batches and physical coverage preparation
+now apply a 300,000 millisecond dispatch-to-result deadline to every query. The
+parent kills timed-out solver processes and exporter descendants, records failure,
+and continues queued work in a replacement prepared process. Globally idle
+replacement loading is measured separately and excluded from batch wall time.
+Completion within the SLO precedes latency and common-route modeled cost in
+comparisons; newly solved and recovered timed-out requests are explicit gains.
+
+A complete capped coverage pass adds 27 regions. The resulting frozen snapshot
+contains 119 regions and 19,311,641,687 bytes of physical inputs. The full fourteen-
+request input closure is not established. A same-input 4.02-kilometre reference
+and integrated solve each time out at 300 seconds in prewarm and measurement,
+with zero complete routes. The integrated measured batch takes 300.007 seconds;
+111.355 seconds of replacement loading are excluded.
+
+The catalog graph cache no longer discards prepared topology and walking
+reachability when switching between local and shared action banks. Three
+interleaved fresh-process pairs, each with fifteen six-request measured batches,
+reduce average serial latency from 313.532 to 303.622 milliseconds per query
+(3.16 percent). Every pair improves; all 540 measured query outcomes and modeled
+costs match the reference. The scope is the trained, frozen static-action
+algorithm. The integrated kernel is commit `5b6bf83`; format, lint, typecheck and
+411 default tests pass, along with ten focused native catalog tests.
+
+Horizontal-span reuse changes the same local-workload mean by only 0.26 percent
+and is not merged. Paired-height BVH memo variants also lack a useful measured
+signal and remain local experiments. Further optimization and physical coverage
+preparation are paused after the catalog change.
