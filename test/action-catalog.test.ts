@@ -230,6 +230,69 @@ test('coarse catalog prefixes seed the normal full-budget root search without re
   }
 });
 
+test('alternating local chains and shared prefixes preserves selection order and refreshes after training', () => {
+  const surfaces = [floor('start', 0, 4, 0), floor('step', 7, 11, 0), floor('goal', 14, 18, 0)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const planner = createGroundPlanner(surfaces, options);
+  const settings = {
+    ...options,
+    groundPlanner: planner,
+    maxCandidates: 16,
+    maxShortcutCandidates: 0,
+  };
+  const starts = arrival([1, 0, 0]);
+  starts[0].id = 'fresh';
+  starts[0].cost = 3;
+  const step: Vec3 = [9, 0, 0],
+    goal: Vec3 = [16, 0, 0];
+  try {
+    setActionCatalogPhase('training');
+    registerCatalogSurfaces(surfaces, surfaces);
+    assert.equal(
+      planJumpRoute(surfaces, world, arrival([2, 0, 0]), step, settings).route.status,
+      'complete',
+    );
+    setActionCatalogPhase('frozen');
+    const local = selectCatalogActions(world, surfaces, starts, step, settings);
+    const shared = selectCatalogActions(world, surfaces, starts, goal, settings);
+    assert.ok(local.actions.length > 0);
+    assert.deepEqual(local.seeds, []);
+    assert.deepEqual(shared.actions, []);
+    assert.ok(shared.seeds.length > 0);
+    for (let repeat = 0; repeat < 3; repeat++) {
+      assert.deepEqual(selectCatalogActions(world, surfaces, starts, step, settings), local);
+      assert.deepEqual(selectCatalogActions(world, surfaces, starts, goal, settings), shared);
+    }
+    assert.equal(
+      planner.plan(starts, goal, { connections: shared.seeds }).status,
+      'no-verified-route',
+    );
+    setActionCatalogPhase('training');
+    assert.equal(
+      planJumpRoute(surfaces, world, arrival(step), goal, settings).route.status,
+      'complete',
+    );
+    setActionCatalogPhase('frozen');
+    const refreshed = selectCatalogActions(world, surfaces, starts, goal, settings);
+    assert.ok(refreshed.actions.length > 0);
+    assert.deepEqual(refreshed.seeds, []);
+    assert.ok(
+      refreshed.actions.some((action) => shared.seeds.some((prefix) => prefix.id === action.id)),
+    );
+    const route = planner.plan(starts, goal, { connections: refreshed.actions });
+    assert.equal(route.status, 'complete');
+    if (route.status === 'complete') {
+      assert.equal(route.start, 'fresh');
+      assert.equal(route.arrivalCost, 3);
+      assert.deepEqual(route.points[0], starts[0].position);
+      assert.deepEqual(route.points.at(-1), goal);
+    }
+    assert.deepEqual(selectCatalogActions(world, surfaces, starts, goal, settings), refreshed);
+  } finally {
+    setActionCatalogPhase('disabled');
+  }
+});
+
 test('an uncompleted seeded search retains the ordinary discovery budget and no extra entry pass', () => {
   const surfaces = [
     floor('start', 0, 4, 0),

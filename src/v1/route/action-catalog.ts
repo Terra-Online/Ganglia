@@ -59,6 +59,7 @@ interface Proof {
 interface Bank {
   actions: Map<string, Proof>;
 }
+type ActionAdjacency = Map<number, { to: number; action: GroundConnection }[]>;
 interface LocalBank extends Bank {
   id: number;
   serial: number;
@@ -72,10 +73,9 @@ interface Scope {
   graphs: WeakMap<
     NonNullable<ReturnType<typeof groundPreparation>>,
     {
-      bank: Bank;
       topology: ReturnType<typeof condenseComponents>;
-      actions: Map<number, { to: number; action: GroundConnection }[]>;
       walking: Map<number, Set<number>>;
+      banks: WeakMap<Bank, ActionAdjacency>;
     }
   >;
 }
@@ -281,9 +281,20 @@ function rankActions(
   if (!bank.actions.size) return { actions: [], seeds: [] };
   const prepared = groundPreparation(options.groundPlanner)!;
   let graph = scope.graphs.get(prepared);
-  if (!graph || graph.bank !== bank) {
-    const topology = condenseComponents(prepared.routeBase.topology);
-    const actions = new Map<number, { to: number; action: GroundConnection }[]>();
+  // Bank selection changes action proofs, while both banks walk the same
+  // immutable prepared topology and can reuse its component reachability.
+  if (!graph) {
+    graph = {
+      topology: condenseComponents(prepared.routeBase.topology),
+      walking: new Map(),
+      banks: new WeakMap(),
+    };
+    scope.graphs.set(prepared, graph);
+  }
+  const { topology, walking } = graph;
+  let actions = graph.banks.get(bank);
+  if (!actions) {
+    actions = new Map();
     for (const proof of bank.actions.values()) {
       if (
         prepared.byId.get(proof.from.id) !== proof.from ||
@@ -298,11 +309,9 @@ function rankActions(
       edges.push({ to, action });
       actions.set(from, edges);
     }
-    graph = { bank, topology, actions, walking: new Map() };
-    scope.graphs.set(prepared, graph);
+    graph.banks.set(bank, actions);
   }
-  const { topology, actions, walking } = graph,
-    planner = options.groundPlanner!;
+  const planner = options.groundPlanner!;
   const reachable = (from: number): Set<number> => {
     let visited = walking.get(from);
     if (visited) return visited;
