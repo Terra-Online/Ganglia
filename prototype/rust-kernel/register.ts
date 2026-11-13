@@ -45,3 +45,8 @@ import { installCandidateSearchPrototype } from '#@/src/v1/search/candidate-sear
 
 if (process.env.GANGLIA_RUST_CANDIDATE === '1')
   installCandidateSearchPrototype(createRustCandidateSearch);
+
+import { createRustRouteSearch } from '#@/prototype/rust-kernel/route-binding.ts';
+import { installRouteSearchPrototype } from '#@/src/v1/search/route-search.ts';
+
+if (process.env.GANGLIA_RUST_ROUTE === '1') installRouteSearchPrototype(createRustRouteSearch);

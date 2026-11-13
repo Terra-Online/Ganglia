@@ -3,6 +3,7 @@ mod collision;
 mod goals;
 mod ground_trace;
 mod locomotion;
+mod route_search;
 
 use napi::bindgen_prelude::{Float64Array, Uint32Array};
 use napi::{Error, Result};
