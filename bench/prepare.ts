@@ -4,15 +4,11 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import {
-  prepareRouteSolver,
-  gangliaV1Defaults,
-  type SolverConfig,
-  type RouteQuery,
-} from '@opendfieldmap/ganglia';
+import { prepareRouteSolver, gangliaV1Defaults, type SolverConfig } from '@opendfieldmap/ganglia';
 
 import { exportPhysicalRegion } from '#@/bench/prepare-region.ts';
 import { loadScene } from '#@/bench/scene.ts';
+import { readWorkload } from '#@/bench/workload.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const { values } = parseArgs({
@@ -20,26 +16,38 @@ const { values } = parseArgs({
     help: { type: 'boolean' },
     config: { type: 'string' },
     workload: { type: 'string' },
+    offset: { type: 'string', default: '0' },
+    limit: { type: 'string' },
     'solver-config': { type: 'string' },
     scene: { type: 'string', default: 'map02' },
-    'data-root': { type: 'string', default: resolve(root, '.local/data') },
+    'data-root': { type: 'string' },
     extractor: { type: 'string', default: resolve(root, '.local/repos/Atlos/talos/.cache/noclip') },
   },
 });
 if (values.help) {
   console.log(
-    'Usage: node bench/prepare.ts --config <exporter-config> --workload <query-cases.json> [--scene <name; default map02>] [--data-root <path>] [--extractor <path>] [--solver-config <json-file>]. Builds missing physical regions through the real solver with batchConcurrency=1. This is data preparation, not a performance run.',
+    'Usage: node bench/prepare.ts --config <exporter-config> --workload <json-file | map02-long-range | map02-long-detours | map02-stress> [--offset <index>] [--limit <count>] [--scene <name; default map02>] [--data-root <path>] [--extractor <path>] [--solver-config <json-file>]. Builds missing physical regions through the real solver with batchConcurrency=1. This is data preparation, not a performance run.',
   );
 } else {
   try {
     if (!values.config || !values.workload)
       throw new Error('Preparation requires --config and --workload');
-    const dataRoot = resolve(values['data-root']);
     const extractor = resolve(values.extractor);
     const configFile = resolve(values.config);
-    const workloadFile = resolve(values.workload);
-    const workloadBytes = await readFile(workloadFile);
-    const workload: { id: string; query: RouteQuery }[] = JSON.parse(workloadBytes.toString());
+    const { cases: allCases, directory } = await readWorkload(values.workload);
+    const dataRoot = values['data-root'] ?? resolve(root, '.local/data', directory);
+    const offset = Number(values.offset),
+      count = Number(values.limit ?? allCases.length - offset);
+    if (
+      !Number.isSafeInteger(offset) ||
+      offset < 0 ||
+      !Number.isSafeInteger(count) ||
+      count < 1 ||
+      offset + count > allCases.length
+    )
+      throw new Error('Invalid preparation offset or query limit');
+    const workload = allCases.slice(offset, offset + count);
+    const workloadBytes = JSON.stringify(workload);
     if (
       !Array.isArray(workload) ||
       !workload.length ||
@@ -70,7 +78,13 @@ if (values.help) {
       generated.push(files);
       return files;
     });
-    let results: { id: string; status: string; reason?: string }[] = [];
+    let results: {
+      id: string;
+      status: string;
+      partial: boolean;
+      truncated: boolean;
+      reason?: string;
+    }[] = [];
     let failure: string | undefined;
     try {
       const solver = await prepareRouteSolver(
@@ -82,8 +96,11 @@ if (values.help) {
         results = reports.map((result, index) => ({
           id: workload[index].id,
           status: result.route.status,
+          partial: result.partial === true,
+          truncated: result.diagnostics.truncated,
           reason: result.reason,
         }));
+        scene.verifyInputs();
       } finally {
         await solver.close();
       }
@@ -102,7 +119,8 @@ if (values.help) {
         solverConfig: { ...solverConfig, batchConcurrency: 1 },
         configSha256,
         workload: {
-          path: workloadFile,
+          name: values.workload,
+          offset,
           sha256: createHash('sha256').update(workloadBytes).digest('hex'),
           ids: workload.map((item) => item.id),
         },

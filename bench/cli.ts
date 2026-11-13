@@ -11,10 +11,10 @@ import { benchmarkMarkdown } from '#@/bench/markdown.ts';
 import { compareQuality, qualityGate, readReference } from '#@/bench/quality.ts';
 import { runBenchmark } from '#@/bench/run.ts';
 import { loadScene } from '#@/bench/scene.ts';
-import { cases } from '#@/bench/scenes/map02.ts';
 import { sourceHash } from '#@/bench/source.ts';
 import { resetTimings } from '#@/bench/timings.ts';
 import { prepareWorkerSolver } from '#@/bench/workers.ts';
+import { readWorkload } from '#@/bench/workload.ts';
 import { setActionCatalogPhase, actionCatalogStats } from '#@/src/v1/route/action-catalog.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -23,7 +23,7 @@ const { values } = parseArgs({
     json: { type: 'boolean' },
     markdown: { type: 'boolean' },
     help: { type: 'boolean' },
-    'data-root': { type: 'string', default: resolve(root, '.local/data') },
+    'data-root': { type: 'string' },
     scene: { type: 'string', default: 'map02' },
     extractor: { type: 'string', default: resolve(root, '.local/repos/Atlos/talos/.cache/noclip') },
     concurrency: { type: 'string' },
@@ -41,7 +41,7 @@ const { values } = parseArgs({
 });
 if (values.help)
   console.log(
-    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--scene <name; default map02>] [--extractor <path>] [--workload <query-cases.json>] [--offset <index>] [--catalog-train <count; opt-in approximate static-action algorithm>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--rounds <measured batches; default 1>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
+    'Usage: pnpm benchmark:full [--json | --markdown] [--data-root <path>] [--scene <name; default map02>] [--extractor <path>] [--workload <json-file | map02-long-range | map02-long-detours | map02-stress>] [--offset <index>] [--catalog-train <count; opt-in approximate static-action algorithm>] [--limit <count>] [--concurrency <scene-lanes>] [--workers <scene-workers; 1=inline>] [--rounds <measured batches; default 1>] [--config <json-file>] [--reference <benchmark-json>] [--max-mean-cost-ratio <ratio; default 1.01>] [--max-worst-cost-ratio <ratio; default 1.05>]. Reference comparisons reject lost solutions or excess modeled route cost; all runs require prewarm stability.',
   );
 else {
   try {
@@ -64,9 +64,8 @@ else {
         cwd: root,
       }).trim(),
     );
-    const workload: typeof cases = values.workload
-      ? JSON.parse(await readFile(values.workload, 'utf8'))
-      : cases;
+    const { cases: workload, directory } = await readWorkload(values.workload);
+    const dataRoot = values['data-root'] ?? resolve(root, '.local/data', directory);
     const offset = Number(values.offset ?? 0),
       count = Number(values.limit ?? workload.length);
     if (
@@ -128,23 +127,19 @@ else {
       prepared = await prepareWorkerSolver({
         count: workers,
         config: fixed,
-        dataRoot: values['data-root'],
+        dataRoot,
         extractor: values.extractor,
         scene: values.scene,
       });
     } else {
-      const scene = await loadScene(
-        values['data-root'],
-        values.extractor,
-        concurrency,
-        values.scene,
-      );
+      const scene = await loadScene(dataRoot, values.extractor, concurrency, values.scene);
       try {
         prepared = {
           solver: await prepareRouteSolver(fixed, scene.input),
           inputLoadMs: scene.inputLoadMs,
           timings: scene.timings,
           metadata: scene.metadata,
+          verifyInputs: scene.verifyInputs,
         };
       } catch (error) {
         await scene.input.resources.close?.();
@@ -182,10 +177,14 @@ else {
         selected,
         (phase) => {
           console.error(JSON.stringify({ phase, queries: selected.length, rounds }));
-          if (phase === 'batch') resetTimings(timings);
+          if (phase === 'batch') {
+            if ('verifyInputs' in prepared) prepared.verifyInputs();
+            resetTimings(timings);
+          }
         },
         rounds,
       );
+      if ('verifyInputs' in prepared) prepared.verifyInputs();
       if (catalogTraining && actionCatalogStats().added !== catalogTraining.stats.added)
         throw new Error('Frozen catalog changed during holdout');
       if ((await sourceHash(root, ['src', 'bench'])) !== sourceSha256)

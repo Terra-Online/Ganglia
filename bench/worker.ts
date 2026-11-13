@@ -42,6 +42,7 @@ port.on('message', async (message: WorkerRequest) => {
             }
           : undefined,
     });
+    scene.verifyInputs();
     send({ type: 'result', id, result, timings: scene.timings, memory: workerMemory() });
   } catch (error) {
     send({ type: 'error', id, error: error instanceof Error ? error.message : String(error) });

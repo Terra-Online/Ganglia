@@ -107,6 +107,7 @@ export async function loadScene(
     },
     inputLoadMs,
     timings: prepared.timings,
+    verifyInputs: prepared.verifyInputs,
     metadata: {
       scene: dataset.navigation.scene,
       source: dataset.navigation.source,
@@ -135,6 +136,11 @@ export function prepareSceneResources(
   concurrency: number,
   gameAdapterSha256: string,
 ) {
+  let inputFailure: { error: unknown } | undefined;
+  const failInput = (error: unknown): never => {
+    inputFailure ??= { error };
+    throw error;
+  };
   let processRssSampledPeakBytes = process.memoryUsage().rss;
   let mainHeapUsedSampledPeakBytes = process.memoryUsage().heapUsed;
   const sampleMemory = () => {
@@ -204,13 +210,17 @@ export function prepareSceneResources(
   };
   const resources: SceneResources<Source, Job> = {
     query: async (scene, source, start, target, options) => {
-      if (
-        scene !== dataset.navigation.scene ||
-        !isDeepStrictEqual(source, dataset.navigation.source)
-      )
-        throw new Error('Physical query snapshot mismatch');
-      const region = await dataset.query(start, target, options);
-      return region ? { status: 'ready', region } : null;
+      try {
+        if (
+          scene !== dataset.navigation.scene ||
+          !isDeepStrictEqual(source, dataset.navigation.source)
+        )
+          throw new Error('Physical query snapshot mismatch');
+        const region = await dataset.query(start, target, options);
+        return region ? { status: 'ready', region } : null;
+      } catch (error) {
+        return failInput(error);
+      }
     },
     solve: async (job, request, _start, work) => {
       const cache = await acquire();
@@ -224,6 +234,8 @@ export function prepareSceneResources(
         timings.localSolveMs += performance.now() - started;
         observe(result);
         return { status: 'ready', region: job.region, result };
+      } catch (error) {
+        return failInput(error);
       } finally {
         sampleMemory();
         const next = waiting.shift();
@@ -254,6 +266,11 @@ export function prepareSceneResources(
   return {
     resources,
     timings,
+    verifyInputs() {
+      // A scene solver may preserve a validated tail after a provider error.
+      // Incomplete input coverage must invalidate a benchmark even with that tail.
+      if (inputFailure) throw inputFailure.error;
+    },
     memory() {
       sampleMemory();
       return { processRssSampledPeakBytes, mainHeapUsedSampledPeakBytes };

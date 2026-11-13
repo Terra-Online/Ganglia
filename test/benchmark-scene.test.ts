@@ -18,18 +18,18 @@ const tiles = [
   { x: 1, z: 0 },
   { x: 2, z: 0 },
 ];
-const fixture = async () => {
+const fixture = async (physicalBounds = bounds, physicalTiles = tiles) => {
   const root = await mkdtemp(join(tmpdir(), 'ganglia-scene-'));
   const json = async (file: string, value: unknown) => {
     await mkdir(join(root, file, '..'), { recursive: true });
     await writeFile(join(root, file), JSON.stringify(value));
   };
   const snapshot = { scene: 'testscene', source, selection: { area: 0, sceneState: 0 } };
-  const ground = (selected = tiles) => ({
+  const ground = (selected = physicalTiles) => ({
     ...snapshot,
     surfaces: [],
     options: { profile, speed: 5, maxVertical: 0.5 },
-    build: { bounds, cellSize: 0.15, tileCells: 256 },
+    build: { bounds: physicalBounds, cellSize: 0.15, tileCells: 256 },
     tiles: selected,
   });
   await json('routing/testscene-ground-all.json', ground());
@@ -38,11 +38,11 @@ const fixture = async () => {
     defaultProfile: profile,
     sustainedSprint: { speed: 5 },
   });
-  const region = async (prefix: string, selected = tiles) => {
+  const region = async (prefix: string, selected = physicalTiles) => {
     await json(`${prefix}.ground.json`, ground(selected));
     await json(`${prefix}.collision.json`, {
       ...snapshot,
-      options: { profile, bounds, tiles: selected },
+      options: { profile, bounds: physicalBounds, tiles: selected },
     });
   };
   return { root, json, region, ground, snapshot };
@@ -105,7 +105,7 @@ test('scene regions reject tile holes, bind each job independently and solve fre
         },
       };
     };
-    const { resources } = prepareSceneResources(data, prepare, 1, 'adapter');
+    const { resources, verifyInputs } = prepareSceneResources(data, prepare, 1, 'adapter');
     // Neither queries nor adapter reads may fall back to the filesystem after setup.
     await rm(f.root, { recursive: true, force: true });
     const sparse = await resources.query(
@@ -131,10 +131,12 @@ test('scene regions reject tile holes, bind each job independently and solve fre
     assert.notEqual(resources.route(first).reason, resources.route(repeated).reason);
     assert.equal(generations[0], generations[2]);
     assert.notEqual(generations[0], generations[1]);
+    verifyInputs();
     await assert.rejects(
       resources.query('testscene', source, [1, 0, 1], request.target, approach([{ x: 1, z: 1 }])),
       /Missing physical coverage/,
     );
+    assert.throws(verifyInputs, /Missing physical coverage/);
     await resources.close?.();
   } finally {
     await rm(f.root, { recursive: true, force: true });
@@ -164,7 +166,17 @@ test('legacy single-window files retain coverage and reject rounded bounds outsi
 });
 
 test('only preparation can export missing regions, which are decoded once and reused as input snapshots', async () => {
-  const f = await fixture();
+  const bounds = { min: [-96, -64], max: [0, 0] };
+  const tiles = [
+    { x: -3, z: -2 },
+    { x: -2, z: -2 },
+    { x: -1, z: -2 },
+  ];
+  const f = await fixture(bounds, tiles);
+  const selected = approach(tiles);
+  selected.corridor.bounds = { min: [-95, -63], max: [-6, -34] };
+  const start = [-95, 0, -63],
+    target = [-6, 0, -34];
   try {
     const extractor = join(f.root, 'extractor');
     const config = join(f.root, 'exporter-config.json');
@@ -178,21 +190,21 @@ test('only preparation can export missing regions, which are decoded once and re
       `
       import assert from 'node:assert/strict';
       import { writeFile } from 'node:fs/promises';
-      const args = process.argv.slice(2);
-      const value = name => args[args.indexOf(name) + 1];
-      assert.equal(args[0], 'player-ground');
-      assert.equal(args[1], 'testscene');
-      assert.ok(args.includes('--terminal-scene'));
-      assert.equal(value('--scene-state'), '0');
-      assert.equal(value('--area'), '0');
-      assert.equal(value('--static-supports'), ${JSON.stringify(devices)});
-      assert.equal(value('--config'), ${JSON.stringify(config)});
-      const tiles = value('--tiles').split(';').map(tile => {
+      import { parseArgs } from 'node:util';
+      const { values, positionals } = parseArgs({ args: process.argv.slice(2), allowPositionals: true,
+        options: Object.fromEntries(['bounds','scene-state','area','static-supports','config','tiles','movement-settings','input-cache','tile-cache','output','collision-output'].map(name=>[name,{type:'string'}]).concat([['terminal-scene',{type:'boolean'}]])) });
+      assert.deepEqual(positionals, ['player-ground', 'testscene']);
+      assert.equal(values['terminal-scene'], true);
+      assert.equal(values['scene-state'], '0');
+      assert.equal(values.area, '0');
+      assert.equal(values['static-supports'], ${JSON.stringify(devices)});
+      assert.equal(values.config, ${JSON.stringify(config)});
+      const tiles = values.tiles.split(';').map(tile => {
         const [x,z] = tile.split(',').map(Number); return { x,z };
       });
       assert.deepEqual(tiles, ${JSON.stringify(tiles)});
-      await writeFile(value('--output'), JSON.stringify(${JSON.stringify(f.ground())}));
-      await writeFile(value('--collision-output'), JSON.stringify(${JSON.stringify({ ...f.snapshot, options: { profile, bounds, tiles } })}));
+      await writeFile(values.output, JSON.stringify(${JSON.stringify(f.ground())}));
+      await writeFile(values['collision-output'], JSON.stringify(${JSON.stringify({ ...f.snapshot, options: { profile, bounds, tiles } })}));
     `,
     );
     let builds = 0;
@@ -200,18 +212,18 @@ test('only preparation can export missing regions, which are decoded once and re
       builds++;
       return exportPhysicalRegion({ dataRoot: f.root, extractor, config, devices }, request);
     });
-    const noBuild = { ...approach(), startBuild: false };
-    assert.equal(await data.query([1, 0, 1], request.target, noBuild), undefined);
+    const noBuild = { ...selected, startBuild: false };
+    assert.equal(await data.query(start, target, noBuild), undefined);
     assert.equal(builds, 0);
-    const region = await data.query([1, 0, 1], request.target, approach());
+    const region = await data.query(start, target, selected);
     assert.ok(region);
     assert.equal(data.regions.length, 1);
     assert.ok(data.hashes[region.files.ground]);
     assert.ok(data.hashes[region.files.collision]);
-    assert.equal(await data.query([1, 0, 1], request.target, approach()), region);
+    assert.equal(await data.query(start, target, selected), region);
     assert.equal(builds, 1);
     const reloaded = await loadSceneData(f.root, 'testscene');
-    assert.ok(reloaded.select([1, 0, 1], request.target, approach()));
+    assert.ok(reloaded.select(start, target, selected));
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
