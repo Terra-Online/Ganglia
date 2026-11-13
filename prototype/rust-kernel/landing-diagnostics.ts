@@ -9,6 +9,9 @@ export interface LandingCounters {
   encodedBytes: number;
   encodeMs: number;
   constructorMs: number;
+  flightOwnersBuilt: number;
+  flightOwnerBytes: number;
+  flightOwnerMs: number;
   streamsStarted: number;
   streamsClosed: number;
   batchCalls: number;
@@ -24,6 +27,9 @@ const empty = (): LandingCounters => ({
   encodedBytes: 0,
   encodeMs: 0,
   constructorMs: 0,
+  flightOwnersBuilt: 0,
+  flightOwnerBytes: 0,
+  flightOwnerMs: 0,
   streamsStarted: 0,
   streamsClosed: 0,
   batchCalls: 0,
@@ -74,7 +80,7 @@ export function startLandingDiagnostics(filename?: string) {
           formalPerformance: false,
           batchSize: Number(process.env.GANGLIA_RUST_LANDING_BATCH ?? 32),
           attribution:
-            'Stream counters belong to the phase of first consumption. encodedBytes counts copied typed-array payload, not total allocation or retained RSS. bufferedAtSnapshot includes streams not explicitly closed and is not a leak measurement.',
+            'Stream counters belong to the phase of first consumption. treesEncoded/encodedBytes count geometry rows and copied geometry-column payload only; flightOwnersBuilt/flightOwnerBytes count separate flight owners and their copied reach-table payload. These exclude object/scalar overhead and do not measure retained RSS. bufferedAtSnapshot includes streams not explicitly closed and is not a leak measurement.',
           phases: Object.fromEntries(
             Object.entries(phases).map(([name, values]) => [
               name,

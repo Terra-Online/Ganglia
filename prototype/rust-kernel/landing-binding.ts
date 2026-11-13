@@ -15,7 +15,7 @@ interface NativeCursor {
   close(): void;
 }
 interface NativeIndex {
-  cursor(query: NativeQuery): NativeCursor;
+  cursor(query: NativeQuery, flight: object): NativeCursor;
 }
 interface NativeQuery {
   bounds: Float64Array;
@@ -37,12 +37,14 @@ interface NativeQuery {
     limit: number;
   };
 }
-const { LandingEnumerationIndex } = loadNativeLibrary() as {
+const { LandingEnumerationIndex, LandingFlight } = loadNativeLibrary() as {
   LandingEnumerationIndex: new (snapshot: {
     boxes: Float64Array;
     offsets: Uint32Array;
     children: Uint32Array;
     entryIds: Uint32Array;
+  }) => NativeIndex;
+  LandingFlight: new (snapshot: {
     reachTable: Float64Array;
     minimumBin: number;
     gravity: number;
@@ -53,15 +55,11 @@ const { LandingEnumerationIndex } = loadNativeLibrary() as {
     maxHorizontalSpeed: number;
     initial: number;
     deceleration?: number;
-  }) => NativeIndex;
+  }) => object;
 };
 const none = 0xffffffff;
 const diagnostics = startLandingDiagnostics(process.env.GANGLIA_RUST_LANDING_DIAGNOSTICS);
-const encode = (
-  root: BoundsNode<Bounds, unknown>,
-  flight: FlightReachSnapshot,
-  counts?: LandingCounters,
-) => {
+const encode = (root: BoundsNode<Bounds, unknown>, counts?: LandingCounters) => {
   const started = counts ? performance.now() : 0;
   let rows = 0,
     edges = 0,
@@ -126,23 +124,7 @@ const encode = (
   };
   write(root);
   offsets[rows] = edges;
-  const model = flight.model;
-  const snapshot = {
-    boxes,
-    offsets,
-    children,
-    entryIds,
-    reachTable: flight.table ?? new Float64Array(),
-    minimumBin: flight.minimumBin,
-    gravity: model.gravity,
-    fallingGravity: model.fallingGravity,
-    maxJumpHeight: model.maxJumpHeight,
-    maxFallingSpeed: model.maxFallingSpeed,
-    apexTime: model.apexTime,
-    maxHorizontalSpeed: model.maxHorizontalSpeed,
-    initial: Math.max(model.maxHorizontalSpeed, model.startHorizontalSpeed ?? 0),
-    deceleration: model.airOverspeedDeceleration,
-  };
+  const snapshot = { boxes, offsets, children, entryIds };
   const encoded = counts ? performance.now() : 0;
   const index = new LandingEnumerationIndex(snapshot);
   const constructed = counts ? performance.now() : 0;
@@ -154,8 +136,7 @@ const encode = (
       snapshot.boxes.byteLength +
       snapshot.offsets.byteLength +
       snapshot.children.byteLength +
-      snapshot.entryIds.byteLength +
-      snapshot.reachTable.byteLength;
+      snapshot.entryIds.byteLength;
     counts.encodeMs += encoded - started;
     counts.constructorMs += constructed - encoded;
   }
@@ -163,6 +144,30 @@ const encode = (
     entries,
     index,
   };
+};
+
+const createFlightOwner = (flight: FlightReachSnapshot, counts?: LandingCounters) => {
+  const started = counts ? performance.now() : 0;
+  const model = flight.model;
+  const table = flight.table ?? new Float64Array();
+  const owner = new LandingFlight({
+    reachTable: table,
+    minimumBin: flight.minimumBin,
+    gravity: model.gravity,
+    fallingGravity: model.fallingGravity,
+    maxJumpHeight: model.maxJumpHeight,
+    maxFallingSpeed: model.maxFallingSpeed,
+    apexTime: model.apexTime,
+    maxHorizontalSpeed: model.maxHorizontalSpeed,
+    initial: Math.max(model.maxHorizontalSpeed, model.startHorizontalSpeed ?? 0),
+    deceleration: model.airOverspeedDeceleration,
+  });
+  if (counts) {
+    counts.flightOwnersBuilt++;
+    counts.flightOwnerBytes += table.byteLength;
+    counts.flightOwnerMs += performance.now() - started;
+  }
+  return owner;
 };
 
 function* diagnosticEntries<T extends Bounds>(
@@ -195,7 +200,8 @@ function* diagnosticEntries<T extends Bounds>(
 export function createRustLandingEnumeration(batchSize = 32): LandingEnumerationFactory {
   if (!Number.isSafeInteger(batchSize) || batchSize < 1)
     throw new Error('Invalid landing batch size');
-  const trees = new WeakMap<object, ReturnType<typeof encode> & { flight: FlightReachSnapshot }>();
+  const trees = new WeakMap<object, ReturnType<typeof encode>>();
+  const flights = new WeakMap<FlightReachSnapshot, object>();
   return function <T extends Bounds, G>(root: BoundsNode<T, G>, query: LandingNearestQuery) {
     const { model, maxDrop, endpointTolerance = 0, padding = [0, 0, 0] } = query.envelope;
     const flight = flightReachSnapshot(model, maxDrop, endpointTolerance);
@@ -205,33 +211,44 @@ export function createRustLandingEnumeration(batchSize = 32): LandingEnumeration
       const counts = diagnostics?.current();
       if (counts) counts.streamsStarted++;
       let compiled = trees.get(root);
-      if (!compiled || compiled.flight !== flight) {
-        compiled = { ...encode(root, flight, counts), flight };
+      if (!compiled) {
+        compiled = encode(root, counts);
         trees.set(root, compiled);
       } else if (counts) counts.treeCacheHits++;
+      // Geometry identity and validated flight-snapshot identity are independent.
+      // A fresh model object needs only a small owner; existing cursors retain
+      // their old tree and flight through separate native Arc references.
+      let flightOwner = flights.get(flight);
+      if (!flightOwner) {
+        flightOwner = createFlightOwner(flight, counts);
+        flights.set(flight, flightOwner);
+      }
       const { anchor } = query;
       const rise = flight.model.maxJumpHeight + 2 * endpointTolerance;
       const fall = maxDrop + 2 * endpointTolerance;
-      const cursor = compiled.index.cursor({
-        bounds: Float64Array.from([...query.bounds.min, ...query.bounds.max]),
-        target: [...query.target],
-        anchor: [...anchor],
-        padding: [...padding],
-        maxHorizontalDistance: query.envelope.maxHorizontalDistance,
-        rise,
-        fall,
-        tolerance: endpointTolerance,
-        scale: Math.max(
-          1,
-          Math.abs(anchor[0]),
-          Math.abs(anchor[1]),
-          Math.abs(anchor[2]),
-          query.envelope.maxHorizontalDistance,
+      const cursor = compiled.index.cursor(
+        {
+          bounds: Float64Array.from([...query.bounds.min, ...query.bounds.max]),
+          target: [...query.target],
+          anchor: [...anchor],
+          padding: [...padding],
+          maxHorizontalDistance: query.envelope.maxHorizontalDistance,
           rise,
           fall,
-        ),
-        ...(query.cost ? { cost: { ...query.cost, goal: [...query.cost.goal] } } : {}),
-      });
+          tolerance: endpointTolerance,
+          scale: Math.max(
+            1,
+            Math.abs(anchor[0]),
+            Math.abs(anchor[1]),
+            Math.abs(anchor[2]),
+            query.envelope.maxHorizontalDistance,
+            rise,
+            fall,
+          ),
+          ...(query.cost ? { cost: { ...query.cost, goal: [...query.cost.goal] } } : {}),
+        },
+        flightOwner,
+      );
       if (counts) return yield* diagnosticEntries<T>(cursor, compiled.entries, batchSize, counts);
       try {
         for (;;) {

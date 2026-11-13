@@ -12,6 +12,9 @@ pub struct LandingSnapshot {
     pub offsets: Uint32Array,
     pub children: Uint32Array,
     pub entry_ids: Uint32Array,
+}
+#[napi(object)]
+pub struct LandingFlightSnapshot {
     pub reach_table: Float64Array,
     pub minimum_bin: f64,
     pub gravity: f64,
@@ -56,7 +59,6 @@ struct Tree {
     offsets: Vec<u32>,
     children: Vec<u32>,
     entry_ids: Vec<u32>,
-    flight: Flight,
 }
 struct Flight {
     table: Vec<f64>,
@@ -297,23 +299,15 @@ impl LandingEnumerationIndex {
                 offsets: snapshot.offsets.to_vec(),
                 children: snapshot.children.to_vec(),
                 entry_ids: snapshot.entry_ids.to_vec(),
-                flight: Flight {
-                    table: snapshot.reach_table.to_vec(),
-                    minimum_bin: snapshot.minimum_bin,
-                    gravity: snapshot.gravity,
-                    falling_gravity: snapshot.falling_gravity,
-                    height: snapshot.max_jump_height,
-                    falling_speed: snapshot.max_falling_speed,
-                    apex: snapshot.apex_time,
-                    cap: snapshot.max_horizontal_speed,
-                    initial: snapshot.initial,
-                    deceleration: snapshot.deceleration,
-                },
             }),
         })
     }
     #[napi]
-    pub fn cursor(&self, query: LandingQuery) -> Result<LandingEnumerationCursor> {
+    pub fn cursor(
+        &self,
+        query: LandingQuery,
+        flight: &LandingFlight,
+    ) -> Result<LandingEnumerationCursor> {
         if query.bounds.len() != 6
             || query.target.len() != 3
             || query.anchor.len() != 3
@@ -324,6 +318,7 @@ impl LandingEnumerationIndex {
         }
         let mut result = LandingEnumerationCursor {
             tree: Some(Arc::clone(&self.tree)),
+            flight: Some(Arc::clone(&flight.flight)),
             query,
             heap: Vec::new(),
         };
@@ -332,8 +327,33 @@ impl LandingEnumerationIndex {
     }
 }
 #[napi]
+pub struct LandingFlight {
+    flight: Arc<Flight>,
+}
+#[napi]
+impl LandingFlight {
+    #[napi(constructor)]
+    pub fn new(snapshot: LandingFlightSnapshot) -> Self {
+        Self {
+            flight: Arc::new(Flight {
+                table: snapshot.reach_table.to_vec(),
+                minimum_bin: snapshot.minimum_bin,
+                gravity: snapshot.gravity,
+                falling_gravity: snapshot.falling_gravity,
+                height: snapshot.max_jump_height,
+                falling_speed: snapshot.max_falling_speed,
+                apex: snapshot.apex_time,
+                cap: snapshot.max_horizontal_speed,
+                initial: snapshot.initial,
+                deceleration: snapshot.deceleration,
+            }),
+        }
+    }
+}
+#[napi]
 pub struct LandingEnumerationCursor {
     tree: Option<Arc<Tree>>,
+    flight: Option<Arc<Flight>>,
     query: LandingQuery,
     heap: Vec<Item>,
 }
@@ -341,7 +361,7 @@ impl LandingEnumerationCursor {
     fn enqueue(&mut self, node: u32) -> Result<()> {
         let tree = self.tree.as_ref().unwrap();
         let bounds = tree.boxes[node as usize];
-        if self.query.allows(bounds, &tree.flight)? {
+        if self.query.allows(bounds, self.flight.as_ref().unwrap())? {
             push(
                 &mut self.heap,
                 Item {
@@ -387,5 +407,6 @@ impl LandingEnumerationCursor {
     pub fn close(&mut self) {
         self.heap = Vec::new();
         self.tree = None;
+        self.flight = None;
     }
 }

@@ -121,6 +121,8 @@ test('landing batches preserve filtered hierarchy ties, pruning and every paused
     };
     const expected = [...view.nearest(query.bounds, query.target, predicate(query))];
     const beforeMutation = factories[1](boundsRoot(view)!, query);
+    const paused = factories[0](boundsRoot(view)!, query);
+    const pausedFirst = paused.next();
     total += expected.length;
     for (const factory of factories) {
       const actual = factory(boundsRoot(view)!, query);
@@ -148,6 +150,14 @@ test('landing batches preserve filtered hierarchy ties, pruning and every paused
     );
     const changed = [...view.nearest(query.bounds, query.target, predicate(query))];
     assert.deepEqual([...factories[1](boundsRoot(view)!, query)], changed);
+    if (expected.length) {
+      assert.strictEqual(pausedFirst.value, expected[0]);
+      assert.deepEqual(
+        [...paused],
+        expected.slice(1),
+        'a paused cursor retains its old flight owner',
+      );
+    } else assert.equal(pausedFirst.done, true);
   }
   assert.ok(total > 300, 'fixture must exercise actual emitted candidates');
 });
@@ -302,6 +312,9 @@ test('opt-in landing counters distinguish encoded trees, reused views and discar
       const factory = createRustLandingEnumeration(4);
       console.error(JSON.stringify({phase:'catalog-training',queries:1}));
       const first = factory(root,query);first.next();first.return();
+      console.error(JSON.stringify({phase:'prewarm',queries:1}));
+      const freshModel = {...query,envelope:{...query.envelope,model:{...query.envelope.model,maxJumpHeight:1}}};
+      const fresh = factory(root,freshModel);fresh.next();fresh.return();
       console.error(JSON.stringify({phase:'batch',queries:1}));
       const second = factory(root,query);second.next();second.next();second.return();
     `,
@@ -320,17 +333,27 @@ test('opt-in landing counters distinguish encoded trees, reused views and discar
     assert.equal(report.formalPerformance, false);
     assert.equal(report.batchSize, 4);
     const training = report.phases['catalog-training'],
+      prewarm = report.phases.prewarm,
       batch = report.phases.batch;
     assert.equal(training.treesEncoded, 1);
     assert.equal(training.encodedRows, 9);
     assert.equal(training.encodedEntries, 8);
-    assert.ok(training.encodedBytes > 9 * 60);
+    assert.equal(training.encodedBytes, 9 * 60);
+    assert.equal(training.flightOwnersBuilt, 1);
+    assert.ok(training.flightOwnerBytes > 0);
     assert.equal(training.idsReturned, 4);
     assert.equal(training.idsYielded, 1);
     assert.equal(training.discardedBuffered, 3);
     assert.equal(training.bufferedAtSnapshot, 0);
+    assert.equal(prewarm.treesEncoded, 0);
+    assert.equal(prewarm.encodedBytes, 0);
+    assert.equal(prewarm.treeCacheHits, 1);
+    assert.equal(prewarm.flightOwnersBuilt, 1);
+    assert.ok(prewarm.flightOwnerBytes > 0);
     assert.equal(batch.treesEncoded, 0);
     assert.equal(batch.treeCacheHits, 1);
+    assert.equal(batch.flightOwnersBuilt, 0);
+    assert.equal(batch.flightOwnerBytes, 0);
     assert.equal(batch.batchCalls, 1);
     assert.equal(batch.streamsStarted, 1);
     assert.equal(batch.streamsClosed, 1);
