@@ -38,11 +38,19 @@ const fixture = async (physicalBounds = bounds, physicalTiles = tiles) => {
     defaultProfile: profile,
     sustainedSprint: { speed: 5 },
   });
-  const region = async (prefix: string, selected = physicalTiles) => {
-    await json(`${prefix}.ground.json`, ground(selected));
+  const region = async (
+    prefix: string,
+    selected = physicalTiles,
+    regionBounds = physicalBounds,
+  ) => {
+    const value = ground(selected);
+    await json(`${prefix}.ground.json`, {
+      ...value,
+      build: { ...value.build, bounds: regionBounds },
+    });
     await json(`${prefix}.collision.json`, {
       ...snapshot,
-      options: { profile, bounds: physicalBounds, tiles: selected },
+      options: { profile, bounds: regionBounds, tiles: selected },
     });
   };
   return { root, json, region, ground, snapshot };
@@ -160,6 +168,42 @@ test('legacy single-window files retain coverage and reject rounded bounds outsi
       options: { profile, bounds },
     });
     await assert.rejects(loadSceneData(f.root, 'testscene'), /snapshot mismatch/);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('overlapping regions select the smallest coverage and stable filename across append order and reload', async () => {
+  const f = await fixture();
+  try {
+    const appended = await loadSceneData(f.root, 'testscene');
+    const reversed = await loadSceneData(f.root, 'testscene');
+    const paths = ['a-wide', 'z-small', 'b-small'];
+    await f.region(`scene-testscene/regions/${paths[0]}`, tiles, {
+      min: [-32, -32],
+      max: [128, 96],
+    });
+    await f.region(`scene-testscene/regions/${paths[1]}`);
+    await f.region(`scene-testscene/regions/${paths[2]}`);
+    const load = (data: typeof appended, name: string) =>
+      data.loadRegion(
+        join(f.root, `scene-testscene/regions/${name}.ground.json`),
+        join(f.root, `scene-testscene/regions/${name}.collision.json`),
+      );
+    for (const name of paths) await load(appended, name);
+    const selected = appended.select([1, 0, 1], request.target, approach());
+    assert.ok(selected);
+    assert.match(selected.files.ground, /b-small\.ground\.json$/);
+    const reloaded = await loadSceneData(f.root, 'testscene');
+    assert.equal(
+      reloaded.select([1, 0, 1], request.target, approach())?.files.ground,
+      selected.files.ground,
+    );
+    for (const name of [...paths].reverse()) await load(reversed, name);
+    assert.equal(
+      reversed.select([1, 0, 1], request.target, approach())?.files.ground,
+      selected.files.ground,
+    );
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }

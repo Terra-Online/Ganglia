@@ -125,6 +125,19 @@ export async function loadSceneData(dataRoot: string, scene: string, build?: Reg
       ),
     };
     regions.push(region);
+    // Preparation appends regions, while a later process loads filenames in
+    // order. Both must select the same physical snapshot for overlapping input.
+    const area = (region: PhysicalRegion) => {
+      const { min, max } = region.ground.build.bounds;
+      return (max[0] - min[0]) * (max[1] - min[1]);
+    };
+    regions.sort((a, b) => {
+      return (
+        area(a) - area(b) ||
+        a.tiles.size - b.tiles.size ||
+        (a.files.ground < b.files.ground ? -1 : a.files.ground > b.files.ground ? 1 : 0)
+      );
+    });
     return region;
   };
   const directory = resolve(dataRoot, `scene-${scene}`);
