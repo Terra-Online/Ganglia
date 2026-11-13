@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { deserialize } from 'node:v8';
 
 import type { GroundOptions, Surface } from '@opendfieldmap/ganglia';
 import type { Corridor, SceneNavigation } from '@opendfieldmap/ganglia/solver';
@@ -58,7 +59,11 @@ export async function loadSceneData(dataRoot: string, scene: string, build?: Reg
   const read = async <T>(name: string): Promise<T> => {
     if (inputs.has(name)) return inputs.get(name) as T;
     const bytes = await readFile(name);
-    const value: unknown = JSON.parse(bytes.toString());
+    // Large collision snapshots exceed V8's single-string limit. Binary inputs
+    // keep exact numeric buffers outside the JS heap; decoding remains setup work.
+    const value: unknown = name.endsWith('.bin')
+      ? deserialize(bytes)
+      : JSON.parse(bytes.toString());
     inputBytes += bytes.byteLength;
     hashes[name] = createHash('sha256').update(bytes).digest('hex');
     inputs.set(name, value);
@@ -89,6 +94,16 @@ export async function loadSceneData(dataRoot: string, scene: string, build?: Reg
     devicesFile = undefined;
   }
   const regions: PhysicalRegion[] = [];
+  const collisionFile = async (prefix: string) => {
+    const binary = `${prefix}.bin`;
+    try {
+      await read<Collision>(binary);
+      return binary;
+    } catch (error) {
+      if (!missing(error)) throw error;
+      return `${prefix}.json`;
+    }
+  };
   const loadRegion = async (groundFile: string, collisionFile: string) => {
     const ground = await read<Ground>(groundFile);
     const collision = await read<Collision>(collisionFile);
@@ -150,7 +165,7 @@ export async function loadSceneData(dataRoot: string, scene: string, build?: Reg
     if (!missing(error)) throw error;
   }
   if (inputs.has(legacyGround))
-    await loadRegion(legacyGround, resolve(directory, 'collision.json'));
+    await loadRegion(legacyGround, await collisionFile(resolve(directory, 'collision')));
   let names: string[];
   try {
     names = await readdir(resolve(directory, 'regions'));
@@ -162,7 +177,9 @@ export async function loadSceneData(dataRoot: string, scene: string, build?: Reg
     if (name.endsWith('.ground.json'))
       await loadRegion(
         resolve(directory, 'regions', name),
-        resolve(directory, 'regions', name.replace(/\.ground\.json$/, '.collision.json')),
+        await collisionFile(
+          resolve(directory, 'regions', name.replace(/\.ground\.json$/, '.collision')),
+        ),
       );
 
   const select = (

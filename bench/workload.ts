@@ -15,9 +15,9 @@ type Workload = {
 };
 const presets: Record<string, Workload> = {
   map02: { cases: localCases, directory: '' },
-  'map02-long-range': { cases: maximumSpanCases, directory: 'long-range-map02' },
-  'map02-long-detours': { cases: connectedLongCases, directory: 'long-range-map02' },
-  'map02-stress': { cases: stressCases, directory: 'long-range-map02' },
+  'map02-long-range': { cases: maximumSpanCases, directory: 'long-range-map02-packed' },
+  'map02-long-detours': { cases: connectedLongCases, directory: 'long-range-map02-packed' },
+  'map02-stress': { cases: stressCases, directory: 'long-range-map02-packed' },
 };
 
 export async function readWorkload(name = 'map02'): Promise<Workload> {

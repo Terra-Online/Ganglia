@@ -1,12 +1,47 @@
 # Route solver handoff
 
+## Map-scale benchmark snapshot, 2026-11-13
+
+The long-range workload uses full Wuling navigation and physically grounded
+endpoints. It complements the historical 100 by 120 metre local-patch controls.
+Maximum-span requests cover 3.56 to 4.41 kilometres directly; separate detour
+requests exercise layered ground. A physically valid endpoint can be absent from
+coarse navigation, so retain those coverage failures and distinguish them from
+successful long-distance traversal when interpreting latency.
+
+Physical coverage preparation repeats fresh whole batches until a complete pass
+requests no new regions. That proves the inputs needed by that execution are
+available, rather than proving a corridor is traversable. The first 4.02 kilometre
+request closes its input coverage but exhausts search with a verified target-side
+fragment. It counts as an incomplete request even though the fragment's own route
+status is complete. Full-workload preparation is still in progress at this snapshot.
+
+Large collision exports use optional local Node V8 snapshots with exact Float64
+coordinates and Uint32 indices. JSON hits a single-string size limit in dense
+windows; retaining all numeric arrays on the JS heap also exhausted a 12 GiB heap.
+The binary representation keeps numeric buffers outside that heap. It is a local
+cache, bound to its exporter/runtime and source/profile provenance. Original JSON
+inputs remain preserved. Decoding and hashing remain setup work; benchmark input
+errors invalidate a run even when the solver preserves a valid local fragment.
+
+These readiness statements expire when the workload, kernel, configuration,
+adapter or inputs change. Repeat coverage preparation before measuring a changed
+combination. Historical local-patch speedups describe their original requests.
+
+## Earlier implementation checkpoints
+
 The `misakavan` merge of upstream main `1a617c9` carries the alpha.77 kernel changes in the source-only TypeScript alpha.81 package. The benchmark contract remains the prepared full-scene batch described below. Earlier checkpoints retain their original source, input and validation scope.
 
 Alpha.82 keeps the same solver behavior and uses native package-local `#@/` imports, defined once in `package.json`. Runtime consumers require no custom alias loader or duplicated TypeScript path mapping. Test coverage emphasizes results at the prepared solver, geometry and movement interfaces; implementation-copy and object-identity checks have been removed where behavior is already covered.
 
 This handoff describes Ganglia `0.1.0-alpha.76` at local commit `917dfcd` and its Atlos integration at `9311d063`, as inspected on 2026-11-10. The companion [history and testing record](history.md) owns the chronological experiments, complete measurement tables, regression corpus and validation procedures. The source layout was subsequently reorganized on 2026-11-11, starting from `c8cc213`. The subsystem and composition sections below describe that source refactor. The alpha.76 performance measurements remain bound to their historical implementations.
 
-The current objective is to reduce comparable solver computation to **at most 20% of the original cost**, while preserving supported behavior, reachability and route quality. The latest heavy-query checkpoint remains above that target. The user's latest direction covers the complete pipeline: terrain generation, support/portal/graph/index preparation, corridor search, action discovery, collision validation and resource scheduling. Work through measured bottlenecks individually and check their containing request; a local gain must not hide shifted computation. Region/action reduction remains important, but is not the only optimization target. The old resource-first P0 roadmap does not prescribe the current order.
+The optimization priority is serial single-query latency while preserving supported
+behavior, reachability and route quality. Compare fixed representative workloads
+and inspect their containing requests so a local gain does not hide shifted work.
+The pipeline includes terrain generation, support/portal/graph/index preparation,
+corridor search, action discovery, collision validation and resource scheduling.
+Improvement targets depend on each workload's starting cost and bottleneck.
 
 The latest user acceptance gate (2026-11-11) permits route-cost deterioration up to 5% against the valid same-input control. Feasibility failures, timeouts and larger cost regressions require fixes within the new algorithm. The retained-corpus repair and bounded validation are described in the final delivery section below. Historical timings remain bound to their implementations.
 

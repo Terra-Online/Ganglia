@@ -19,7 +19,7 @@ export async function exportPhysicalRegion(
   const pending = resolve(directory, `.pending-${name}`);
   await mkdir(pending);
   const ground = resolve(directory, `${name}.ground.json`);
-  const collision = resolve(directory, `${name}.collision.json`);
+  const collision = resolve(directory, `${name}.collision.bin`);
   const tiles = [...request.tiles];
   if (!tiles.length)
     for (
@@ -56,7 +56,9 @@ export async function exportPhysicalRegion(
       '--output',
       resolve(pending, 'ground.json'),
       '--collision-output',
-      resolve(pending, 'collision.json'),
+      resolve(pending, 'collision.bin'),
+      '--collision-format',
+      'v8',
       ...(options.devices ? ['--static-supports', options.devices] : []),
     ];
     await new Promise<void>((resolve, reject) => {
@@ -71,7 +73,7 @@ export async function exportPhysicalRegion(
         else reject(new Error(`player-ground failed (${signal ?? code})`));
       });
     });
-    await rename(resolve(pending, 'collision.json'), collision);
+    await rename(resolve(pending, 'collision.bin'), collision);
     await rename(resolve(pending, 'ground.json'), ground);
     return { ground, collision };
   } finally {

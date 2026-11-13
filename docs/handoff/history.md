@@ -1566,5 +1566,39 @@ Atlos pins final alpha.88. The sampled profiles do not enter these wall comparis
 Ganglia format/lint/type checks and 343 tests pass. Atlos World/worker type checks,
 56 UI/behavior tests, 8 HTTP/worker/network tests and source-only production build
 pass; its existing large-chunk warning remains. No browser acceptance or cross-map
-replay is claimed. Rust/native bindings remain deferred because this phase reaches
+replay is claimed. Rust/native bindings were deferred in this phase after reaching
 the throughput target using preparation reuse and Node workers.
+
+## Map-scale workload and collision cache limits, 2026-11-13
+
+The workload expands from a 100 by 120 metre physical patch to full Wuling
+navigation over a 3.712 by 3.712 kilometre gameplay footprint. Fourteen fixed
+requests combine five bidirectional maximum-span pairs with two bidirectional
+layered-ground detours. Endpoint selection precedes route measurements; all
+fourteen distinct endpoints pass standing, stationary capsule and wall checks.
+Coarse-navigation misses remain visible as coverage cases.
+
+The first grounded 4.017 kilometre request reaches real physical search and returns
+a budget-truncated target-side fragment. A repeated native-backed preparation pass
+requests no additional regions. This is an incomplete route, with no complete-route
+cost ratio or successful long-distance speedup established. Profiled preparation
+includes setup work and is separate from a prewarmed latency measurement. Its
+827.439 second CPU profile places 61.95% of inclusive samples in findConnections;
+nearest enumeration, enqueue filtering and GC are concrete follow-up targets.
+
+A full fourteen-request preparation then exceeds a 12 GiB JS heap after exporting
+22 regions. A dense-window collision export separately fails at JSON.stringify's
+single-string limit. The failed process exits 134 without a final workload report;
+its completed immutable region files are retained. Optional local V8 collision
+snapshots address both representation limits without changing coordinates or
+indices. Every scalar and metadata field in the converted 22 regions is checked:
+collision payloads shrink from 5,400,832,548 to 2,649,148,691 bytes. Loading all 22
+packed regions succeeds with a 6 GiB heap cap; after forced GC that diagnostic
+reports 1,777,371,248 heap bytes and 5,863,325,696 RSS bytes. These are input-load
+diagnostics, not search speedups or transient memory maxima.
+
+The changed Ganglia harness passes format, lint, typecheck and 391 tests. Atlos's
+two owning integration patches pass 23 extraction/physical-adapter tests, extractor
+typecheck and full archive/patch replay. The generated noclip cache is unchanged.
+The binary full-workload preparation remains in progress; no complete fourteen-
+request performance result is claimed by these checks.

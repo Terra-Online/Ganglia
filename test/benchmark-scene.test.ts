@@ -236,20 +236,26 @@ test('only preparation can export missing regions, which are decoded once and re
       import assert from 'node:assert/strict';
       import { writeFile } from 'node:fs/promises';
       import { parseArgs } from 'node:util';
+      import { serialize } from 'node:v8';
       const { values, positionals } = parseArgs({ args: process.argv.slice(2), allowPositionals: true,
-        options: Object.fromEntries(['bounds','scene-state','area','static-supports','config','tiles','movement-settings','input-cache','tile-cache','output','collision-output'].map(name=>[name,{type:'string'}]).concat([['terminal-scene',{type:'boolean'}]])) });
+        options: Object.fromEntries(['bounds','scene-state','area','static-supports','config','tiles','movement-settings','input-cache','tile-cache','output','collision-output','collision-format'].map(name=>[name,{type:'string'}]).concat([['terminal-scene',{type:'boolean'}]])) });
       assert.deepEqual(positionals, ['player-ground', 'testscene']);
       assert.equal(values['terminal-scene'], true);
       assert.equal(values['scene-state'], '0');
       assert.equal(values.area, '0');
       assert.equal(values['static-supports'], ${JSON.stringify(devices)});
       assert.equal(values.config, ${JSON.stringify(config)});
+      assert.equal(values['collision-format'], 'v8');
       const tiles = values.tiles.split(';').map(tile => {
         const [x,z] = tile.split(',').map(Number); return { x,z };
       });
       assert.deepEqual(tiles, ${JSON.stringify(tiles)});
       await writeFile(values.output, JSON.stringify(${JSON.stringify(f.ground())}));
-      await writeFile(values['collision-output'], JSON.stringify(${JSON.stringify({ ...f.snapshot, options: { profile, bounds, tiles } })}));
+      await writeFile(values['collision-output'], serialize({
+        ...${JSON.stringify({ ...f.snapshot, options: { profile, bounds, tiles } })},
+        positions: Float64Array.from([-95.1234567890123, 0, -63, -6, 0, -34, -95, 0, -34]),
+        indices: Uint32Array.from([0, 1, 2]),
+      }));
     `,
     );
     let builds = 0;
@@ -265,10 +271,18 @@ test('only preparation can export missing regions, which are decoded once and re
     assert.equal(data.regions.length, 1);
     assert.ok(data.hashes[region.files.ground]);
     assert.ok(data.hashes[region.files.collision]);
+    const collision = data.inputs.get(region.files.collision);
+    assert.ok(collision && typeof collision === 'object' && 'positions' in collision);
+    assert.ok(collision.positions instanceof Float64Array);
+    assert.equal(collision.positions[0], -95.1234567890123);
+    assert.ok('indices' in collision && collision.indices instanceof Uint32Array);
+    assert.deepEqual([...collision.indices], [0, 1, 2]);
     assert.equal(await data.query(start, target, selected), region);
     assert.equal(builds, 1);
     const reloaded = await loadSceneData(f.root, 'testscene');
     assert.ok(reloaded.select(start, target, selected));
+    await rm(region.files.collision);
+    assert.equal(data.inputs.get(region.files.collision), collision);
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
