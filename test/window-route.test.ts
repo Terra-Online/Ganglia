@@ -482,6 +482,16 @@ test('a new complete physics revision can discover a route with the same ground 
   );
 });
 
+test('training repeats physical work even when the provider certifies unchanged inputs', async (t) => {
+  setActionCatalogPhase('training');
+  t.after(() => setActionCatalogPhase('disabled'));
+  const fixture = attemptFixture({ certified: true });
+  const result = await finishWindow(fixture.search());
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.diagnostics.truncated, true);
+  assert.equal(fixture.full.length, 2);
+});
+
 test('unknown reports or resource progress require a fresh full physical attempt', async () => {
   const expected = await finishWindow(attemptFixture({ certified: false }).search());
   for (const uncertain of ['missing-report', 'pending-ground', 'unknown-revision']) {

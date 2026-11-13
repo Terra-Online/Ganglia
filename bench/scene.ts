@@ -14,7 +14,6 @@ import {
 import { createPhysicalPreparation, type PhysicalWork } from '@opendfieldmap/ganglia/solver/host';
 
 import { createTimings } from '#@/bench/timings.ts';
-import { actionCatalogStats } from '#@/src/v1/route/action-catalog.ts';
 
 type Source = { buildGuid: string; contentHash: string };
 type Ground = {
@@ -206,21 +205,7 @@ export async function loadScene(dataRoot: string, extractor: string, concurrency
       }
     },
     key: () => files.ground,
-    physicalRevision: () => {
-      const bank = actionCatalogStats();
-      // Training changes physical evidence. Frozen/disabled banks and all loaded
-      // file contents are fixed; include bank changes rather than trusting ground alone.
-      return bank.phase === 'training' || concurrency !== 1
-        ? undefined
-        : JSON.stringify([
-            physicalBinding,
-            bank.phase,
-            bank.added,
-            bank.evicted,
-            bank.scopeResets,
-            bank.scopes,
-          ]);
-    },
+    physicalRevision: () => (concurrency === 1 ? physicalBinding : undefined),
     ground: async () => ground,
     route: (job) => {
       const result = job.result ?? {};

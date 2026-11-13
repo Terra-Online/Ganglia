@@ -8,7 +8,7 @@ import type {
   WindowResources,
 } from '#@/src/solver/resources.ts';
 import { createGoalProjector } from '#@/src/v1/motion/goals.ts';
-import { isActionCatalogFrozen } from '#@/src/v1/route/action-catalog.ts';
+import { catalogEvidenceRevision, isActionCatalogFrozen } from '#@/src/v1/route/action-catalog.ts';
 import { pruneGroundDetours } from '#@/src/v1/route/ground-detours.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
 import { physicalWork } from '#@/src/v1/solver/physical/work.ts';
@@ -369,12 +369,15 @@ export function createWindowRoute<Request extends WindowRequest, Job extends Win
           interaction: final ? request.interaction : undefined,
           waypoints: [...(request.waypoints ?? []), ...coarseWaypoints([corridor])],
         };
-        const revision = stage === 2 ? builder.physicalRevision?.(ground) : undefined;
+        const evidenceRevision = stage === 2 ? catalogEvidenceRevision() : undefined;
+        const revision =
+          evidenceRevision === undefined ? undefined : builder.physicalRevision?.(ground);
         const physicalKey =
           revision === undefined
             ? undefined
             : JSON.stringify([
                 revision,
+                evidenceRevision,
                 local.arrival,
                 local.target,
                 local.interaction,

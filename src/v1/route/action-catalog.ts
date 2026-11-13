@@ -28,6 +28,11 @@ export const setActionCatalogPhase = (next: Phase) => {
   phase = next;
 };
 export const isActionCatalogFrozen = () => phase === 'frozen';
+// Only semantic bank changes invalidate failure proofs; query counters do not.
+export const catalogEvidenceRevision = () =>
+  phase === 'training'
+    ? undefined
+    : ([phase, counts.added, counts.evicted, counts.scopeResets, counts.scopes] as const);
 export const actionCatalogStats = () => ({
   phase,
   ...counts,

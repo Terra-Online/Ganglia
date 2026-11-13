@@ -41,10 +41,10 @@ export interface WindowResources<Request extends WindowRequest, Job extends Wind
   solve(job: Job, request: Request, start: boolean, work: PhysicalWork): Promise<Job | null>;
   /** Identifies one immutable ground snapshot for this prepared solver's lifetime. */
   key(job: Job): string;
-  /** Complete revision of everything solve may read outside WindowRequest's standard
-   * fields, including normalized ground/collision/devices/movement/constraints,
-   * adapter-specific request fields and mutable solver evidence. A ground key alone
-   * cannot establish this. Return undefined when equivalence is unknown. */
+  /** Complete revision of external physics read by solve: normalized ground,
+   * collision, devices, movement and constraints. Adapter-specific request fields
+   * outside WindowRequest's standard fields must also be covered. A ground key
+   * alone cannot establish this. Return undefined when equivalence is unknown. */
   physicalRevision?(job: Job): string | undefined;
   ground(job: Job): Promise<{ surfaces: Surface[]; options: GroundOptions }>;
   route(job: Job): { route?: Route; reason?: string; diagnostics?: unknown };
