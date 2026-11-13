@@ -2,9 +2,84 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { Portal, Surface, Vec3 } from '#@/src/geometry.ts';
-import { surfaceGraph, projectPoint } from '#@/src/v1/geo/surfaces.ts';
+import {
+  surfaceGraph,
+  projectPoint,
+  surfacePortals,
+  createSurfacePortalBuilder,
+} from '#@/src/v1/geo/surfaces.ts';
 import { route } from '#@/src/v1/route/routes.ts';
 import { expectStatus } from '#@/test/assertions.ts';
+
+test('prepared coarse portal groups preserve ordered overlaps without retaining blocked refinements', () => {
+  const floor = (id: string, x0: number, x1: number, z0: number, z1: number): Surface => ({
+    id,
+    vertices: [
+      [x0, 0, z0],
+      [x1, 0, z0],
+      [x1, 0, z1],
+      [x0, 0, z1],
+    ],
+  });
+  const coarse = [
+    floor('a', 0, 2, 0, 4),
+    floor('b', 2, 4, 0, 4),
+    floor('c', 4, 6, 0, 2),
+    floor('d', 4, 6, 2, 4),
+  ];
+  const resolve = createSurfacePortalBuilder(coarse);
+  const unchanged = surfacePortals(coarse);
+  assert.ok(unchanged.some((portal) => portal.from === 'a' && portal.to === 'b'));
+  const variants: Surface[][] = [
+    [floor('fine', 2, 3, 0.5, 1.5)],
+    [floor('fine', 6, 8, 0, 4)],
+    [floor('fine', 2, 4, 0, 4)],
+    [floor('fine', 6, 8, 0, 2), floor('next', 6, 8, 2, 4)],
+    [floor('next', 6, 8, 2, 4), floor('fine', 6, 8, 0, 2)],
+    [floor('fine', 6 + 2e-5, 8 + 2e-5, 0, 2)],
+    [{ ...floor('fine', 6, 8, 0, 4), portals: [1, 2] }],
+    [],
+  ];
+  for (const fine of [...variants, ...variants.slice().reverse()]) {
+    const actual = resolve(fine),
+      expected = surfacePortals([...coarse, ...fine]);
+    assert.deepEqual(actual, expected);
+    assert.deepEqual(
+      surfaceGraph([...coarse, ...fine], { speed: 3 }, actual),
+      surfaceGraph([...coarse, ...fine], { speed: 3 }, expected),
+    );
+  }
+  assert.ok(!resolve(variants[0]).some((portal) => portal.from === 'a' && portal.to === 'b'));
+  assert.deepEqual(resolve([]), unchanged);
+  assert.throws(() => resolve([floor('a', 8, 10, 0, 2)]), /Invalid surface/);
+});
+
+test('prepared portal grouping retains first-owner coordinates at quantized keys across input orders', () => {
+  for (const offset of [-10000, -0, 10000]) {
+    const floor = (id: string, x0: number, x1: number, z0: number, z1: number): Surface => ({
+      id,
+      vertices: [
+        [x0 + offset, -0, z0],
+        [x1 + offset, -0, z0],
+        [x1 + offset, -0, z1],
+        [x0 + offset, -0, z1],
+      ],
+    });
+    const coarse = [floor('coarse', 0, 2, 0, 2)];
+    const resolve = createSurfacePortalBuilder(coarse);
+    const near = floor('near', 2 + 2e-5, 4, 0, 2);
+    const upper = floor('upper', 0, 2, 2, 4);
+    for (const fine of [[near], [near, upper], [upper, near], [near]]) {
+      const actual = resolve(fine);
+      assert.deepEqual(actual, surfacePortals([...coarse, ...fine]));
+      const shared = actual.find((portal) => portal.to === 'near');
+      assert.ok(shared);
+      assert.equal(shared.start[0], 2 + offset);
+      assert.equal(shared.end[0], 2 + offset);
+    }
+  }
+});
+
 test('joins a shared 3D edge but never an overlapping upper floor', () => {
   const a: Surface = {
     id: 'a',

@@ -8,7 +8,12 @@ import type {
   ResourceSearch,
 } from '#@/src/route.ts';
 import { createSupportProjector } from '#@/src/v1/geo/support-projector.ts';
-import { type SharedPortal, surfaceGraph, surfacePortals } from '#@/src/v1/geo/surfaces.ts';
+import {
+  type SharedPortal,
+  surfaceGraph,
+  surfacePortals,
+  createSurfacePortalBuilder,
+} from '#@/src/v1/geo/surfaces.ts';
 import { type GoalProjector, createGoalProjector } from '#@/src/v1/motion/goals.ts';
 import { validateMotion } from '#@/src/v1/motion/motion.ts';
 import { retimeGroundRoute } from '#@/src/v1/resource/locomotion.ts';
@@ -47,6 +52,7 @@ interface Preparation {
   constraintsSignature: string;
   searchSpeed: number;
   importedPortals?: GroundOptions['portals'];
+  portalBuilder?: ReturnType<typeof createSurfacePortalBuilder>;
 }
 interface Projection {
   surface: string;
@@ -153,7 +159,11 @@ function prepareGroundPlanner(
   // Compare action times at the fastest permitted ground gait. The existing
   // resource scheduler verifies the complete selected motion sequence afterwards.
   const searchSpeed = options.locomotion?.sprintSpeed ?? speed;
-  const portals = surfacePortals(surfaces);
+  const portals = extension
+    ? (extension.coarse.portalBuilder ??= createSurfacePortalBuilder(extension.coarse.surfaces))(
+        extension.fine,
+      )
+    : surfacePortals(surfaces);
   const base = surfaceGraph(surfaces, { speed: searchSpeed, portals: options.portals }, portals);
   const routeBase = prepareRoutePlanner(base, { walls, profile });
   const blocked = routeBase.blocked!;

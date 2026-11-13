@@ -26,7 +26,6 @@ interface Group extends Bounds {
   a: Vec3;
   b: Vec3;
   owners: Owner[];
-  blocked: boolean;
 }
 interface Interval {
   near: number;
@@ -183,12 +182,27 @@ const sharedInterval = (a: Group, b: Group): Interval | null => {
  * portal masks remain authoritative, and point contacts or positive gaps do not join.
  */
 export function surfacePortals(surfaces: Surface[]): SharedPortal[] {
-  const groups = new Map<string, Group>(),
+  return resolvePortalGroups(collectPortalGroups(surfaces).groups);
+}
+
+/** Prepare immutable coarse edge ownership, then resolve each appended mesh in full. */
+export function createSurfacePortalBuilder(coarse: Surface[]) {
+  const base = collectPortalGroups(coarse);
+  return (fine: Surface[]): SharedPortal[] =>
+    resolvePortalGroups(collectPortalGroups(fine, base).groups);
+}
+
+function collectPortalGroups(
+  surfaces: Surface[],
+  base?: { groups: Map<string, Group>; ids: Set<string> },
+) {
+  const groups = new Map<string, Group>(base?.groups),
     ids = new Set<string>();
   for (const surface of surfaces) {
     if (
       typeof surface.id !== 'string' ||
       ids.has(surface.id) ||
+      base?.ids.has(surface.id) ||
       !Array.isArray(surface.vertices) ||
       surface.vertices.length < 3 ||
       surface.vertices.some(
@@ -217,13 +231,16 @@ export function surfacePortals(surfaces: Surface[]): SharedPortal[] {
       if (from === to) throw new Error('Degenerate surface edge');
       const key = from < to ? from + '/' + to : to + '/' + from;
       let group = groups.get(key);
+      if (group && group === base?.groups.get(key)) {
+        group = { ...group, owners: [...group.owners] };
+        groups.set(key, group);
+      }
       if (!group) {
         group = {
           id: groups.size,
           a,
           b,
           owners: [],
-          blocked: false,
           min: a.map((value, axis) => Math.min(value, b[axis])),
           max: a.map((value, axis) => Math.max(value, b[axis])),
         };
@@ -232,8 +249,15 @@ export function surfacePortals(surfaces: Surface[]): SharedPortal[] {
       group.owners.push({ surface: surface.id, edge, from, to });
     }
   }
+  return { groups, ids };
+}
+
+function resolvePortalGroups(groups: Map<string, Group>): SharedPortal[] {
   const entries = [...groups.values()],
     singles = entries.filter((group) => group.owners.length === 1);
+  // Overlap resolution can block untouched coarse groups too. Keep its mutable
+  // state outside shared ownership records so every refinement starts clean.
+  const blocked = new Uint8Array(groups.size);
   const candidates: (Interval & { a: Group; b: Group })[] = [],
     intervals = new Map<number, (Interval & { other: Group })[]>();
   // Full shared edges already have exact partners. Only unmatched boundaries need
@@ -248,8 +272,8 @@ export function surfacePortals(surfaces: Surface[]): SharedPortal[] {
         if (!interval) continue;
         overlaps.push({ ...interval, other: b });
         if (b.owners.length > 1) {
-          a.blocked = true;
-          b.blocked = true;
+          blocked[a.id] = 1;
+          blocked[b.id] = 1;
         } else if (a.id < b.id && interval.opposite) {
           candidates.push({ a, b, ...interval });
         }
@@ -264,9 +288,9 @@ export function surfacePortals(surfaces: Surface[]): SharedPortal[] {
           if ((overlaps[previous].far - overlaps[index].near) * length <= portalTolerance) continue;
           // More than two polygons cover this boundary interval. Keeping the
           // original component is safer than choosing an overlapping state mesh.
-          a.blocked = true;
-          overlaps[index].other.blocked = true;
-          overlaps[previous].other.blocked = true;
+          blocked[a.id] = 1;
+          blocked[overlaps[index].other.id] = 1;
+          blocked[overlaps[previous].other.id] = 1;
         }
       }
     }
@@ -275,12 +299,12 @@ export function surfacePortals(surfaces: Surface[]): SharedPortal[] {
   const add = (a: Owner, b: Owner, start: Vec3, end: Vec3) =>
     portals.push({ from: a.surface, fromEdge: a.edge, to: b.surface, toEdge: b.edge, start, end });
   for (const group of entries) {
-    if (group.blocked || group.owners.length !== 2) continue;
+    if (blocked[group.id] || group.owners.length !== 2) continue;
     const [a, b] = group.owners;
     if (a.surface !== b.surface && a.from === b.to && a.to === b.from) add(a, b, group.a, group.b);
   }
   for (const candidate of candidates) {
-    if (!candidate.a.blocked && !candidate.b.blocked) {
+    if (!blocked[candidate.a.id] && !blocked[candidate.b.id]) {
       add(candidate.a.owners[0], candidate.b.owners[0], candidate.start, candidate.end);
     }
   }
