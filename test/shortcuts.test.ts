@@ -355,6 +355,85 @@ test('invalidates frontier reachability when an existing action changes under th
   assert.equal(changed.diagnostics.distanceFields!.approach.reachableNodes, 2);
 });
 
+test('prepared landing views preserve independent roots, targets and bounds across fresh discovery caches', () => {
+  const surfaces = [floor('start', 0, 4, 0, -2, 2), floor('goal', 7, 11, 0, -2, 2)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const planner = createGroundPlanner(surfaces, options);
+  for (const reverse of [false, true]) {
+    for (const [from, to, costBound] of [
+      [[2, 0, 0], [9, 0, 0], 20],
+      [[1, 0, 1], [8, 0, 1], 0],
+      [[3, 0, -1], [10, 0, -1], 10],
+      [[2, 0, 0], [9, 0, 0], 20],
+    ] as const) {
+      const query: ShortcutOptions = {
+        ...options,
+        from: [...from],
+        to: [...to],
+        costBound,
+        boundGoal: [...to],
+      };
+      const actual = findJumpFrontier(
+        surfaces,
+        world,
+        { ...query, groundPlanner: planner },
+        {},
+        reverse,
+      );
+      const expected = findJumpFrontier(
+        surfaces,
+        world,
+        {
+          ...query,
+          groundPlanner: createGroundPlanner(surfaces, options),
+        },
+        {},
+        reverse,
+      );
+      assert.deepEqual(actual, expected);
+      if (costBound === 0) assert.deepEqual(actual.connections, []);
+      else assert.ok(actual.connections.length > 0);
+    }
+  }
+});
+
+test('landing view eviction and equal-size component swaps preserve cold discovery coverage', () => {
+  const surfaces = Array.from({ length: 10 }, (_, index) => {
+    const x = (index % 3) * 5,
+      z = Math.floor(index / 3) * 5;
+    return floor(`island/${index}`, x, x + 2, 0, z, z + 2);
+  });
+  const world = createCollisionWorld(geometry(surfaces));
+  const planner = createGroundPlanner(surfaces, options);
+  // Distinct source components change eligibility while retaining the same
+  // reachable counts. Revisiting them crosses the bounded shared-view history.
+  const roots = [...surfaces.slice(0, 9), surfaces[0], surfaces[8]];
+  let found = 0;
+  for (const surface of roots) {
+    const query: ShortcutOptions = {
+      ...options,
+      maxCandidates: 48,
+      from: [surface.vertices[0][0] + 1, 0, surface.vertices[0][2] + 1],
+      to: [1, 0, 16],
+    };
+    const actual = findJumpFrontier(surfaces, world, { ...query, groundPlanner: planner }, {});
+    const expected = findJumpFrontier(
+      surfaces,
+      world,
+      {
+        ...query,
+        groundPlanner: createGroundPlanner(surfaces, options),
+      },
+      {},
+    );
+    assert.deepEqual(actual, expected);
+    assert.equal(actual.diagnostics.distanceFields!.approach.reachableNodes, 1);
+    assert.equal(actual.diagnostics.distanceFields!.departure.reachableNodes, 1);
+    found += actual.connections.length;
+  }
+  assert.ok(found > 0, 'The parity checks must include physically validated jumps');
+});
+
 test('reverse frontiers constrain predecessors while forward frontiers retain intermediate relays', () => {
   const surfaces: Surface[] = [
     floor('start', 0, 2, 0, -1, 1),

@@ -112,6 +112,7 @@ interface PreparedGeometry {
   project: ReturnType<typeof movementGeometry>['project'];
   visibility?: GroundStraightener;
   boundaryOrder?: { key: string; tree: ReturnType<typeof boundaryTree<IndexedBoundary>> };
+  landingViews?: { mode: number; groups: Uint8Array; queries: LandingQuery[] }[];
 }
 export type ShortcutOptions = Omit<DiscoveryOptions, 'connections'> &
   Pick<GroundOptions, 'speed' | 'locomotion' | 'activeBoost'> & {
@@ -918,30 +919,48 @@ function findConnections(
         : distance(from, nav.position),
     });
   }
-  const eligible = (id: string) => !frontier || (reverse ? departure.has(id) : !approach.has(id));
-  const landingQueries: LandingQuery[] =
-    cursor?.landingQueries ??
-    [
-      ...(frontier
-        ? [true, false].map((connected): LandingQuery => ({
-            boundary: true,
-            query: prepared.boundaryIndex.filterGroups(
-              (group: number) =>
-                eligible(prepared.representatives[group]) &&
-                departure.has(prepared.representatives[group]) === connected,
-            ),
-          }))
-        : []),
-      ...[true, false].map((connected): LandingQuery => ({
-        boundary: false,
-        query: prepared.landingIndex.filterGroups(
-          (group: number) =>
-            eligible(prepared.representatives[group]) &&
-            departure.has(prepared.representatives[group]) === connected,
-        ),
-      })),
-    ].filter(({ query }) => !query.empty);
-  if (cursor) cursor.landingQueries = landingQueries;
+  let landingQueries = cursor?.landingQueries;
+  if (!landingQueries) {
+    const mode = frontier ? (reverse ? 2 : 1) : 0;
+    const groups = Uint8Array.from(prepared.representatives, (id) => {
+      const eligible = !frontier || (reverse ? departure.has(id) : !approach.has(id));
+      return eligible ? (departure.has(id) ? 2 : 1) : 0;
+    });
+    // Membership alone selects immutable tree branches. Keep no endpoint,
+    // distance map or discovery cursor in this geometry-owned, bounded LRU.
+    const views = (prepared.landingViews ??= []);
+    const found = views.findIndex(
+      (view) =>
+        view.mode === mode &&
+        view.groups.length === groups.length &&
+        groups.every((value, index) => value === view.groups[index]),
+    );
+    if (found >= 0) {
+      const [view] = views.splice(found, 1);
+      views.push(view);
+      landingQueries = view.queries;
+    } else {
+      landingQueries = [
+        ...(frontier
+          ? [true, false].map((connected): LandingQuery => ({
+              boundary: true,
+              query: prepared.boundaryIndex.filterGroups(
+                (group: number) => groups[group] === (connected ? 2 : 1),
+              ),
+            }))
+          : []),
+        ...[true, false].map((connected): LandingQuery => ({
+          boundary: false,
+          query: prepared.landingIndex.filterGroups(
+            (group: number) => groups[group] === (connected ? 2 : 1),
+          ),
+        })),
+      ].filter(({ query }) => !query.empty);
+      if (views.length >= 8) views.shift();
+      views.push({ mode, groups, queries: landingQueries });
+    }
+    if (cursor) cursor.landingQueries = landingQueries;
+  }
   const rejectedPairs = cursor?.rejected ?? new Set<string>();
   const pairKey = (start: Takeoff, end: Witness) =>
     JSON.stringify([start.surface, start.position, start.exit, end.surface, end.position]);
