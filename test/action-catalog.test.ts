@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { createCollisionWorld } from '#@/src/collision.ts';
 import type { Surface, Vec3 } from '#@/src/geometry.ts';
-import type { GroundArrival } from '#@/src/route.ts';
+import type { GroundArrival, GroundConnection } from '#@/src/route.ts';
 import {
   actionCatalogStats,
   setActionCatalogPhase,
@@ -11,7 +11,11 @@ import {
   registerCatalogSurfaces,
 } from '#@/src/v1/route/action-catalog.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
-import { planJumpRoute, type JumpRouteOptions } from '#@/src/v1/route/jump-planner.ts';
+import {
+  planJumpRoute,
+  type InitialGroundProof,
+  type JumpRouteOptions,
+} from '#@/src/v1/route/jump-planner.ts';
 
 const floor = (id: string, x0: number, x1: number, y: number, z0 = -2, z1 = 2): Surface => ({
   id,
@@ -136,6 +140,124 @@ test('a frozen catalog miss retains original physical discovery', () => {
     );
     assert.equal(result.route.status, 'complete');
     assert.ok(result.diagnostics.searches.length > 0);
+    assert.equal(actionCatalogStats().added, before);
+  } finally {
+    setActionCatalogPhase('disabled');
+  }
+});
+
+test('coarse catalog prefixes seed the normal full-budget root search without replacing arrivals', () => {
+  const surfaces = [floor('start', 0, 4, 0), floor('step', 7, 11, 0), floor('new-goal', 14, 18, 0)];
+  const world = createCollisionWorld(geometry(surfaces));
+  const planner = createGroundPlanner(surfaces, options);
+  const settings = {
+    ...options,
+    groundPlanner: planner,
+    maxCandidates: 96,
+    maxShortcutCandidates: 16,
+  };
+  try {
+    setActionCatalogPhase('training');
+    registerCatalogSurfaces(surfaces, surfaces);
+    const training = planJumpRoute(surfaces, world, arrival([2, 0, 0]), [9, 0, 0], {
+      ...settings,
+      maxCandidates: 16,
+      maxShortcutCandidates: 0,
+    });
+    assert.equal(training.route.status, 'complete');
+    setActionCatalogPhase('frozen');
+    const before = actionCatalogStats().added;
+    const starts: GroundArrival[] = [
+      { id: 'costly', position: [1, 0, 0], state: 'available', cost: 30 },
+      { id: 'fresh', position: [2, 0, 0], state: 'available', cost: 3 },
+      { id: 'locked', position: [16, 0, 0], state: 'locked', cost: 0 },
+    ];
+    const goal: Vec3 = [16, 0, 0];
+    for (const currentStarts of [[starts[1]], starts]) {
+      const seeds: GroundConnection[] = [];
+      assert.deepEqual(
+        selectCatalogActions(world, surfaces, currentStarts, goal, settings, seeds),
+        [],
+      );
+      assert.ok(seeds.length > 0 && seeds.length <= 8);
+      const proof: InitialGroundProof = {
+        planner,
+        surfaces,
+        arrival: currentStarts[0],
+        goal,
+        connections: [],
+        route: planner.plan(currentStarts, goal),
+      };
+      assert.notEqual(proof.route.status, 'complete');
+      const plan = planner.plan;
+      const queries: { starts: GroundArrival[]; connections: GroundConnection[] }[] = [];
+      planner.plan = (...args) => {
+        queries.push({ starts: args[0], connections: args[2]?.connections ?? [] });
+        return plan(...args);
+      };
+      let result: ReturnType<typeof planJumpRoute>;
+      try {
+        result = planJumpRoute(surfaces, world, currentStarts, goal, settings, proof);
+      } finally {
+        planner.plan = plan;
+      }
+      assert.equal(result.route.status, 'complete');
+      if (result.route.status === 'complete') {
+        assert.equal(result.route.start, 'fresh');
+        assert.equal(result.route.arrivalCost, 3);
+        assert.deepEqual(result.route.points[0], starts[1].position);
+        assert.deepEqual(result.route.points.at(-1), goal);
+      }
+      assert.deepEqual(queries[0].starts, currentStarts);
+      assert.equal(queries[0].connections.length, seeds.length);
+      assert.ok(queries[0].connections.every((action) => action.id.startsWith('@catalog/')));
+      assert.ok(result.diagnostics.catalogSeedActions! > 0);
+      assert.ok(result.diagnostics.searches.length > 0);
+      assert.equal(result.diagnostics.deviceApproaches, undefined);
+      assert.deepEqual(
+        result.route,
+        planner.plan(currentStarts, goal, { connections: result.connections }),
+      );
+    }
+    assert.equal(actionCatalogStats().added, before);
+  } finally {
+    setActionCatalogPhase('disabled');
+  }
+});
+
+test('an uncompleted seeded search retains the ordinary discovery budget and no extra entry pass', () => {
+  const surfaces = [
+    floor('start', 0, 4, 0),
+    floor('step', 7, 11, 0),
+    floor('isolated-goal', 30, 34, 0),
+  ];
+  const world = createCollisionWorld(geometry(surfaces));
+  const settings = {
+    ...options,
+    groundPlanner: createGroundPlanner(surfaces, options),
+    maxCandidates: 48,
+    maxShortcutCandidates: 0,
+  };
+  try {
+    setActionCatalogPhase('training');
+    registerCatalogSurfaces(surfaces, surfaces);
+    assert.equal(
+      planJumpRoute(surfaces, world, arrival([2, 0, 0]), [9, 0, 0], {
+        ...settings,
+        maxCandidates: 16,
+      }).route.status,
+      'complete',
+    );
+    setActionCatalogPhase('frozen');
+    const before = actionCatalogStats().added;
+    const result = planJumpRoute(surfaces, world, arrival([1, 0, 0]), [32, 0, 0], settings);
+    assert.equal(result.route.status, 'no-verified-route');
+    assert.ok(result.diagnostics.catalogSeedActions! > 0);
+    assert.ok(result.connections.some((action) => action.id.startsWith('@catalog/')));
+    assert.ok(result.diagnostics.searches.length > 0);
+    assert.equal(result.diagnostics.unusedCandidates, 0);
+    assert.equal(result.diagnostics.deviceApproaches, undefined);
+    assert.equal(result.diagnostics.knownActionChains, undefined);
     assert.equal(actionCatalogStats().added, before);
   } finally {
     setActionCatalogPhase('disabled');

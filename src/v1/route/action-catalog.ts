@@ -19,6 +19,9 @@ const counts = {
   frozenCalls: 0,
   selections: 0,
   selectedEdges: 0,
+  seedSelections: 0,
+  seededEdges: 0,
+  seededComponents: 0,
   candidateChains: 0,
   rankedStates: 0,
   hits: 0,
@@ -250,6 +253,7 @@ export function selectCatalogActions(
   starts: GroundArrival[],
   goal: Vec3,
   options: JumpRouteOptions,
+  seeds?: GroundConnection[],
 ): GroundConnection[] {
   if (phase !== 'frozen') return [];
   counts.frozenCalls++;
@@ -257,7 +261,9 @@ export function selectCatalogActions(
   if (!scope) return [];
   const local = scope.local.get(surfaces);
   const selected = local ? rankActions(scope, local, starts, goal, options) : [];
-  return selected.length ? selected : rankActions(scope, scope.shared, starts, goal, options);
+  return selected.length
+    ? selected
+    : rankActions(scope, scope.shared, starts, goal, options, seeds);
 }
 
 function rankActions(
@@ -266,6 +272,7 @@ function rankActions(
   starts: GroundArrival[],
   goal: Vec3,
   options: JumpRouteOptions,
+  seeds?: GroundConnection[],
 ): GroundConnection[] {
   if (!bank.actions.size) return [];
   const prepared = groundPreparation(options.groundPlanner)!;
@@ -345,6 +352,10 @@ function rankActions(
     chain: GroundConnection[];
     cost: number;
   };
+  const gap = (position: Vec3) =>
+    Math.hypot(position[0] - goal[0], position[1] - goal[1], position[2] - goal[2]);
+  const rootGap = seeds ? Math.min(...roots.map((root) => gap(root.position))) : 0;
+  const prefixes = seeds ? new Map<number, { state: State; gap: number }>() : undefined;
   const heap = createMinHeap<State>();
   const best = new Map<string, number>();
   const extend = (current: Omit<State, 'cost'>) => {
@@ -384,10 +395,42 @@ function rankActions(
         for (const action of additions) selected.set(action.id, action);
         alternatives++;
       }
+    } else if (prefixes && current.chain.length <= 8) {
+      const remaining = gap(current.position);
+      const previous = prefixes.get(current.component);
+      if (
+        remaining < rootGap &&
+        (!previous ||
+          remaining < previous.gap ||
+          (remaining === previous.gap && current.elapsed < previous.state.elapsed))
+      )
+        prefixes.set(current.component, { state: current, gap: remaining });
     }
     extend(current);
   }
-  if (!selected.size) return [];
+  if (!selected.size) {
+    // These are optimistic coarse prefixes, not fresh arrivals or reachability
+    // certificates. The normal root planner must check their complete action graph.
+    if (prefixes) {
+      const actions = new Map<string, GroundConnection>();
+      let terminals = 0;
+      for (const { state } of [...prefixes.values()].sort(
+        (a, b) => a.gap - b.gap || a.state.elapsed - b.state.elapsed,
+      )) {
+        const additions = state.chain.filter((action) => !actions.has(action.id));
+        if (!additions.length || actions.size + additions.length > 8) continue;
+        for (const action of additions) actions.set(action.id, action);
+        if (++terminals === 2) break;
+      }
+      if (actions.size) {
+        counts.seedSelections++;
+        counts.seededEdges += actions.size;
+        counts.seededComponents += terminals;
+        seeds!.push(...[...actions.values()].map(copy));
+      }
+    }
+    return [];
+  }
   counts.candidateChains += alternatives;
   counts.selections++;
   counts.selectedEdges += selected.size;

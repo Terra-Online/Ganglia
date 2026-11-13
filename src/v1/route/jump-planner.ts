@@ -72,6 +72,7 @@ export interface JumpDiagnostics {
   selectedCost: number | null;
   truncated: boolean;
   unusedCandidates?: number;
+  catalogSeedActions?: number;
   deviceImprovement?: JumpDiagnostics;
   searches: (DiscoveryDiagnostics | ShortcutDiagnostics | FrontierDiagnostics)[];
   /** Additional bounded entry queries after primary feasibility fails. */
@@ -604,9 +605,18 @@ function planBaseRoute(
   goal: Vec3,
   options: PlannerOptions,
   initial?: Route,
+  catalogSeeds: GroundConnection[] = [],
 ): JumpResult {
   const shared: ShortcutCache = {};
   const goalPlanner = options.groundPlanner ?? createGroundPlanner(surfaces, options);
+  const existing = new Set((options.connections ?? []).map((action) => action.id));
+  const seeds = catalogSeeds.filter((action) => !existing.has(action.id));
+  const directedOptions = seeds.length
+    ? { ...options, connections: [...(options.connections ?? []), ...seeds] }
+    : options;
+  // A new action overlay requires a fresh original-start-to-goal resource proof.
+  // Keep authored options unchanged: their entry-fallback gate is independent of seeds.
+  if (seeds.length) initial = undefined;
   const airborneOnly =
     options.interaction?.airborne &&
     !goalPlanner.project(goal, {
@@ -633,11 +643,12 @@ function planBaseRoute(
         world,
         starts,
         goal,
-        { ...options, groundPlanner: goalPlanner },
+        { ...directedOptions, groundPlanner: goalPlanner },
         shared,
         'final',
         initial,
       );
+  if (seeds.length) result.diagnostics.catalogSeedActions = seeds.length;
   if (options.interaction?.airborne && result.route.status !== 'complete') {
     const planner = goalPlanner;
     const airborne = planAirborneGoal(
@@ -863,7 +874,8 @@ export function planJumpRoute(
   options: JumpRouteOptions,
   initial?: InitialGroundProof,
 ): JumpResult {
-  const selected = selectCatalogActions(world, surfaces, starts, goal, options);
+  const seeds: GroundConnection[] = [];
+  const selected = selectCatalogActions(world, surfaces, starts, goal, options, seeds);
   if (selected.length) {
     const connections = [...(options.connections ?? []), ...selected];
     const route = options.groundPlanner!.plan(starts, goal, {
@@ -909,6 +921,7 @@ export function planJumpRoute(
     goal,
     options,
     unchanged ? initial.route : undefined,
+    seeds,
   );
   const best = options.boosts?.length
     ? planBoostedRoute(surfaces, world, starts, goal, options, result, planBaseRoute)
