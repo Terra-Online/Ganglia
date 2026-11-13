@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util';
 
 import { prepareRouteSolver, gangliaV1Defaults, type SolverConfig } from '@opendfieldmap/ganglia';
 
+import { prepareCoverage, type CoveragePass } from '#@/bench/prepare-coverage.ts';
 import { exportPhysicalRegion } from '#@/bench/prepare-region.ts';
 import { loadScene } from '#@/bench/scene.ts';
 import { readWorkload } from '#@/bench/workload.ts';
@@ -85,6 +86,8 @@ if (values.help) {
       truncated: boolean;
       reason?: string;
     }[] = [];
+    const passes: CoveragePass[] = [];
+    let coverageReady = false;
     let failure: string | undefined;
     try {
       const solver = await prepareRouteSolver(
@@ -92,7 +95,19 @@ if (values.help) {
         scene.input,
       );
       try {
-        const reports = await solver.solveBatch(workload.map((item) => item.query));
+        const reports = await prepareCoverage(
+          async () => {
+            const reports = await solver.solveBatch(workload.map((item) => item.query));
+            scene.verifyInputs();
+            return reports;
+          },
+          () => generated.length,
+          (pass) => {
+            passes.push(pass);
+            console.error(JSON.stringify({ phase: 'prepare-coverage-pass', ...pass }));
+          },
+        );
+        coverageReady = true;
         results = reports.map((result, index) => ({
           id: workload[index].id,
           status: result.route.status,
@@ -100,7 +115,6 @@ if (values.help) {
           truncated: result.diagnostics.truncated,
           reason: result.reason,
         }));
-        scene.verifyInputs();
       } finally {
         await solver.close();
       }
@@ -128,6 +142,8 @@ if (values.help) {
         kernelSha256: scene.metadata.kernelSha256,
         hashes: scene.metadata.hashes,
         generated,
+        passes,
+        coverageReady,
         results,
         ...(failure ? { failure } : {}),
       };

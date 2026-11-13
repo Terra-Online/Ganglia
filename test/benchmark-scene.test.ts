@@ -6,6 +6,7 @@ import { test } from 'node:test';
 
 import type { Corridor, WindowRequest } from '@opendfieldmap/ganglia/solver';
 
+import { prepareCoverage, type CoveragePass } from '#@/bench/prepare-coverage.ts';
 import { exportPhysicalRegion } from '#@/bench/prepare-region.ts';
 import { loadSceneData } from '#@/bench/scene-data.ts';
 import { prepareSceneResources, type GameAdapter } from '#@/bench/scene.ts';
@@ -268,6 +269,96 @@ test('only preparation can export missing regions, which are decoded once and re
     assert.equal(builds, 1);
     const reloaded = await loadSceneData(f.root, 'testscene');
     assert.ok(reloaded.select(start, target, selected));
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('coverage preparation re-solves earlier queries after a later query adds a preferred overlapping region', async () => {
+  const f = await fixture();
+  try {
+    await f.region('scene-testscene/regions/z-wide', tiles, { min: [-32, -32], max: [128, 96] });
+    let generated = 0;
+    const data = await loadSceneData(f.root, 'testscene', async () => {
+      const prefix = 'scene-testscene/regions/b-narrow';
+      await f.region(prefix, [...tiles, { x: 0, z: 1 }]);
+      generated++;
+      return {
+        ground: join(f.root, `${prefix}.ground.json`),
+        collision: join(f.root, `${prefix}.collision.json`),
+      };
+    });
+    const selections: string[] = [];
+    let solves = 0;
+    const { resources } = prepareSceneResources(
+      data,
+      async (files) => {
+        selections.push(files.ground);
+        return {
+          solve: async () => {
+            solves++;
+            return {
+              route: {
+                status: 'complete',
+                start: 'start',
+                arrivalCost: 0,
+                cost: files.ground.includes('z-wide') ? 10 : 1,
+                length: 1,
+                points: [
+                  [1, 0, 1],
+                  [90, 0, 30],
+                ],
+                segments: [],
+              },
+            };
+          },
+        };
+      },
+      1,
+      'adapter',
+    );
+    const passes: CoveragePass[] = [];
+    const reportedCosts: number[][] = [];
+    const reports = await prepareCoverage(
+      async () => {
+        const results = [];
+        for (const options of [approach(), approach([...tiles, { x: 0, z: 1 }])]) {
+          const job = await resources.query(
+            'testscene',
+            source,
+            request.arrival.position,
+            request.target,
+            options,
+          );
+          assert.ok(job);
+          const solved = await resources.solve(job, request, true, { version: 1, step: 2 });
+          assert.ok(solved);
+          const route = resources.route(solved).route;
+          assert.ok(route && route.status === 'complete');
+          results.push({ route, connections: [], diagnostics: { truncated: false } });
+        }
+        reportedCosts.push(results.map((result) => result.route.cost));
+        return results;
+      },
+      () => generated,
+      (pass) => passes.push(pass),
+    );
+    assert.deepEqual(reportedCosts, [
+      [10, 1],
+      [1, 1],
+    ]);
+    assert.deepEqual(passes, [
+      { pass: 1, newRegions: 1, generatedRegions: 1 },
+      { pass: 2, newRegions: 0, generatedRegions: 1 },
+    ]);
+    assert.equal(solves, 4);
+    assert.match(selections[0], /z-wide/);
+    assert.ok(selections.slice(1).every((file) => file.includes('b-narrow')));
+    assert.deepEqual(
+      reports.map((result) => (result.route.status === 'complete' ? result.route.cost : null)),
+      [1, 1],
+    );
+    await resources.close?.();
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
