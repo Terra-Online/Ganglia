@@ -50,3 +50,9 @@ import { createRustRouteSearch } from '#@/prototype/rust-kernel/route-binding.ts
 import { installRouteSearchPrototype } from '#@/src/v1/search/route-search.ts';
 
 if (process.env.GANGLIA_RUST_ROUTE === '1') installRouteSearchPrototype(createRustRouteSearch);
+
+import { createRustLandingEnumeration } from '#@/prototype/rust-kernel/landing-binding.ts';
+import { installLandingEnumerationPrototype } from '#@/src/v1/search/landing-enumeration.ts';
+
+if (process.env.GANGLIA_RUST_LANDING === '1')
+  installLandingEnumerationPrototype(createRustLandingEnumeration());

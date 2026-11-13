@@ -2,15 +2,22 @@ import type { JumpModel } from '#@/src/movement.ts';
 import type { Bounds } from '#@/src/v1/geo/bounds.ts';
 import { jumpDuration, jumpTravel } from '#@/src/v1/motion/jumps.ts';
 
-export interface EnvelopeOptions {
+export interface JumpEnvelopeOptions {
   model: JumpModel;
   maxDrop: number;
   maxHorizontalDistance: number;
   endpointTolerance?: number;
-  reverse?: boolean;
   padding?: readonly number[];
 }
-interface FlightEnvelope {
+export interface EnvelopeOptions extends JumpEnvelopeOptions {
+  reverse?: boolean;
+}
+export interface FlightReachSnapshot {
+  readonly model: JumpModel;
+  readonly minimumBin: number;
+  readonly table: Float64Array | null;
+}
+interface FlightEnvelope extends FlightReachSnapshot {
   model: JumpModel;
   maxDrop: number;
   endpointTolerance: number;
@@ -92,6 +99,8 @@ function flightEnvelope(
       : null;
   const result = {
     model: snapshot,
+    minimumBin,
+    table,
     maxDrop,
     endpointTolerance,
     initial,
@@ -112,6 +121,12 @@ function flightEnvelope(
   flightTables.set(model, result);
   return result;
 }
+/** Shares the validated reach lookup, including its analytic fallback model. */
+export const flightReachSnapshot = (
+  model: JumpModel,
+  maxDrop: number,
+  endpointTolerance: number,
+): FlightReachSnapshot => flightEnvelope(model, maxDrop, endpointTolerance);
 /** Optimistic envelope for the existing jump-discovery candidate contract.
  * The anchor is a nominal takeoff, or a nominal landing when reverse is true.
  * Actual supported feet may differ in height by endpointTolerance. Padding

@@ -36,6 +36,7 @@ import {
   interleaveBoundaryOrders,
 } from '#@/src/v1/search/boundary-order.ts';
 import { createCandidateBounds } from '#@/src/v1/search/candidate-bounds.ts';
+import { nearestLanding, type LandingNearestQuery } from '#@/src/v1/search/landing-enumeration.ts';
 import {
   type DiscoveryOptions,
   type Boundary,
@@ -200,6 +201,10 @@ type Diagnostics = Omit<ShortcutDiagnostics, 'baselineCost'> & {
   dominatedFaces: number;
 };
 
+const closeCursor = (cursor: Cursor | undefined) => {
+  if (cursor) for (const query of cursor.active) query?.iterator.return(undefined);
+};
+
 const distance = (a: readonly number[], b: readonly number[]) =>
   Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const horizontal = (a: readonly number[], b: readonly number[]) =>
@@ -318,6 +323,8 @@ function findConnections(
         binding.signature !== signature ||
         binding.portalBinding !== portalBinding)
     ) {
+      closeCursor(cache.forwardCursor);
+      closeCursor(cache.reverseCursor);
       for (const key of Object.keys(cache) as (keyof ShortcutCache)[]) delete cache[key];
     }
     cache.binding = { surfaces, world, signature, portalBinding };
@@ -330,6 +337,8 @@ function findConnections(
       options.boundGoal,
     ]);
     if (cache.query !== query) {
+      closeCursor(cache.forwardCursor);
+      closeCursor(cache.reverseCursor);
       for (const key of [
         'source',
         'goals',
@@ -654,6 +663,7 @@ function findConnections(
   // A smaller link quota can discard pool representatives during validation.
   // Growing it requires fresh enumeration, while a larger work budget resumes.
   let cursor = previous?.revision === revision && maxLinks <= previous.maxLinks ? previous : null;
+  if (previous && !cursor) closeCursor(previous);
   const resumed = Boolean(cursor);
   const takeoffs: Takeoff[] = [];
   let goalBounds = cursor?.goalBounds;
@@ -1041,10 +1051,35 @@ function findConnections(
         : envelope;
       for (const height of heights) {
         const target: Vec3 = [start.position[0], height, start.position[2]];
+        const enumeration: LandingNearestQuery = {
+          bounds,
+          target,
+          anchor: start.position,
+          envelope: {
+            model,
+            maxDrop,
+            maxHorizontalDistance,
+            endpointTolerance,
+            padding: boundary ? [profile.radius / 2, maxVertical, profile.radius / 2] : [0, 0, 0],
+          },
+          ...(Number.isFinite(costLimit)
+            ? {
+                cost: {
+                  approachTime,
+                  inset,
+                  radius: profile.radius,
+                  airSpeed,
+                  boundSpeed,
+                  goal: costGoal,
+                  limit: costLimit,
+                },
+              }
+            : {}),
+        };
         active.push(
           boundary
-            ? { start, boundary: true, iterator: query.nearest(bounds, target, intersects) }
-            : { start, boundary: false, iterator: query.nearest(bounds, target, intersects) },
+            ? { start, boundary: true, iterator: nearestLanding(query, enumeration, intersects) }
+            : { start, boundary: false, iterator: nearestLanding(query, enumeration, intersects) },
         );
       }
     }

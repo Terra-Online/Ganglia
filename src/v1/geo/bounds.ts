@@ -22,6 +22,10 @@ export interface BoundsIndex<T extends Bounds, G = unknown> {
   filter(eligible: (entry: T) => boolean): BoundsIndex<T, G>;
   filterGroups(eligible: (group: G) => boolean): BoundsIndex<T, G>;
 }
+const roots = new WeakMap<object, BoundsNode<Bounds, unknown> | null>();
+/** Internal immutable hierarchy access for specialized enumeration prototypes. */
+export const boundsRoot = <T extends Bounds, G>(index: BoundsIndex<T, G>) =>
+  roots.get(index) as BoundsNode<T, G> | null;
 const overlaps = (node: Bounds, bounds: Bounds) => {
   if (node.min.length === 3)
     return (
@@ -295,5 +299,6 @@ const fromRoot = <T extends Bounds, G>(
     if (!groupOf) throw new Error('Bounds index has no immutable groups');
     return fromRoot(filterGroups(root, eligible, groupOf), groupOf);
   };
+  roots.set(query, root);
   return query;
 };

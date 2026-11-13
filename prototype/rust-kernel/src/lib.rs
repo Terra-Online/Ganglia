@@ -2,6 +2,7 @@ mod candidate_search;
 mod collision;
 mod goals;
 mod ground_trace;
+mod landing_enumeration;
 mod locomotion;
 mod route_search;
 
