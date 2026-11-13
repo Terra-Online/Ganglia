@@ -4,12 +4,14 @@ import { exportPhysicalRegion } from '#@/bench/prepare-region.ts';
 import { loadScene } from '#@/bench/scene.ts';
 import { resetTimings } from '#@/bench/timings.ts';
 import { workerMemory, type WorkerRequest, type WorkerReply } from '#@/bench/workers.ts';
+import { actionCatalogStats, setActionCatalogPhase } from '#@/src/v1/route/action-catalog.ts';
 
 if (!process.send) throw new Error('Scene entry requires a child process IPC channel');
 const send = (message: WorkerReply) => process.send!(message);
 process.once('message', async (message: WorkerRequest) => {
   if (message.type !== 'setup') throw new Error('Scene worker requires setup');
   const setup = message.setup;
+  setActionCatalogPhase(setup.catalogPhase ?? 'disabled');
   const scene = await loadScene(
     setup.dataRoot,
     setup.extractor,
@@ -38,6 +40,13 @@ process.once('message', async (message: WorkerRequest) => {
       process.disconnect();
       return;
     }
+    if (message.type === 'catalog-phase' || message.type === 'benchmark-phase') {
+      if (message.type === 'catalog-phase') setActionCatalogPhase(message.phase);
+      else if (process.env.GANGLIA_PROFILE)
+        console.error(JSON.stringify({ phase: message.phase, worker: setup.index }));
+      send({ type: 'control', id: message.id, catalog: actionCatalogStats() });
+      return;
+    }
     if (message.type !== 'solve') throw new Error('Unexpected scene worker setup');
     const { id, query, events } = message;
     resetTimings(scene.timings);
@@ -52,6 +61,7 @@ process.once('message', async (message: WorkerRequest) => {
         result,
         timings: scene.timings,
         memory: workerMemory(),
+        catalog: actionCatalogStats(),
         ...(setup.preparation ? { metadata: scene.metadata } : {}),
       });
     } catch (error) {
@@ -65,5 +75,6 @@ process.once('message', async (message: WorkerRequest) => {
     inputLoadMs: scene.inputLoadMs,
     preparationMs: scene.timings.preparationMs,
     memory: workerMemory(),
+    catalog: actionCatalogStats(),
   });
 });

@@ -4,11 +4,11 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { prepareRouteSolver, gangliaV1Defaults, type SolverConfig } from '@opendfieldmap/ganglia';
+import { gangliaV1Defaults, type SolverConfig } from '@opendfieldmap/ganglia';
 
 import { prepareCoverage, type CoveragePass } from '#@/bench/prepare-coverage.ts';
-import { exportPhysicalRegion } from '#@/bench/prepare-region.ts';
-import { loadScene } from '#@/bench/scene.ts';
+import { QUERY_SLO_MS } from '#@/bench/slo.ts';
+import { prepareWorkerSolver } from '#@/bench/workers.ts';
 import { readWorkload } from '#@/bench/workload.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -27,7 +27,7 @@ const { values } = parseArgs({
 });
 if (values.help) {
   console.log(
-    'Usage: node bench/prepare.ts --config <exporter-config> --workload <json-file | map02-long-range | map02-long-detours | map02-stress> [--offset <index>] [--limit <count>] [--scene <name; default map02>] [--data-root <path>] [--extractor <path>] [--solver-config <json-file>]. Builds missing physical regions through the real solver with batchConcurrency=1. This is data preparation, not a performance run.',
+    'Usage: node bench/prepare.ts --config <exporter-config> --workload <json-file | map02-long-range | map02-long-detours | map02-stress> [--offset <index>] [--limit <count>] [--scene <name; default map02>] [--data-root <path>] [--extractor <path>] [--solver-config <json-file>]. Builds missing physical regions through the real solver with batchConcurrency=1 and a hard 300-second per-query SLO. Timeouts count as failed routes. This is data preparation, not a performance run.',
   );
 } else {
   try {
@@ -70,14 +70,20 @@ if (values.help) {
     const configSha256 = createHash('sha256')
       .update(await readFile(configFile))
       .digest('hex');
-    const scene = await loadScene(dataRoot, extractor, 1, values.scene, async (request) => {
-      console.error(JSON.stringify({ phase: 'prepare-physical-region', ...request }));
-      const files = await exportPhysicalRegion(
-        { dataRoot, extractor, config: configFile, devices },
-        request,
-      );
-      generated.push(files);
-      return files;
+    const movement: { defaultProfile: { radius: number; height: number } } = JSON.parse(
+      await readFile(resolve(dataRoot, 'routing/movement-settings-current.json'), 'utf8'),
+    );
+    const prepared = await prepareWorkerSolver({
+      count: 1,
+      config: { ...solverConfig, batchConcurrency: 1 },
+      dataRoot,
+      extractor,
+      scene: values.scene,
+      preparation: { config: configFile, devices },
+      onRegion: (files) => {
+        generated.push(files);
+        console.error(JSON.stringify({ phase: 'prepared-physical-region', ...files }));
+      },
     });
     let results: {
       id: string;
@@ -85,20 +91,18 @@ if (values.help) {
       partial: boolean;
       truncated: boolean;
       reason?: string;
+      timedOut: boolean;
+      wallMs?: number;
     }[] = [];
     const passes: CoveragePass[] = [];
     let coverageReady = false;
     let failure: string | undefined;
     try {
-      const solver = await prepareRouteSolver(
-        { ...solverConfig, batchConcurrency: 1 },
-        scene.input,
-      );
+      const { solver } = prepared;
       try {
         const reports = await prepareCoverage(
           async () => {
             const reports = await solver.solveBatch(workload.map((item) => item.query));
-            scene.verifyInputs();
             return reports;
           },
           () => generated.length,
@@ -114,6 +118,11 @@ if (values.help) {
           partial: result.partial === true,
           truncated: result.diagnostics.truncated,
           reason: result.reason,
+          timedOut: result.reason === 'timeout',
+          ...('solveWallMs' in result.diagnostics &&
+          typeof result.diagnostics.solveWallMs === 'number'
+            ? { wallMs: result.diagnostics.solveWallMs }
+            : {}),
         }));
       } finally {
         await solver.close();
@@ -122,14 +131,14 @@ if (values.help) {
       failure = error instanceof Error ? error.message : String(error);
       throw error;
     } finally {
-      await scene.input.resources.close?.();
       const report = {
         kind: 'physical-coverage-preparation',
         version: 1,
         scene: values.scene,
-        source: scene.metadata.source,
+        source: prepared.metadata.source,
         selection: { terminalScene: true, sceneState: 0, area: 0 },
-        profile: scene.input.scene.navigation.options.profile,
+        profile: movement.defaultProfile,
+        querySloMs: QUERY_SLO_MS,
         solverConfig: { ...solverConfig, batchConcurrency: 1 },
         configSha256,
         workload: {
@@ -138,9 +147,10 @@ if (values.help) {
           sha256: createHash('sha256').update(workloadBytes).digest('hex'),
           ids: workload.map((item) => item.id),
         },
-        gameAdapterSha256: scene.metadata.gameAdapterSha256,
-        kernelSha256: scene.metadata.kernelSha256,
-        hashes: scene.metadata.hashes,
+        gameAdapterSha256: prepared.metadata.gameAdapterSha256,
+        kernelSha256: prepared.metadata.kernelSha256,
+        hashes: prepared.metadata.hashes,
+        recoverySetupMs: prepared.recoverySetupMs,
         generated,
         passes,
         coverageReady,

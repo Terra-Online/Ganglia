@@ -9,12 +9,22 @@ requests exercise layered ground. A physically valid endpoint can be absent from
 coarse navigation, so retain those coverage failures and distinguish them from
 successful long-distance traversal when interpreting latency.
 
+The headless benchmark applies a 300-second SLO to every dispatched query,
+including training, prewarm and physical coverage preparation. A parent process
+kills a timed-out solver process and its exporter descendants. A timeout is a
+failed request with no complete route. Input loading and queueing are outside
+the per-query deadline; globally idle replacement loading is reported separately
+and excluded from measured batch time. Attempt throughput includes failures;
+successful throughput counts only complete routes within the SLO. Compare gained
+and lost solutions before latency and modeled route cost.
+
 Physical coverage preparation repeats fresh whole batches until a complete pass
-requests no new regions. That proves the inputs needed by that execution are
-available, rather than proving a corridor is traversable. The first 4.02 kilometre
-request closes its input coverage but exhausts search with a verified target-side
-fragment. It counts as an incomplete request even though the fragment's own route
-status is complete. Full-workload preparation is still in progress at this snapshot.
+requests no new regions within that SLO. This establishes input availability for
+that execution, rather than corridor traversability. An earlier unlimited
+4.02-kilometre request exhausted search with a verified target-side fragment;
+it counts as incomplete even though the fragment's own route status is complete.
+The unlimited full-workload preparation was stopped when the SLO was introduced,
+preserving 92 physical regions. The capped execution needs its own validation.
 
 Large collision exports use optional local Node V8 snapshots with exact Float64
 coordinates and Uint32 indices. JSON hits a single-string size limit in dense

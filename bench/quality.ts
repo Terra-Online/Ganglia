@@ -2,6 +2,8 @@ import { isDeepStrictEqual } from 'node:util';
 
 import type { RouteQuery } from '@opendfieldmap/ganglia';
 
+import { QUERY_SLO_MS } from '#@/bench/slo.ts';
+
 export interface QualityRow {
   id: string;
   status: string;
@@ -9,9 +11,17 @@ export interface QualityRow {
   cost: number | null;
   outcomeSha256?: string;
   truncated?: boolean;
+  reason?: string | null;
+  timedOut?: boolean;
+  wallMs?: number;
 }
 
-const complete = (row: QualityRow) => row.status === 'complete' && !row.partial;
+export const isTimedOut = (row: QualityRow) =>
+  row.timedOut === true ||
+  row.reason === 'timeout' ||
+  row.status === 'timeout' ||
+  (row.wallMs !== undefined && row.wallMs > QUERY_SLO_MS);
+const complete = (row: QualityRow) => row.status === 'complete' && !row.partial && !isTimedOut(row);
 const cost = (row: QualityRow) => {
   if (row.cost === null || !Number.isFinite(row.cost) || row.cost < 0)
     throw new Error(`Invalid modeled route cost: ${row.id}`);
@@ -29,6 +39,11 @@ export function summarizeQuality(rows: readonly QualityRow[]) {
     objective: 'modeled-travel-time-seconds' as const,
     requested: rows.length,
     completed: values.length,
+    sloMs: QUERY_SLO_MS,
+    sloCompleted: values.length,
+    sloMet: values.length === rows.length,
+    timedOut: rows.filter(isTimedOut).length,
+    failed: rows.length - values.length,
     completionRate: rows.length ? values.length / rows.length : null,
     totalCostSeconds: values.length === rows.length ? sum : null,
     meanCompletedCostSeconds: values.length ? sum / values.length : null,
@@ -84,6 +99,11 @@ export function compareQuality(rows: readonly QualityRow[], reference: readonly 
       : {}),
     lostSolutions,
     gainedSolutions,
+    referenceTimedOut: reference.filter(isTimedOut).length,
+    timedOut: rows.filter(isTimedOut).length,
+    recoveredTimeouts: rows
+      .filter((row) => complete(row) && isTimedOut(previous.get(row.id)!))
+      .map((row) => row.id),
     geometricMeanCostRatio,
     worstCostRatio: !ratios.length || unboundedCostRegressions ? null : Math.max(...ratios),
     unboundedCostRegressions,
@@ -104,6 +124,9 @@ export function qualityGate(
   const failures: string[] = [];
   if (rows.some((row) => !row.sameOutcomeAsPrewarm || !row.sameTruncationAsPrewarm))
     failures.push('Measured results differ from prewarm');
+  if (rows.some(isTimedOut)) failures.push('Queries exceeded the 300,000 ms SLO');
+  if (rows.some((row) => !complete(row)))
+    failures.push('Some queries have no complete route within the SLO');
   if (comparison) {
     if (comparison.lostSolutions.length) failures.push('Lost complete routes');
     if (comparison.unboundedCostRegressions) failures.push('A zero-cost route became more costly');
@@ -163,6 +186,9 @@ export function readReference(value: unknown, binding: Binding): QualityRow[] {
       cost: row.cost,
       ...(typeof row.outcomeSha256 === 'string' ? { outcomeSha256: row.outcomeSha256 } : {}),
       ...(typeof row.truncated === 'boolean' ? { truncated: row.truncated } : {}),
+      ...(typeof row.reason === 'string' || row.reason === null ? { reason: row.reason } : {}),
+      ...(typeof row.timedOut === 'boolean' ? { timedOut: row.timedOut } : {}),
+      ...(typeof row.wallMs === 'number' ? { wallMs: row.wallMs } : {}),
     };
   });
   if (rows.length !== binding.cases.length) throw new Error('Reference result/query mismatch');

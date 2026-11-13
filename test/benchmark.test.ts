@@ -47,7 +47,9 @@ test('one prewarm and repeated measurements submit whole ordered batches and clo
       },
     },
     cases,
-    (phase) => phases.push(phase),
+    (phase) => {
+      phases.push(phase);
+    },
     3,
   );
   assert.equal(batches, 4);
@@ -214,4 +216,86 @@ test('a later measured batch failure closes the solver without running more roun
   );
   assert.equal(batches, 3);
   assert.equal(closes, 1);
+});
+
+test('SLO accounting preserves a middle-round timeout and counts actual successful attempts', async () => {
+  let batches = 0;
+  const complete: RouteResult = {
+    route: {
+      status: 'complete',
+      start: 'player',
+      arrivalCost: 0,
+      cost: 1,
+      length: 1,
+      points: [],
+      segments: [],
+    },
+    connections: [],
+    diagnostics: { truncated: false },
+  };
+  const timeout: RouteResult = {
+    route: { status: 'no-verified-route' },
+    reason: 'timeout',
+    connections: [],
+    diagnostics: { truncated: true },
+  };
+  const report = await runBenchmark(
+    {
+      config: gangliaV1Defaults,
+      solve: async () => {
+        throw new Error('Unexpected single solve');
+      },
+      solveBatch: async () => [++batches === 3 ? timeout : complete],
+      close: async () => {},
+    },
+    [{ id: 'intermittent', query: { starts: [], goal: [0, 0, 0] } }],
+    undefined,
+    3,
+  );
+  assert.equal(report.batch.successfulQueries, 2);
+  assert.equal(report.batch.timedOutAttempts, 1);
+  assert.equal(report.batch.successfulQueriesPerSecond, 2 / (report.batch.totalWallMs / 1000));
+  assert.equal(report.batch.quality.completed, 0);
+  assert.equal(report.batch.results[0].timedOut, true);
+  assert.equal(report.batch.samples[1].results[0].reason, 'timeout');
+  assert.equal(qualityGate(report.batch.results, undefined).passed, false);
+});
+
+test('replacement setup is reported separately from query work in prewarm and measured batches', async () => {
+  let recoverySetupMs = 0;
+  const report = await runBenchmark(
+    {
+      config: gangliaV1Defaults,
+      solve: async () => {
+        throw new Error('Unexpected single solve');
+      },
+      solveBatch: async () => {
+        const start = performance.now();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        recoverySetupMs += performance.now() - start;
+        return [
+          {
+            route: { status: 'no-verified-route' },
+            reason: 'timeout',
+            connections: [],
+            diagnostics: { truncated: true },
+          },
+        ];
+      },
+      close: async () => {},
+    },
+    [{ id: 'restart', query: { starts: [], goal: [0, 0, 0] } }],
+    undefined,
+    2,
+    () => recoverySetupMs,
+  );
+  assert.ok(report.prewarmRecoverySetupMs >= 4);
+  assert.ok(report.batch.recoverySetupMs >= 8);
+  assert.equal(report.batch.samples.length, 2);
+  assert.equal(
+    report.batch.recoverySetupMs,
+    report.batch.samples.reduce((sum, sample) => sum + sample.recoverySetupMs, 0),
+  );
+  assert.equal(report.prewarmQuality.timedOut, 1);
+  assert.equal(report.batch.successfulQueriesPerSecond, 0);
 });

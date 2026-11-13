@@ -13,6 +13,12 @@ import type {
 import { sceneIdentity, type SceneMetadata } from '#@/bench/scene.ts';
 import { QUERY_SLO_MS } from '#@/bench/slo.ts';
 import { createTimings, mergeTimings, type Timings } from '#@/bench/timings.ts';
+import { actionCatalogStats } from '#@/src/v1/route/action-catalog.ts';
+
+type CatalogStats = ReturnType<typeof actionCatalogStats>;
+type Control =
+  | { type: 'catalog-phase'; phase: CatalogStats['phase'] }
+  | { type: 'benchmark-phase'; phase: 'prewarm' | 'batch' };
 
 export const workerMemory = () => {
   const memory = process.memoryUsage();
@@ -34,10 +40,12 @@ export interface WorkerSetup {
   scene?: string;
   index: number;
   preparation?: { config: string; devices?: string };
+  catalogPhase?: CatalogStats['phase'];
 }
 export type WorkerRequest =
   | { type: 'setup'; setup: WorkerSetup }
   | { type: 'solve'; id: number; query: RouteQuery; events: boolean }
+  | (Control & { id: number })
   | { type: 'close' };
 export type WorkerReply =
   | {
@@ -47,6 +55,7 @@ export type WorkerReply =
       inputLoadMs: number;
       preparationMs: number;
       memory: Memory;
+      catalog?: CatalogStats;
     }
   | {
       type: 'result';
@@ -55,9 +64,11 @@ export type WorkerReply =
       timings: Timings;
       memory: Memory;
       metadata?: SceneMetadata;
+      catalog?: CatalogStats;
     }
   | { type: 'event'; id: number; event: RouteEvent }
   | { type: 'region'; files: RegionFiles }
+  | { type: 'control'; id: number; catalog: CatalogStats }
   | { type: 'error'; id: number; error: string }
   | { type: 'closed' };
 type Task = {
@@ -79,6 +90,7 @@ type Slot = {
   rssBytes: number;
   rssPeakBytes: number;
   heapPeakBytes: number;
+  catalog?: CatalogStats;
 };
 
 /** The parent owns query deadlines. A separate process can be killed even when
@@ -130,6 +142,8 @@ export async function prepareWorkerSolver(options: {
   let closing: Promise<void> | undefined;
   let notifyDrained: (() => void) | undefined;
   const restored = new Set<() => void>();
+  const controls = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
+  let catalogPhase: CatalogStats['phase'] = 'disabled';
   const activeCount = () => slots.filter((slot) => slot.active).length;
   const drained = () => {
     if (!paused && !recovering) {
@@ -166,6 +180,8 @@ export async function prepareWorkerSolver(options: {
   const fail = (error: Error) => {
     failure ??= error;
     paused = false;
+    for (const control of controls.values()) control.reject(failure);
+    controls.clear();
     for (const task of queued.splice(0)) {
       clean(task);
       task.reject(failure);
@@ -214,13 +230,13 @@ export async function prepareWorkerSolver(options: {
       },
     };
   };
-  const interrupted = (reason: 'timeout' | 'aborted'): RouteResult => ({
+  const interrupted = (reason: string): RouteResult => ({
     route: { status: 'no-verified-route' },
     connections: [],
     reason,
     diagnostics: { truncated: true },
   });
-  const retire = (slot: Slot, reason: 'timeout' | 'aborted', error?: unknown) => {
+  const retire = (slot: Slot, reason: string, error?: unknown) => {
     const task = slot.active;
     if (!task) return;
     slot.active = undefined;
@@ -257,11 +273,18 @@ export async function prepareWorkerSolver(options: {
             inputLoadMs = Math.max(inputLoadMs, message.inputLoadMs);
             timings.preparationMs += message.preparationMs;
             sample(slot, message.memory);
+            slot.catalog = message.catalog;
             slot.ready = ready = true;
             resolve();
             return;
           }
           if (message.type === 'closed') return;
+          if (message.type === 'control') {
+            slot.catalog = message.catalog;
+            controls.get(message.id)?.resolve();
+            controls.delete(message.id);
+            return;
+          }
           if (message.type === 'region') {
             options.onRegion?.(message.files);
             return;
@@ -286,6 +309,7 @@ export async function prepareWorkerSolver(options: {
           clean(task);
           if (message.type === 'error') task.reject(new Error(message.error));
           else {
+            slot.catalog = message.catalog;
             sample(slot, message.memory);
             mergeTimings(timings, message.timings);
             task.resolve(measured(message.result, task));
@@ -306,6 +330,12 @@ export async function prepareWorkerSolver(options: {
           if (!ready) reject(new Error('Scene worker stopped before ready'));
           return;
         }
+        if (ready && slot.active) {
+          // A crashed search is a failed request. Corrupt/mismatched inputs and
+          // startup failures still invalidate the run through the error path.
+          retire(slot, `worker-exited:${signal ?? code}`);
+          return;
+        }
         if (!closing || slot.active || queued.length || !ready || code !== 0) {
           const error = new Error(`Scene worker exited unexpectedly (${signal ?? code})`);
           reject(error);
@@ -322,6 +352,7 @@ export async function prepareWorkerSolver(options: {
             scene: options.scene,
             index: slot.index,
             preparation: options.preparation,
+            catalogPhase,
           },
         } satisfies WorkerRequest,
         (error) => {
@@ -453,8 +484,32 @@ export async function prepareWorkerSolver(options: {
       return closing;
     },
   };
+  const control = async (message: Control) => {
+    if (failure) throw failure;
+    if (closed) throw new Error('Scene worker solver is closed');
+    if (activeCount() || queued.length || paused || recovering)
+      throw new Error('Set phases between query batches');
+    await Promise.all(
+      slots.map(
+        (slot) =>
+          new Promise<void>((resolve, reject) => {
+            const id = ++serial;
+            controls.set(id, { resolve, reject });
+            slot.worker!.send({ ...message, id } satisfies WorkerRequest, (error) => {
+              if (error) fail(error);
+            });
+          }),
+      ),
+    );
+  };
   return {
     solver,
+    async setCatalogPhase(phase: CatalogStats['phase']) {
+      catalogPhase = phase;
+      await control({ type: 'catalog-phase', phase });
+    },
+    setBenchmarkPhase: (phase: 'prewarm' | 'batch') => control({ type: 'benchmark-phase', phase }),
+    catalogStats: () => slots[0].catalog ?? actionCatalogStats(),
     inputLoadMs,
     timings,
     get recoverySetupMs() {

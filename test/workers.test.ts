@@ -53,18 +53,18 @@ test('whole-query workers return ordered batches, aggregate measured work and dr
   await closing;
 });
 
-test('query errors preserve worker reuse while worker death rejects active/queued work and future calls', async () => {
+test('query errors reject while a crashed search is recorded and queued requests continue', async () => {
   const { solver } = await prepare(1);
   try {
     await assert.rejects(solver.solve(query('rejected', 0, 2)), /fixture failure/);
     assert.equal((await solver.solve(query('recovered'))).route.status, 'complete');
     const crashed = solver.solve(query('crashed', 0, 1));
     const queued = solver.solve(query('queued'));
-    await Promise.all([
-      assert.rejects(crashed, /exited unexpectedly/),
-      assert.rejects(queued, /exited unexpectedly/),
-    ]);
-    await assert.rejects(solver.solve(query('later')), /exited unexpectedly/);
+    const [failed, next] = await Promise.all([crashed, queued]);
+    assert.equal(failed.route.status, 'no-verified-route');
+    assert.equal(failed.reason, 'worker-exited:2');
+    assert.equal(next.route.status, 'complete');
+    assert.equal((await solver.solve(query('later'))).route.status, 'complete');
   } finally {
     await solver.close();
   }
@@ -176,6 +176,24 @@ test('the deadline kills exporter descendants in the worker process group', asyn
 
 test('worker startup failures reject preparation and close sibling processes', async () => {
   await assert.rejects(prepare(2, 2, 'startup-failure'), /exited unexpectedly/);
+});
+
+test('catalog and benchmark phases reach the solving process and survive timeout replacement', async () => {
+  const prepared = await prepare(1, 1, '', 60);
+  try {
+    await prepared.setCatalogPhase('training');
+    assert.equal(prepared.catalogStats().phase, 'training');
+    await prepared.setCatalogPhase('frozen');
+    await prepared.setBenchmarkPhase('prewarm');
+    const [timeout] = await prepared.solver.solveBatch([query('blocked', 250, 4)]);
+    assert.equal(timeout.reason, 'timeout');
+    assert.equal(prepared.catalogStats().phase, 'frozen');
+    await prepared.setBenchmarkPhase('batch');
+    assert.equal((await prepared.solver.solve(query('next', 1))).route.status, 'complete');
+    assert.equal(prepared.recoveryCount, 1);
+  } finally {
+    await prepared.solver.close();
+  }
 });
 
 test('an unexpected process failure during close rejects cleanup', async () => {

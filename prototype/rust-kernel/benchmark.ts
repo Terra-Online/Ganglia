@@ -64,7 +64,7 @@ const binaryHash = async () =>
 const binarySha256 = native ? await binaryHash() : undefined;
 const workerOption = args.indexOf('--workers');
 if (process.env.GANGLIA_PROFILE && workerOption >= 0 && args[workerOption + 1] !== '1')
-  throw new Error('Profile only the inline solver with --workers 1');
+  throw new Error('Profile only a single solver process with --workers 1');
 const command = [
   `--max-old-space-size=${process.env.GANGLIA_BENCHMARK_HEAP_MB || '6144'}`,
   ...(native ? ['--import', resolve(root, 'prototype/rust-kernel/register.ts')] : []),
