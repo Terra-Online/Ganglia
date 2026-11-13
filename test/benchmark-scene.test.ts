@@ -6,6 +6,7 @@ import { test } from 'node:test';
 
 import type { Corridor, WindowRequest } from '@opendfieldmap/ganglia/solver';
 
+import { exportPhysicalRegion } from '#@/bench/prepare-region.ts';
 import { loadSceneData } from '#@/bench/scene-data.ts';
 import { prepareSceneResources, type GameAdapter } from '#@/bench/scene.ts';
 
@@ -157,6 +158,60 @@ test('legacy single-window files retain coverage and reject rounded bounds outsi
       options: { profile, bounds },
     });
     await assert.rejects(loadSceneData(f.root, 'testscene'), /snapshot mismatch/);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('only preparation can export missing regions, which are decoded once and reused as input snapshots', async () => {
+  const f = await fixture();
+  try {
+    const extractor = join(f.root, 'extractor');
+    const config = join(f.root, 'exporter-config.json');
+    const devices = join(f.root, 'routing/testscene-traversal-devices.json');
+    await f.json('exporter-config.json', {});
+    await f.json('routing/testscene-traversal-devices.json', {});
+    const script = join(extractor, 'packages/extractor/src/cli.ts');
+    await mkdir(join(script, '..'), { recursive: true });
+    await writeFile(
+      script,
+      `
+      import assert from 'node:assert/strict';
+      import { writeFile } from 'node:fs/promises';
+      const args = process.argv.slice(2);
+      const value = name => args[args.indexOf(name) + 1];
+      assert.equal(args[0], 'player-ground');
+      assert.equal(args[1], 'testscene');
+      assert.ok(args.includes('--terminal-scene'));
+      assert.equal(value('--scene-state'), '0');
+      assert.equal(value('--area'), '0');
+      assert.equal(value('--static-supports'), ${JSON.stringify(devices)});
+      assert.equal(value('--config'), ${JSON.stringify(config)});
+      const tiles = value('--tiles').split(';').map(tile => {
+        const [x,z] = tile.split(',').map(Number); return { x,z };
+      });
+      assert.deepEqual(tiles, ${JSON.stringify(tiles)});
+      await writeFile(value('--output'), JSON.stringify(${JSON.stringify(f.ground())}));
+      await writeFile(value('--collision-output'), JSON.stringify(${JSON.stringify({ ...f.snapshot, options: { profile, bounds, tiles } })}));
+    `,
+    );
+    let builds = 0;
+    const data = await loadSceneData(f.root, 'testscene', async (request) => {
+      builds++;
+      return exportPhysicalRegion({ dataRoot: f.root, extractor, config, devices }, request);
+    });
+    const noBuild = { ...approach(), startBuild: false };
+    assert.equal(await data.query([1, 0, 1], request.target, noBuild), undefined);
+    assert.equal(builds, 0);
+    const region = await data.query([1, 0, 1], request.target, approach());
+    assert.ok(region);
+    assert.equal(data.regions.length, 1);
+    assert.ok(data.hashes[region.files.ground]);
+    assert.ok(data.hashes[region.files.collision]);
+    assert.equal(await data.query([1, 0, 1], request.target, approach()), region);
+    assert.equal(builds, 1);
+    const reloaded = await loadSceneData(f.root, 'testscene');
+    assert.ok(reloaded.select([1, 0, 1], request.target, approach()));
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }

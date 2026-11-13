@@ -38,11 +38,20 @@ export type PhysicalRegion = {
   tiles: Set<string>;
   binding: string;
 };
+export interface RegionBuildRequest {
+  scene: string;
+  source: Source;
+  bounds: number[];
+  tiles: Tile[];
+}
+export type RegionBuild = (
+  request: RegionBuildRequest,
+) => Promise<{ ground: string; collision: string }>;
 const missing = (error: unknown) =>
   error instanceof Error && 'code' in error && error.code === 'ENOENT';
 const tileKey = (tile: Tile) => `${tile.x},${tile.z}`;
 
-export async function loadSceneData(dataRoot: string, scene: string) {
+export async function loadSceneData(dataRoot: string, scene: string, build?: RegionBuild) {
   const hashes: Record<string, string> = {};
   const inputs = new Map<string, unknown>();
   let inputBytes = 0;
@@ -163,6 +172,28 @@ export async function loadSceneData(dataRoot: string, scene: string) {
       return options.corridor.tiles.every((tile) => region.tiles.has(tileKey(tile)));
     });
   };
+  const query = async (
+    start: number[],
+    target: number[],
+    options: { startBuild: boolean; margin: number; corridor: Corridor },
+  ) => {
+    const existing = select(start, target, options);
+    if (existing) return existing;
+    if (build) {
+      if (!options.startBuild) return undefined;
+      const { bounds } = physicalCoverage(start, target, options);
+      const files = await build({
+        scene,
+        source: navigation.source,
+        bounds,
+        tiles: options.corridor.tiles,
+      });
+      await loadRegion(resolve(files.ground), resolve(files.collision));
+      const region = select(start, target, options);
+      if (region) return region;
+    }
+    throw new Error(`Missing physical coverage ${JSON.stringify(options.corridor)}`);
+  };
   return {
     navigation,
     locomotion: movement.sustainedSprint,
@@ -170,6 +201,7 @@ export async function loadSceneData(dataRoot: string, scene: string) {
     inputs,
     regions,
     select,
+    query,
     loadRegion,
     get inputBytes() {
       return inputBytes;

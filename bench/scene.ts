@@ -19,6 +19,7 @@ import {
   type PhysicalRegion,
   type Source,
   type PhysicalFiles,
+  type RegionBuild,
 } from '#@/bench/scene-data.ts';
 import { createTimings } from '#@/bench/timings.ts';
 
@@ -51,9 +52,10 @@ export async function loadScene(
   extractor: string,
   concurrency: number,
   scene = 'map02',
+  build?: RegionBuild,
 ) {
   const loadingStarted = performance.now();
-  const dataset = await loadSceneData(dataRoot, scene);
+  const dataset = await loadSceneData(dataRoot, scene, build);
   const entry = resolve(extractor, 'packages/extractor/src/game/physical-input.ts');
   const resolvedKernel = createRequire(entry).resolve('@opendfieldmap/ganglia/solver');
   const kernelRoot = resolve(dirname(resolvedKernel), '../..');
@@ -207,9 +209,8 @@ export function prepareSceneResources(
         !isDeepStrictEqual(source, dataset.navigation.source)
       )
         throw new Error('Physical query snapshot mismatch');
-      const region = dataset.select(start, target, options);
-      if (!region) throw new Error(`Missing physical coverage ${JSON.stringify(options.corridor)}`);
-      return { status: 'ready', region };
+      const region = await dataset.query(start, target, options);
+      return region ? { status: 'ready', region } : null;
     },
     solve: async (job, request, _start, work) => {
       const cache = await acquire();
