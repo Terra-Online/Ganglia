@@ -8,6 +8,7 @@ import {
   actionCatalogStats,
   setActionCatalogPhase,
   selectCatalogActions,
+  registerCatalogSurfaces,
 } from '#@/src/v1/route/action-catalog.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
 import { planJumpRoute, type JumpRouteOptions } from '#@/src/v1/route/jump-planner.ts';
@@ -63,6 +64,7 @@ test('training stores motion proofs and frozen fresh starts solve through a smal
   const goal: Vec3 = [16, 0, 0];
   try {
     setActionCatalogPhase('training');
+    registerCatalogSurfaces(surfaces, surfaces);
     const trained = planJumpRoute(surfaces, world, arrival([2, 0, 0]), goal, settings);
     assert.equal(trained.route.status, 'complete');
     assert.ok(actionCatalogStats().added > 0);
@@ -140,6 +142,119 @@ test('a frozen catalog miss retains original physical discovery', () => {
   }
 });
 
+test('static coarse actions cross distinct goal refinements with fresh support and resource checks', () => {
+  const base = [floor('start', 0, 4, 0), floor('landing', 7, 11, 0)];
+  const first = [...base, floor('refined/0', 11, 14, 0)];
+  const second = [...base, floor('refined/0', 11, 16, 0)];
+  const world = createCollisionWorld(geometry(second));
+  const training = { ...options, groundPlanner: createGroundPlanner(first, options) };
+  const current = { ...options, groundPlanner: createGroundPlanner(second, options) };
+  try {
+    setActionCatalogPhase('training');
+    registerCatalogSurfaces(first, base, options.portals);
+    registerCatalogSurfaces(second, base, options.portals);
+    assert.equal(
+      planJumpRoute(first, world, arrival([2, 0, 0]), [9, 0, 0], training).route.status,
+      'complete',
+    );
+    setActionCatalogPhase('frozen');
+    const starts = arrival([1, 0, 0]);
+    const goal: Vec3 = [15, 0, 0];
+    const selected = selectCatalogActions(world, second, starts, goal, current);
+    assert.ok(selected.length > 0);
+    assert.ok(
+      selected.every(
+        (action) =>
+          base.some((face) => face.id === action.fromSurface) &&
+          base.some((face) => face.id === action.toSurface),
+      ),
+    );
+    const route = current.groundPlanner.plan(starts, goal, { connections: selected });
+    assert.equal(route.status, 'complete');
+    assert.deepEqual(route.points.at(-1), goal);
+
+    const changed = [base[0], floor('landing', 7, 11, 2), second[2]];
+    registerCatalogSurfaces(changed, base);
+    assert.deepEqual(
+      selectCatalogActions(world, changed, starts, goal, {
+        ...options,
+        groundPlanner: createGroundPlanner(changed, options),
+      }),
+      [],
+    );
+  } finally {
+    setActionCatalogPhase('disabled');
+  }
+});
+
+test('refined endpoint actions remain local while repeated refined IDs cannot cross snapshots', () => {
+  const base = [floor('start', 0, 4, 0)];
+  const first = [...base, floor('refined/0', 7, 11, 0)];
+  const second = [...base, floor('refined/0', 14, 18, 0)];
+  const world = createCollisionWorld(geometry([...first, second[1]]));
+  const training = { ...options, groundPlanner: createGroundPlanner(first, options) };
+  try {
+    setActionCatalogPhase('training');
+    registerCatalogSurfaces(first, base, options.portals);
+    registerCatalogSurfaces(second, base, options.portals);
+    const trained = planJumpRoute(first, world, arrival([2, 0, 0]), [9, 0, 0], training);
+    assert.equal(trained.route.status, 'complete');
+    assert.ok(trained.connections.some((action) => action.toSurface === 'refined/0'));
+    setActionCatalogPhase('frozen');
+    const starts = arrival([1, 0, 0]);
+    const selected = selectCatalogActions(world, first, starts, [9, 0, 0], training);
+    assert.ok(selected.some((action) => action.toSurface === 'refined/0'));
+    const proof = training.groundPlanner.plan(starts, [9, 0, 0], { connections: selected });
+    assert.equal(proof.status, 'complete');
+    const result = planJumpRoute(first, world, starts, [9, 0, 0], training);
+    assert.equal(result.route.status, 'complete');
+    assert.ok(result.route.cost <= proof.cost);
+    assert.deepEqual(result.route.points.at(-1), [9, 0, 0]);
+    assert.deepEqual(
+      selectCatalogActions(world, second, arrival([1, 0, 0]), [16, 0, 0], {
+        ...options,
+        groundPlanner: createGroundPlanner(second, options),
+      }),
+      [],
+    );
+  } finally {
+    setActionCatalogPhase('disabled');
+  }
+});
+
+test('current refinement walking connectivity replaces the catalog graph in both directions', () => {
+  const base = [floor('start', 0, 4, 0), floor('goal', 7, 11, 0)];
+  const bridge = [...base, floor('refined/0', 4, 7, 0)];
+  const world = createCollisionWorld(geometry(bridge));
+  const original = { ...options, groundPlanner: createGroundPlanner(base, options) };
+  const refined = { ...options, groundPlanner: createGroundPlanner(bridge, options) };
+  const starts = arrival([2, 0, 0]);
+  const goal: Vec3 = [9, 0, 0];
+  try {
+    setActionCatalogPhase('training');
+    registerCatalogSurfaces(base, base, options.portals);
+    registerCatalogSurfaces(bridge, base, options.portals);
+    assert.equal(planJumpRoute(base, world, starts, goal, original).route.status, 'complete');
+    setActionCatalogPhase('frozen');
+    const selected = selectCatalogActions(world, base, starts, goal, original);
+    assert.ok(selected.length > 0);
+    assert.equal(
+      original.groundPlanner.plan(starts, goal, { connections: selected }).status,
+      'complete',
+    );
+    assert.deepEqual(selectCatalogActions(world, bridge, starts, goal, refined), []);
+    assert.equal(refined.groundPlanner.plan(starts, goal).status, 'complete');
+    const again = selectCatalogActions(world, base, starts, goal, original);
+    assert.ok(again.length > 0);
+    assert.equal(
+      original.groundPlanner.plan(starts, goal, { connections: again }).status,
+      'complete',
+    );
+  } finally {
+    setActionCatalogPhase('disabled');
+  }
+});
+
 test('fresh starts discover cheaper actions away from the trained route without growing the frozen bank', () => {
   const surfaces = [floor('start', 0, 4, 0, -10, 10), floor('goal', 7, 11, 0, -10, 10)];
   const world = createCollisionWorld(geometry(surfaces));
@@ -147,6 +262,7 @@ test('fresh starts discover cheaper actions away from the trained route without 
   const settings = { ...options, groundPlanner: planner };
   try {
     setActionCatalogPhase('training');
+    registerCatalogSurfaces(surfaces, surfaces);
     const training = planJumpRoute(surfaces, world, arrival([2, 0, -8]), [9, 0, -8], {
       ...settings,
       maxCandidates: 16,

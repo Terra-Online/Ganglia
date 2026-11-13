@@ -7,6 +7,7 @@ import { createCollisionWorld } from '#@/src/v1/geo/collision.ts';
 import { verticalProjectionCandidates } from '#@/src/v1/geo/support-projector.ts';
 import { projectPoint } from '#@/src/v1/geo/surfaces.ts';
 import { jumpDuration } from '#@/src/v1/motion/jumps.ts';
+import { registerCatalogSurfaces } from '#@/src/v1/route/action-catalog.ts';
 import { pruneGroundDetours } from '#@/src/v1/route/ground-detours.ts';
 import { createGroundPlanner } from '#@/src/v1/route/ground.ts';
 import { planJumpRoute, type InitialGroundProof } from '#@/src/v1/route/jump-planner.ts';
@@ -665,6 +666,11 @@ export const solvePhysicalRoute = async (
       return;
     }
   }
+  registerCatalogSurfaces(
+    surfaces,
+    deviceInput?.movingSupports?.length || followingTarget ? null : ground.surfaces,
+    ground.options.portals,
+  );
   progress({ phase: 'jump-discovery', goalFaces: candidates.length });
   const searchStart = performance.now();
   const result = planJumpRoute(

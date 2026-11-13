@@ -1,5 +1,5 @@
 import type { CollisionWorld } from '#@/src/collision.ts';
-import type { Surface, Vec3 } from '#@/src/geometry.ts';
+import type { Portal, Surface, Vec3 } from '#@/src/geometry.ts';
 import type { GroundArrival, GroundConnection } from '#@/src/route.ts';
 import { condenseComponents } from '#@/src/v1/reach/connectivity.ts';
 import { groundPreparation } from '#@/src/v1/route/ground.ts';
@@ -43,20 +43,67 @@ const copy = (action: GroundConnection): GroundConnection => ({
   points: action.points.map((point): Vec3 => [...point]),
   times: [...action.times],
 });
-interface Scope {
+interface Proof {
+  action: GroundConnection;
+  from: Surface;
+  to: Surface;
+}
+interface Bank {
+  actions: Map<string, Proof>;
+}
+interface LocalBank extends Bank {
   id: number;
-  signature: string;
-  portals: unknown;
-  actions: Map<string, GroundConnection>;
   serial: number;
-  graph?: {
-    preparation: NonNullable<ReturnType<typeof groundPreparation>>;
-    topology: ReturnType<typeof condenseComponents>;
-    actions: Map<number, { to: number; action: GroundConnection }[]>;
-    walking: Map<number, Set<number>>;
-  };
+}
+let nextLocalId = 0;
+interface Scope {
+  signature: string;
+  portals: Portal[] | undefined;
+  shared: Bank;
+  local: WeakMap<Surface[], LocalBank>;
+  graphs: WeakMap<
+    NonNullable<ReturnType<typeof groundPreparation>>,
+    {
+      bank: Bank;
+      topology: ReturnType<typeof condenseComponents>;
+      actions: Map<number, { to: number; action: GroundConnection }[]>;
+      walking: Map<number, Set<number>>;
+    }
+  >;
 }
 const worlds = new WeakMap<CollisionWorld, WeakMap<Surface[], Scope>>();
+interface SupportLineage {
+  owner: Surface[];
+  byId: Map<string, Surface>;
+}
+const owners = new WeakMap<Surface[], SupportLineage>();
+const snapshots = new WeakMap<
+  Surface[],
+  { lineage: SupportLineage; portals: Portal[] | undefined }
+>();
+
+/** Register immutable coarse support ancestry. Goal refinements may append faces,
+ * but only unchanged coarse endpoints can carry physical proofs between snapshots.
+ * Dynamic support snapshots must remain unregistered. The immutable imported
+ * portal owner scopes the bank; refinement-generated portals belong to its live graph.
+ */
+export function registerCatalogSurfaces(
+  current: Surface[],
+  coarseOwner: Surface[] | null,
+  portals?: Portal[],
+) {
+  if (phase === 'disabled') return;
+  if (!coarseOwner) {
+    snapshots.delete(current);
+    return;
+  }
+  let lineage = owners.get(coarseOwner);
+  if (!lineage) {
+    lineage = { owner: coarseOwner, byId: new Map(coarseOwner.map((face) => [face.id, face])) };
+    owners.set(coarseOwner, lineage);
+  }
+  snapshots.set(current, { lineage, portals });
+}
 
 function scopeFor(
   world: CollisionWorld,
@@ -77,11 +124,13 @@ function scopeFor(
     )
   )
     return undefined;
+  const snapshot = snapshots.get(surfaces);
   const prepared = groundPreparation(options.groundPlanner);
-  if (!prepared || prepared.surfaces !== surfaces) {
+  if (!snapshot || !prepared || prepared.surfaces !== surfaces) {
     counts.missingSupport++;
     return undefined;
   }
+  const { lineage, portals } = snapshot;
   const signature = JSON.stringify([
     options.model,
     options.profile,
@@ -94,31 +143,35 @@ function scopeFor(
     options.speed,
     options.locomotion,
   ]);
-  const portals =
-    prepared.importedPortals === options.portals
-      ? options.portals
-      : JSON.stringify(options.portals);
   let supports = worlds.get(world);
   if (!supports) {
     supports = new WeakMap();
     worlds.set(world, supports);
   }
-  let scope = supports.get(surfaces);
+  let scope = supports.get(lineage.owner);
   if (!scope || scope.signature !== signature || scope.portals !== portals) {
     if (phase === 'frozen') {
       counts.frozenScopeMisses++;
       return undefined;
     }
     if (scope) counts.scopeResets++;
-    scope = { id: counts.scopes++, signature, portals, actions: new Map(), serial: 0 };
-    supports.set(surfaces, scope);
+    counts.scopes++;
+    scope = {
+      signature,
+      portals,
+      shared: { actions: new Map() },
+      local: new WeakMap(),
+      graphs: new WeakMap(),
+    };
+    supports.set(lineage.owner, scope);
   }
   return scope;
 }
 
 /** Store motion proofs, including ones not used by a selected route. Training
  * runs the original discovery algorithm; frozen queries cannot add any edges.
- * Full support identity prevents goal-local refined IDs from crossing snapshots.
+ * Exact snapshots retain their refined endpoints; only coarse ancestry permits
+ * a proof to enter the bank shared between goal refinements.
  */
 export function rememberCatalogAction(
   world: CollisionWorld,
@@ -139,20 +192,46 @@ export function rememberCatalogAction(
     return;
   const scope = scopeFor(world, surfaces, options);
   if (!scope) return;
+  const lineage = snapshots.get(surfaces)!.lineage;
+  const prepared = groundPreparation(options.groundPlanner)!;
+  const from = prepared.byId.get(action.fromSurface),
+    to = prepared.byId.get(action.toSurface);
+  if (!from || !to) return;
+  let local = scope.local.get(surfaces);
+  if (!local) {
+    local = { id: nextLocalId++, serial: 0, actions: new Map() };
+    scope.local.set(surfaces, local);
+  }
   const { id: _id, ...motion } = action;
   const key = JSON.stringify(motion);
-  if (scope.actions.has(key)) {
-    counts.duplicates++;
-    return;
+  let stored = local.actions.get(key);
+  if (stored) counts.duplicates++;
+  else {
+    stored = {
+      action: copy({ ...action, id: `@catalog/${local.id}/${local.serial++}` }),
+      from,
+      to,
+    };
+    retain(local, key, stored);
+    counts.added++;
   }
-  if (scope.actions.size >= 2048) {
-    scope.actions.delete(scope.actions.keys().next().value!);
+  // Preserve the exact snapshot's insertion order and IDs before publishing its
+  // coarse-only subset. Extra shared edges must not displace local candidates.
+  if (
+    lineage.byId.get(from.id) === from &&
+    lineage.byId.get(to.id) === to &&
+    !scope.shared.actions.has(key)
+  )
+    retain(scope.shared, key, { action: copy(stored.action), from, to });
+  scope.graphs = new WeakMap();
+}
+
+function retain(bank: Bank, key: string, proof: Proof) {
+  if (bank.actions.size >= 2048) {
+    bank.actions.delete(bank.actions.keys().next().value!);
     counts.evicted++;
   }
-  const stored = copy({ ...action, id: `@catalog/${scope.id}/${scope.serial++}` });
-  scope.actions.set(key, stored);
-  scope.graph = undefined;
-  counts.added++;
+  bank.actions.set(key, proof);
 }
 
 /** Select several positive chains by estimated travel time, retaining at most
@@ -170,12 +249,32 @@ export function selectCatalogActions(
   if (phase !== 'frozen') return [];
   counts.frozenCalls++;
   const scope = scopeFor(world, surfaces, options);
-  if (!scope?.actions.size) return [];
+  if (!scope) return [];
+  const local = scope.local.get(surfaces);
+  const selected = local ? rankActions(scope, local, starts, goal, options) : [];
+  return selected.length ? selected : rankActions(scope, scope.shared, starts, goal, options);
+}
+
+function rankActions(
+  scope: Scope,
+  bank: Bank,
+  starts: GroundArrival[],
+  goal: Vec3,
+  options: JumpRouteOptions,
+): GroundConnection[] {
+  if (!bank.actions.size) return [];
   const prepared = groundPreparation(options.groundPlanner)!;
-  if (!scope.graph || scope.graph.preparation !== prepared) {
+  let graph = scope.graphs.get(prepared);
+  if (!graph || graph.bank !== bank) {
     const topology = condenseComponents(prepared.routeBase.topology);
     const actions = new Map<number, { to: number; action: GroundConnection }[]>();
-    for (const action of scope.actions.values()) {
+    for (const proof of bank.actions.values()) {
+      if (
+        prepared.byId.get(proof.from.id) !== proof.from ||
+        prepared.byId.get(proof.to.id) !== proof.to
+      )
+        continue;
+      const { action } = proof;
       const from = topology.components.get(action.fromSurface!),
         to = topology.components.get(action.toSurface!);
       if (from === undefined || to === undefined || from === to) continue;
@@ -183,9 +282,10 @@ export function selectCatalogActions(
       edges.push({ to, action });
       actions.set(from, edges);
     }
-    scope.graph = { preparation: prepared, topology, actions, walking: new Map() };
+    graph = { bank, topology, actions, walking: new Map() };
+    scope.graphs.set(prepared, graph);
   }
-  const { topology, actions, walking } = scope.graph,
+  const { topology, actions, walking } = graph,
     planner = options.groundPlanner!;
   const reachable = (from: number): Set<number> => {
     let visited = walking.get(from);
