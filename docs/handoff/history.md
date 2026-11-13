@@ -1602,3 +1602,24 @@ two owning integration patches pass 23 extraction/physical-adapter tests, extrac
 typecheck and full archive/patch replay. The generated noclip cache is unchanged.
 The binary full-workload preparation remains in progress; no complete fourteen-
 request performance result is claimed by these checks.
+
+The concurrent Atlos upstream update to package v104 is merged and pushed. The
+follow-up preserves typed index storage during walkability classification instead
+of recreating ordinary JS arrays. JSON and typed fixtures retain the same support
+and body-collision behavior with unchanged source indices: 38 focused tests,
+extractor typecheck and complete v104 patch replay pass. Focused upstream lint
+cannot start because its custom rule plugin is missing. Frozen v102 and v104
+adapter snapshots keep separate execution bindings. The full v104 attempt also
+ends with heap exhaustion after approximately 2,995 seconds, preserving 29 regions
+and no complete workload report.
+
+A focused retention diagnostic keeps all 29 decoded regions alive and prepares the
+three densest support meshes, totaling 1,101,646 faces. After forced GC, retaining
+their pure geometry memos uses 4,281,781,296 heap bytes; owner-driven retirement
+uses 2,570,417,024 bytes. This is 1,711,364,272 fewer retained heap bytes in that
+diagnostic. It does not establish a lower process RSS or a whole-solver peak.
+Retirement removes raw-input lookup memos while active projectors retain their
+owned snapshots. The isolated prototype passes 42 focused tests with default and
+native hooks, and six existing real-scene requests retain all six exact route
+outcome hashes, stable prewarm results and the modeled-cost gate. Full-workload
+coverage validation with owner-driven retirement remains outstanding.

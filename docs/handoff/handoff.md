@@ -24,6 +24,12 @@ cache, bound to its exporter/runtime and source/profile provenance. Original JSO
 inputs remain preserved. Decoding and hashing remain setup work; benchmark input
 errors invalidate a run even when the solver preserves a valid local fragment.
 
+Preloaded raw faces outlive individual physical windows. WeakMap keys alone
+therefore cannot retire their derived support geometry. Preparation owners now
+release those pure lookup memos when retiring a region, while existing projectors
+keep their own snapshots. Rebuilding derived geometry remains query preparation
+work; decoded input files remain available throughout the batch.
+
 These readiness statements expire when the workload, kernel, configuration,
 adapter or inputs change. Repeat coverage preparation before measuring a changed
 combination. Historical local-patch speedups describe their original requests.
@@ -62,7 +68,12 @@ Ganglia owns the geometry, directed passages, collision queries, movement candid
 | Atlos resource scheduling | [`physical-route-builder.ts`](../../../Atlos/talos/apps/world/physical-route-builder.ts), [`route-worker.ts`](../../../Atlos/talos/apps/world/route-worker.ts), [`window-route.ts`](../../../Atlos/talos/apps/world/window-route.ts) |
 | Atlos terminal assets | [`terminal-routes.ts`](../../../Atlos/talos/apps/world/terminal-routes.ts) |
 
-The authoritative noclip adaptation lives in Atlos [`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json), including `extractor.patch`, `format.patch`, `renderer.patch`, `documentation.patch` and `gpu-recovery.patch`. `Atlos/talos/.cache/noclip/` is generated source. Changes inspected there must be maintained through the integration patches. The current source manifest binds upstream `b54b1dcb7d01a36910c7ced1b0206e6b0b06249b` and package protocol 102, checked during the terrain/preparation work. Earlier measurements retain their original bindings, including the older `30f73f4`/protocol-98 checkpoint. Navigation/physical export revision 2 is a separate data binding.
+The authoritative noclip adaptation lives in Atlos
+[`talos/integrations/noclip/`](../../../Atlos/talos/integrations/noclip/source.json).
+Its manifest binds the upstream archive and owning patches. The noclip cache is
+generated source; maintain changes in the integration patches and inspect the
+manifest for its version. Historical measurements retain their recorded source
+bindings. Navigation and physical export revisions are separate data bindings.
 
 ## V1 source subsystems
 
